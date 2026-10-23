@@ -9,7 +9,7 @@
     {
       "name": "vibe-rebuild",
       "source": "./plugins/vibe-rebuild",
-      "description": "Rebuild plan for existing apps via vibe coding – with parity tests against the original."
+      "description": "Rebuild existing apps better via vibe coding – same or new stack, nothing users rely on gets lost."
     }
   ]
 }

@@ -1,6 +1,6 @@
 ---
 name: vibe-rebuild
-description: Turns an existing app (repo, codebase, legacy system) into a rebuild plan for vibe coding with AI agents – analysis.md, PRD, glossary, CLAUDE.md guardrails, vertical slices with ready-to-run prompts, and parity tests against the original. Use whenever someone wants to rebuild, rewrite, migrate, modernize or port an existing application to another stack with Claude Code or other coding agents, or needs a rebuild/migration plan, a spec or task breakdown derived from existing code, or a brownfield vibe-coding strategy – even if they never say "vibe coding". Not for greenfield apps without existing code, single features, or plain code reviews.
+description: Turns an existing app (repo, codebase, legacy system) into a rebuild plan for vibe coding with AI agents – analysis.md, PRD, glossary, CLAUDE.md guardrails, vertical slices with ready-to-run prompts, and acceptance cases that keep what users rely on. Use whenever someone wants to rebuild, rewrite, migrate, modernize or port an existing application to another stack with Claude Code or other coding agents, or needs a rebuild/migration plan, a spec or task breakdown derived from existing code, or a brownfield vibe-coding strategy – even if they never say "vibe coding". Not for greenfield apps without existing code, single features, or plain code reviews.
 license: MIT
 compatibility: Designed for Claude Code and Claude with file access and subagents; scripts need Python 3.10+.
 metadata:
@@ -10,9 +10,10 @@ metadata:
 
 # Vibe Rebuild – rebuild an existing app with vibe coding
 
-Goal: turn an existing codebase into a plan a coding agent can follow to rebuild the app slice by slice – in the same or another stack – while staying **provably equivalent** to the original.
-The plan is **self-contained**: the analysis captures everything the original does, so once the plan is written the rebuild needs neither the original's code nor a running original. Parity is proven against cases written into the plan, not against the old system.
-The skill extracts the app's *intent* (behaviour, contracts, business numbers), not its implementation, and copies no code. Why: copying code drags the legacy along; carrying over only behaviour and contracts lets you re-cut the design cleanly and still prove parity.
+Goal: turn an existing codebase into a plan a coding agent can follow to rebuild the app slice by slice – in the same or another stack.
+**Not a copy:** the original is the template, not the yardstick. The rebuild keeps what users and callers rely on – business behaviour and the contracts others depend on – and builds everything else better, guided by the legacy findings and the target-stack research.
+The plan is **self-contained**: the analysis captures everything the original does, so once the plan is written the rebuild needs neither the original's code nor a running original. What must stay is proven against cases written into the plan, not against the old system.
+The skill extracts the app's *intent* (behaviour, contracts, business numbers), not its implementation, and copies no code. Why: copying code drags the legacy along; carrying over only behaviour and contracts lets you re-cut the design cleanly and still prove that nothing users rely on got lost.
 
 Write the plan in the user's language (default: English).
 
@@ -97,7 +98,7 @@ This schema is the interface to every later phase – if an external reverse-eng
 
 ## 4. PRD & glossary
 
-`PRD.md`: behaviour from the user's point of view – purpose, principles, users/roles, features with a story and Given/When/Then acceptance criteria, edge cases, error behaviour, a short API contract, "Legacy bugs fixed on purpose", non-goals. No class or file names. If a good spec exists, don't copy it – reference it and add only the acceptance criteria.
+`PRD.md`: behaviour from the user's point of view – purpose, principles, users/roles, features with a story and Given/When/Then acceptance criteria, edge cases, error behaviour, a short API contract, "Improvements on purpose" (from legacy findings and research, each with its reason), non-goals. No class or file names. If a good spec exists, don't copy it – reference it and add only the acceptance criteria.
 `GLOSSARY.md`: term | code identifier | meaning. The agent uses only these terms.
 
 Templates: `references/templates.md`.
@@ -135,13 +136,13 @@ Each slice has goal, PRD reference, dependencies, scope, a ready-to-run prompt (
 
 ## 8. Parity → `rebuild/parity/`
 
-The central lever. Sort parity cases into three kinds, because they are not equally robust:
+The safety net that lets the rebuild be better without losing anything. Sort the cases into three kinds:
 
 | Kind | Example | In the rebuild |
 |---|---|---|
-| **Business contract** | KPIs, totals, start states from domain docs and tests | check strictly |
-| **Interface contract** | status codes, error formats, field names, event order | check strictly |
-| **Implementation-bound** | checksums over random generators, byte snapshots, timing | do not carry over; define anew in the rebuild |
+| **Business contract** | rules, calculations, KPIs, totals, start states from domain docs and tests | keep – check strictly |
+| **Interface contract** | what external callers depend on: operation names, parameters, defaults, data formats, status codes, event order | keep for compatibility; change only on purpose, recorded as an improvement |
+| **Implementation-bound** | wording and layout of messages, checksums over random generators, byte snapshots, timing | not carried over – the rebuild may do it better; check the information, not the exact form |
 
 Sources, in this order – all read during planning, none needed afterwards:
 1. **The original's existing tests** – usually the richest source; turn assertions into cases (input → expected output).
@@ -150,10 +151,10 @@ Sources, in this order – all read during planning, none needed afterwards:
 
 Write every case into `rebuild/parity/` as concrete input → expected output, with exact values and the source it came from, so the rebuild's acceptance tests can be written from the plan alone. Each test creates its own fixtures (files, data, config). The original is never built, started or queried to run these tests – not while planning, not while building.
 
-The interface contract is what clients rely on: names, parameters, defaults, response and error formats, status codes, event order. Free prose such as help or description texts is not copied – the rebuild writes its own from the PRD.
+For messages and other output, a case pins the information that must be there (e.g. which lines were read, why an edit failed), not the exact wording. Free prose such as help or description texts is not copied – the rebuild writes its own from the PRD.
 
 Never call non-deterministic dependencies (LLM calls, external APIs, wall-clock time) live in parity tests: use scripted fakes/stubs, record deterministic fallbacks, freeze the clock.
-`parity/README.md` describes the harness (how cases become tests), normalization of volatile values, and a deviation log (bug in the rebuild vs. fixed on purpose + PRD reference).
+`parity/README.md` describes the harness (how cases become tests), normalization of volatile values, and a deviation log (bug in the rebuild vs. improvement on purpose + PRD reference).
 
 ## 9. Handover
 

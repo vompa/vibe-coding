@@ -16,7 +16,7 @@
 - Edge cases: …
 - Errors: …
 ## API (contract)   (routes/operations in short, error format)
-## Legacy bugs fixed on purpose   (may deviate in parity)
+## Improvements on purpose   (from legacy findings and research, each with reason; may deviate from the original)
 ## Non-goals
 ```
 
@@ -40,7 +40,7 @@
 ## CLAUDE.md (target repo)
 ```
 # CLAUDE.md – <product> (rebuild)
-<purpose in 2–3 sentences>; points to rebuild/PRD.md, rebuild/GLOSSARY.md, rebuild/research.md; goal = parity per rebuild/parity/.
+<purpose in 2–3 sentences>; points to rebuild/PRD.md, rebuild/GLOSSARY.md, rebuild/research.md; goal = all cases in rebuild/parity/ green; improve the rest per rebuild/research.md.
 
 ## Architecture     (project/module tree with dependency arrows; how enforced: architecture tests, analyzers)
 ## Hard rules       (≤300 lines per file, single responsibility, constants once, no secrets,
@@ -53,7 +53,7 @@
 ## parity/README.md
 ```
 # Parity harness
-## Three kinds (business contract | interface contract | implementation-bound – not carried over)
+## Three kinds (business contract – keep | interface contract – keep for compatibility | implementation-bound – may improve)
 ## From case to test (one acceptance/approval test per case, written from the plan; each test creates its own fixtures)
 ## Normalization     (ids, tokens, durations, wall-clock timestamps → placeholders)
 ## Non-deterministic parts (fake model, stubs)

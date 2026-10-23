@@ -1,8 +1,8 @@
 # vibe-rebuild
 
-**Existing app → rebuild plan for vibe coding, with parity tests against the original.**
+**Existing app → plan to rebuild it better with vibe coding – same or new stack, nothing users rely on gets lost.**
 
-An [Agent Skill](https://agentskills.io) and Claude Code plugin. It reads an existing codebase and produces everything a coding agent (Claude Code or similar) needs to rebuild the app slice by slice – and to prove the rebuild behaves like the original.
+An [Agent Skill](https://agentskills.io) and Claude Code plugin. It reads an existing codebase and produces everything a coding agent (Claude Code or similar) needs to rebuild the app slice by slice. Not a copy: the original is the template, the target-stack research shows how to build it better today, and acceptance cases make sure business behaviour and the contracts others depend on survive.
 
 ## What you get
 

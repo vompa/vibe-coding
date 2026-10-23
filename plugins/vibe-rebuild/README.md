@@ -1,8 +1,8 @@
 # Vibe Rebuild
 
-**Existing app → rebuild plan for vibe coding, with parity tests against the original.**
+**Existing app → plan to rebuild it better with vibe coding – same or new stack, nothing users rely on gets lost.**
 
-Point Claude at an existing codebase and get everything a coding agent needs to rebuild it slice by slice – and to prove the rebuild behaves like the original.
+Point Claude at an existing codebase and get everything a coding agent needs to rebuild it better, slice by slice – keeping the behaviour and contracts users rely on, improving the rest based on current best practice.
 
 ## What you get
 
