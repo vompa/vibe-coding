@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.2.0 – 2026-10-23
+- New phase §5 "Target-stack research" → `vibe-plan/research.md`: state the goal openly, research broad first, derive follow-up queries and go deep, then distill "Decisions for this rebuild" with sources. Guardrails (`CLAUDE.md`), slicing and the rebuild-vs-refactor assessment now build on it instead of training-data defaults. New template `references/research-prompt.md`; fallback without web access marks findings `[Unverified]`. Search queries never contain code, internal names or secrets from the original.
+- New rule: examples in prompts are open lists, not checklists – agents take named examples literally. The explorer prompt now says so explicitly.
+- Slice prompt reads `research.md` and looks up current docs for any library or pattern it does not cover.
+- Phases after the PRD renumbered (Guardrails §6, Slicing §7, Parity §8, Handover §9).
+
 ## 2.1.1 – 2026-10-23
 - Plugin moved to `plugins/vibe-rebuild/`; developer tooling (`tests/`, CI) is no longer part of the shipped bundle. Install command unchanged.
 - Directory listing fields: icon, documentation, support, privacy policy and terms (MIT license) links; added PRIVACY.md and a plugin README.

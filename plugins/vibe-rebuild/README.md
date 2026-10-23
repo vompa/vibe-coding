@@ -9,6 +9,7 @@ Point Claude at an existing codebase and get everything a coding agent needs to 
 A `vibe-plan/` folder with:
 
 - **analysis.md** – stack, domain, features, interfaces, existing tests, legacy findings
+- **research.md** – current best practice for the target stack, with sources and the decisions drawn from it
 - **PRD.md** and **GLOSSARY.md** – behaviour from the user's view with Given/When/Then acceptance criteria and binding terminology
 - **CLAUDE.md** – guardrails for the target repo: architecture with enforced dependency rules, hard rules, exact commands
 - **slices/** – vertical, dependency-ordered slices, each with a ready-to-run prompt and a Definition of Done
@@ -29,15 +30,17 @@ The skill triggers on its own; you can also call it as `/vibe-rebuild:vibe-rebui
 
 1. Quick inventory of the codebase (projects, sizes, oversized files, existing docs).
 2. Parallel analysis by explorer subagents into a fixed schema, with numbers spot-checked against the code.
-3. PRD, glossary and CLAUDE.md – existing specs are treated as the primary source of intent.
-4. Slicing into one-session work packages.
-5. Parity cases sorted into business contract, interface contract and implementation-bound (not carried over).
+3. PRD and glossary – existing specs are treated as the primary source of intent.
+4. Target-stack research: broad first, then deep, distilled into sourced decisions.
+5. CLAUDE.md guardrails built on those decisions.
+6. Slicing into one-session work packages.
+7. Parity cases sorted into business contract, interface contract and implementation-bound (not carried over).
 
 Works best with Claude Code and subagents; pairs well with superpowers or GitHub Spec Kit for executing the plan.
 
 ## Privacy
 
-No data collection, no network access, no credentials – see [PRIVACY.md](PRIVACY.md).
+No data collection, no network access of its own, no credentials – see [PRIVACY.md](PRIVACY.md).
 
 ## License
 

@@ -20,6 +20,18 @@
 ## Non-goals
 ```
 
+## research.md
+```
+# Target-stack research – <product> on <target stack>
+> Goal stated openly; topics below were collected broad-first, then deepened.
+## Goal & scope
+## Versions & support         (version | support until | source)
+## Findings by topic          (one subsection per topic; sources inline)
+## Pitfalls & breaking changes (incl. migration notes from the source stack)
+## Decisions for this rebuild (decision | rests on | source)  → feeds CLAUDE.md, slices, README assessment
+## Sources
+```
+
 ## GLOSSARY.md
 ```
 | Term | Code | Meaning |
@@ -28,7 +40,7 @@
 ## CLAUDE.md (target repo)
 ```
 # CLAUDE.md – <product> (rebuild)
-<purpose in 2–3 sentences>; points to PRD.md, GLOSSARY.md; goal = parity per parity/.
+<purpose in 2–3 sentences>; points to PRD.md, GLOSSARY.md, research.md; goal = parity per parity/.
 
 ## Architecture     (project/module tree with dependency arrows; how enforced: architecture tests, analyzers)
 ## Hard rules       (≤300 lines per file, single responsibility, constants once, no secrets,

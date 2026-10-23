@@ -10,6 +10,7 @@ An [Agent Skill](https://agentskills.io) and Claude Code plugin. It reads an exi
 vibe-plan/
   README.md          rebuild-vs-refactor assessment, slice graph, first steps
   analysis.md        stack, domain, features, interfaces, tests, legacy findings
+  research.md        current best practice for the target stack, with sources and decisions
   open-questions.md  open questions with marked assumptions
   PRD.md             behaviour from the user's view with Given/When/Then
   GLOSSARY.md        binding terminology
@@ -23,9 +24,11 @@ vibe-plan/
 
 1. **Inventory** via script: projects, lines per folder, files > 300 lines, existing spec/docs.
 2. **Analysis** with 3–5 parallel explorer agents (preferably `feature-dev:code-explorer`), a fixed schema, and a spot-check of the numbers against the code.
-3. **PRD, glossary, CLAUDE.md** – existing specifications are used as the primary source, with a source precedence for contradictions.
-4. **Slicing** into vertical, dependency-ordered slices (one agent session each).
-5. **Parity** in three kinds: business and interface contracts are checked strictly; implementation-bound checksums are not carried over. LLM parts only with a fake model.
+3. **PRD and glossary** – existing specifications are used as the primary source, with a source precedence for contradictions.
+4. **Target-stack research** – goal stated openly, broad first, then deep; distilled into sourced decisions that drive `CLAUDE.md` and the slices instead of training-data defaults.
+5. **CLAUDE.md guardrails** with enforced architecture rules.
+6. **Slicing** into vertical, dependency-ordered slices (one agent session each).
+7. **Parity** in three kinds: business and interface contracts are checked strictly; implementation-bound checksums are not carried over. LLM parts only with a fake model.
 
 For executing the plan afterwards, [superpowers](https://github.com/obra/superpowers) (`writing-plans` → `subagent-driven-development`) or GitHub Spec Kit work well.
 

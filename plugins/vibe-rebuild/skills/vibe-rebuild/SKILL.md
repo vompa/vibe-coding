@@ -5,7 +5,7 @@ license: MIT
 compatibility: Designed for Claude Code and Claude with file access and subagents; scripts need Python 3.10+.
 metadata:
   author: vompa
-  version: "2.1.1"
+  version: "2.2.0"
 ---
 
 # Vibe Rebuild – rebuild an existing app with vibe coding
@@ -30,6 +30,7 @@ Check what is available and tell the user in one line what you will use.
 | Task | Preferred | Fallback |
 |---|---|---|
 | Analysis | `feature-dev:code-explorer` agents in parallel; a code-to-PRD skill if one exists | `Explore` subagents |
+| Target-stack research | web search + fetch (a deep-research skill if one exists) | model knowledge, every finding marked `[Unverified]` |
 | Sharpen the spec | `superpowers:brainstorming` | up to 5 questions to the user |
 | Execution later | `superpowers:writing-plans` + `subagent-driven-development`, or GitHub Spec Kit | prompts in the slice files |
 | Improve this skill | `skill-creator` | – |
@@ -76,12 +77,27 @@ This schema is the interface to every later phase – if an external reverse-eng
 
 Templates: `references/templates.md`.
 
-## 5. Guardrails → `vibe-plan/CLAUDE.md` (for the target repo)
+## 5. Target-stack research → `vibe-plan/research.md`
 
-Target architecture with allowed dependency directions – and how it is **enforced** (architecture tests such as NetArchTest/ArchUnit, analyzer rules). Rules that exist only as text don't survive many agent sessions.
+The analysis tells you what the old app does; it says nothing about how the target stack is built well *today*. Without this step, versions, architecture and guardrails come from training data – often outdated, and blind to whatever the model happens not to think of.
+
+Collect first, decide later:
+
+1. **State the goal openly** – "rebuild <app> on <target stack> following current best practice". Don't hand the research a short list of topics to check: an agent given two examples examines those two thoroughly and treats everything else as out of scope.
+2. **Go broad**: current stable versions and support windows, recommended project structure, how architecture rules are enforced, testing and parity tooling, and the target-stack equivalents of every area in `analysis.md` (persistence, auth, messaging, UI, deployment …). Save everything, structured and with sources, to `research.md`.
+3. **Go deep**: derive follow-up queries from what step 2 found and dig into each point that matters for this app – breaking changes, known pitfalls, migration guides from the source stack.
+4. **Distill**: end `research.md` with "Decisions for this rebuild" – each with the finding it rests on and its source. These feed `CLAUDE.md` (§6), the slice order (§7) and the rebuild-vs-refactor assessment (§9).
+5. **Present before slicing**: decisions that change architecture or scope go to the user together with the architecture-relevant open questions.
+
+Use `references/research-prompt.md` when delegating this to a subagent. Same stack and versions stay the same → keep it short: versions, deprecations, current conventions.
+Search queries contain only generic technology terms – never code, internal names, customer data or secrets from the original.
+
+## 6. Guardrails → `vibe-plan/CLAUDE.md` (for the target repo)
+
+Built on the decisions in `research.md`, not on defaults from memory. Target architecture with allowed dependency directions – and how it is **enforced** (architecture tests such as NetArchTest/ArchUnit, analyzer rules). Rules that exist only as text don't survive many agent sessions.
 Plus: hard rules (file size, single responsibility, constants defined once, no secrets, no new packages without asking), "Forbidden" = legacy findings, exact commands, way of working (plan → failing tests → code, one slice per session, one commit per green slice).
 
-## 6. Slicing → `vibe-plan/slices/NN-name.md`
+## 7. Slicing → `vibe-plan/slices/NN-name.md`
 
 Vertical and ordered by dependency; slice 00 = scaffold including CI, architecture tests and the parity harness. Sizing: one slice ≈ one agent session (1–2 h), roughly one slice per 1.5–2k lines of the original.
 Record the slices as a list in `vibe-plan/_slices.json` and render them:
@@ -90,7 +106,7 @@ python3 scripts/render_slices.py vibe-plan/_slices.json vibe-plan/slices
 ```
 Each slice has goal, PRD reference, dependencies, scope, a ready-to-run prompt (plan first, then failing tests, then code), a Definition of Done with the concrete parity cases, and non-goals.
 
-## 7. Parity → `vibe-plan/parity/`
+## 8. Parity → `vibe-plan/parity/`
 
 The central lever. Sort parity cases into three kinds, because they are not equally robust:
 
@@ -108,10 +124,10 @@ Sources, in this order:
 Never call non-deterministic dependencies (LLM calls, external APIs, wall-clock time) live in parity tests: use scripted fakes/stubs, record deterministic fallbacks, freeze the clock.
 `parity/README.md` describes harness, recording, normalization, and a deviation log (bug in the rebuild vs. fixed on purpose + PRD reference).
 
-## 8. Handover
+## 9. Handover
 
 `README.md` with:
-- **Assessment: rebuild vs. refactor** – if the original is already well structured and tested, a targeted refactor of the legacy findings is often cheaper; then say which slices would suffice for that.
+- **Assessment: rebuild vs. refactor** – if the original is already well structured and tested, a targeted refactor of the legacy findings is often cheaper; then say which slices would suffice for that. Weigh in what `research.md` found about the target stack (migration effort, breaking changes).
 - File overview, slice dependency graph (what can run in parallel), first steps, intended execution skill.
 - `checklist.md` (slice × plan / tests red / green / parity / commit).
 
@@ -123,12 +139,13 @@ Deliver the `vibe-plan/` folder (and a zip of it); the original stays untouched.
 - Copy no code – behaviour, data contracts, interfaces and business numbers, yes.
 - Never put secrets, connection strings or personal test data into the plan; use placeholders.
 - A marked assumption beats a silent invention.
+- Examples in prompts are open lists, not checklists. Agents take named examples literally and weight them above everything else; when a prompt (yours or a template's) lists examples, say explicitly that they are examples and ask for anything else that matters.
 
 ## Output structure
 
 ```
 vibe-plan/
-  README.md  analysis.md  open-questions.md  PRD.md  GLOSSARY.md  CLAUDE.md  checklist.md
+  README.md  analysis.md  research.md  open-questions.md  PRD.md  GLOSSARY.md  CLAUDE.md  checklist.md
   slices/00-scaffold.md … NN-*.md
   parity/README.md  <area>-cases.md …
   _inventory.md  _slices.json  _raw/   (agent reports, working material)
