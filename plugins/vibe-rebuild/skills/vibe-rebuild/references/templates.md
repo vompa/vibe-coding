@@ -16,8 +16,20 @@
 - Edge cases: …
 - Errors: …
 ## API (contract)   (routes/operations in short, error format)
-## Legacy bugs fixed on purpose   (may deviate in parity)
+## Improvements on purpose   (from legacy findings and research, each with reason; may deviate from the original)
 ## Non-goals
+```
+
+## research.md
+```
+# Target-stack research – <product> on <target stack>
+> Goal stated openly; topics below were collected broad-first, then deepened.
+## Goal & scope
+## Versions & support         (version | support until | source)
+## Findings by topic          (one subsection per topic; sources inline)
+## Pitfalls & breaking changes (incl. migration notes from the source stack)
+## Decisions for this rebuild (decision | rests on | source)  → feeds CLAUDE.md, slices, README assessment
+## Sources
 ```
 
 ## GLOSSARY.md
@@ -28,7 +40,7 @@
 ## CLAUDE.md (target repo)
 ```
 # CLAUDE.md – <product> (rebuild)
-<purpose in 2–3 sentences>; points to PRD.md, GLOSSARY.md; goal = parity per parity/.
+<purpose in 2–3 sentences>; points to rebuild/PRD.md, rebuild/GLOSSARY.md, rebuild/research.md; goal = all cases in rebuild/parity/ green; improve the rest per rebuild/research.md.
 
 ## Architecture     (project/module tree with dependency arrows; how enforced: architecture tests, analyzers)
 ## Hard rules       (≤300 lines per file, single responsibility, constants once, no secrets,
@@ -41,11 +53,11 @@
 ## parity/README.md
 ```
 # Parity harness
-## Three kinds (business contract | interface contract | implementation-bound – not carried over)
-## Recording from the original (start config, deterministic fallbacks, frozen clock, fixtures/<area>/<case>.json)
+## Three kinds (business contract – keep | interface contract – keep for compatibility | implementation-bound – may improve)
+## From case to test (one acceptance/approval test per case, written from the plan; each test creates its own fixtures)
 ## Normalization     (ids, tokens, durations, wall-clock timestamps → placeholders)
 ## Non-deterministic parts (fake model, stubs)
-## Deviation log     (deviations.md: case | original | rebuild | verdict)
+## Deviation log     (deviations.md: case | expected (plan) | rebuild | verdict)
 ```
 
 ## _slices.json (input for scripts/render_slices.py)

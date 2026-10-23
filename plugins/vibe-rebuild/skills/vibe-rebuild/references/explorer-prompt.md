@@ -17,9 +17,12 @@ exactly these headings, only what applies to your scope:
 ## Non-functional        (security, determinism, performance figures, limits, failure behaviour, telemetry)
 ## Existing tests        (what each test file pins; which are usable as acceptance criteria / golden master;
                           flag tests tied to implementation details, e.g. checksums over RNG output)
-## Legacy findings       (what a rebuild should NOT copy: files >300 lines, mixed responsibilities, duplication,
+## Legacy findings       (what a rebuild should NOT copy, e.g. files >300 lines, mixed responsibilities, duplication,
                           dead/speculative code, spec-vs-code contradictions – each with file path and reason)
 ## Open questions
+
+The items in parentheses are examples to orient you, not a checklist. Report anything else
+in your scope that a rebuild needs to know, even if no heading hint mentions it.
 
 Then add "Golden-master candidates": concrete input → observable output pairs, with the exact numbers.
 Say explicitly which files you did NOT read. Max ~1000 words.
@@ -29,5 +32,6 @@ Your answer is saved to a file by the orchestrator; it is not shown to the end u
 
 ## Notes
 - Ask for exact numbers (limits, defaults, expected values from tests) – they become acceptance criteria.
+- The heading hints are marked as examples on purpose: agents given a short list of named items tend to look only for those.
 - "Which files you did NOT read" matters: gaps end up as open questions instead of silent assumptions in the PRD.
 - After merging, spot-check numbers against the code (see SKILL.md §3).
