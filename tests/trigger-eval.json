@@ -1,0 +1,22 @@
+[
+  {"query": "Wir haben eine alte ASP.NET WebForms-Anwendung für die Lagerverwaltung (ca. 80k Zeilen, Repo liegt unter C:\\src\\lagerapp). Ich will die mit Claude Code auf .NET 10 + Blazor neu bauen lassen, aber so, dass am Ende sicher alles gleich funktioniert. Wie gehen wir das an? Mach mir bitte einen Plan, den der Agent Schritt für Schritt abarbeiten kann.", "should_trigger": true},
+  {"query": "can you go through github.com/acme/billing-service and turn it into a spec + task breakdown so a coding agent can rewrite it in Go? the current one is a messy Express/Node thing nobody wants to touch", "should_trigger": true},
+  {"query": "Unser Kunde hat eine PHP-Laravel-App (Terminbuchung für Physiotherapiepraxen), die wir übernehmen. Ich möchte sie mit KI-Agenten neu aufsetzen. Erstell mir PRD, CLAUDE.md und eine Aufteilung in Arbeitspakete aus dem bestehenden Code.", "should_trigger": true},
+  {"query": "Ich hab im Ordner ~/projects/kassensystem eine Python-Flask-App von 2017. Möchte sie modernisieren (FastAPI, React) und dabei Vibe Coding nutzen, aber nicht einfach drauflos. Was brauche ich vorher an Doku und Tests damit das nicht im Chaos endet?", "should_trigger": true},
+  {"query": "Analysiere bitte das Repo vompa/OPCSample und leite daraus ab, wie ich es mit Claude Code komplett neu bauen würde – mit Slices und Tests, die beweisen dass der Neubau dasselbe liefert wie das Original.", "should_trigger": true},
+  {"query": "we're migrating our angularjs 1.x admin panel to vue 3 and want claude code to do most of the work. need a migration plan from the existing code with characterization tests so we catch regressions. repo is attached as zip", "should_trigger": true},
+  {"query": "Mein Chef will, dass wir unsere Java-Spring-Monolith-Bestellabwicklung per Agenten auf einen sauberen modularen Monolithen umbauen. Kannst du aus dem Code ein Pflichtenheft und eine Reihenfolge der Umbauschritte für die KI machen?", "should_trigger": true},
+  {"query": "Hier ist unser Legacy-Repo für die Zeiterfassung (C#, WinForms, SQL Server). Ich brauche eine Brownfield-Strategie: was sollte die KI neu schreiben, was behalten, und wie sichern wir die Parität ab?", "should_trigger": true},
+  {"query": "port this Rails 5 app (in ./legacy-crm) to Next.js using AI agents. before writing any code, extract the requirements and acceptance criteria from what the app currently does, plus a CLAUDE.md with guardrails", "should_trigger": true},
+  {"query": "Ich will meine eigene Website-App (Vue 2 + Express, Repo vompa/website-old) mit Claude neu umsetzen lassen. Erst mal nur: was macht die App eigentlich alles, und wie zerlege ich den Neubau in sinnvolle Häppchen?", "should_trigger": true},
+  {"query": "Ich möchte eine neue App für Vereinsverwaltung mit Claude Code bauen, Mitglieder, Beiträge, Termine. Kannst du mir ein PRD und eine CLAUDE.md schreiben, damit das Vibe Coding sauber läuft?", "should_trigger": false},
+  {"query": "Kannst du in unserem Repo src/Billing/InvoiceService.cs refaktorieren? Die Klasse hat 1200 Zeilen und mischt Berechnung und PDF-Erzeugung. Bitte in sinnvolle Klassen aufteilen.", "should_trigger": false},
+  {"query": "Mach ein Code-Review vom PR #482 in vompa/OPCAgentSample, Fokus Sicherheit und Fehlerbehandlung im neuen MCP-Tool get_energy_usage.", "should_trigger": false},
+  {"query": "Ich will in meiner bestehenden React-App ein neues Feature: Export der Bestellungen als CSV mit Filter nach Datum. Wie baue ich das mit Claude Code am besten?", "should_trigger": false},
+  {"query": "Was sind Best Practices für Vibe Coding mit Claude Code? Ich suche seriöse Artikel und eine kurze Zusammenfassung.", "should_trigger": false},
+  {"query": "Our CLAUDE.md in the monorepo is outdated and too long, can you audit it and tighten it up based on the current project structure?", "should_trigger": false},
+  {"query": "Upgrade bitte unser Projekt von .NET 8 auf .NET 10 – Target Frameworks, Pakete, Breaking Changes fixen, Build grün machen.", "should_trigger": false},
+  {"query": "Erklär mir die Architektur von diesem Repo (github.com/vompa/OPCAgentSample): welche Projekte gibt es, wie fließen die Daten vom OPC-Simulator bis zur Antwort von Claude?", "should_trigger": false},
+  {"query": "Schreib mir Unit-Tests für die KPI-Berechnung in src/OPCAgentSample.Kpi, besonders OEE und MTBF, wir haben da kaum Abdeckung.", "should_trigger": false},
+  {"query": "reverse engineer this firmware binary (attached .bin) and tell me what protocol it uses to talk to the PLC", "should_trigger": false}
+]

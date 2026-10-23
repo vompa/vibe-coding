@@ -1,0 +1,33 @@
+name: Validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Claude Code installieren
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Plugin und Marketplace validieren
+        run: claude plugin validate --strict .
+      - name: Skill nach Agent-Skills-Spezifikation validieren
+        run: |
+          pip install "skills-ref @ git+https://github.com/agentskills/agentskills.git#subdirectory=skills-ref"
+          skills-ref validate skills/vibe-rebuild
+      - name: Skripte prüfen
+        run: |
+          python -m py_compile skills/vibe-rebuild/scripts/*.py tests/*.py
+          python skills/vibe-rebuild/scripts/inventory.py . > /dev/null
+          printf '%s' '[{"nr":"00","slug":"scaffold","name":"Gerüst","goal":"g","prd":"p","deps":"-","scope":["a"],"parity":"x","non_goals":"n"}]' > /tmp/s.json
+          python skills/vibe-rebuild/scripts/render_slices.py /tmp/s.json /tmp/slices
+          test -f /tmp/slices/00-scaffold.md
