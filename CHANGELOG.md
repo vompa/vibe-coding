@@ -5,6 +5,8 @@
 - New rule: examples in prompts are open lists, not checklists – agents take named examples literally. The explorer prompt now says so explicitly.
 - New section "Keep the user posted": long steps are announced with a rough duration, no silent stretch longer than ~5 minutes, long work is cut into pieces that each report progress (counts of topics, sources, tests). The research runs as three separate passes (broad, deep, distill) with a status line after each; the research agent appends each finished topic to `research.md` and logs it in `_raw/research-progress.md`.
 - Status lines start with an overall percentage, estimated from fixed phase weights (inventory 5, analysis 25, PRD 10, research 20, guardrails 5, slicing 15, parity 15, handover 5) plus counted units inside the running phase; monotonic, never 100 % before delivery.
+- The plan lives in a git repo by default: the plan folder is the root of the target repo, with `git init`, `.gitignore`, an initial commit and a push to the remote the user names (or a new branch in an existing repo). Folder and zip are offered only when the user declines a repo. The inputs round now asks where the plan should live.
+- Execution: the skill never installs plugins; if superpowers is already installed it suggests the command for a slice, otherwise the slice prompts stand alone.
 - Slice prompt reads `research.md` and looks up current docs for any library or pattern it does not cover.
 - Phases after the PRD renumbered (Guardrails §6, Slicing §7, Parity §8, Handover §9).
 

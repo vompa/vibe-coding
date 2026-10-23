@@ -56,14 +56,14 @@ Check what is available and tell the user in one line what you will use.
 | Analysis | `feature-dev:code-explorer` agents in parallel; a code-to-PRD skill if one exists | `Explore` subagents |
 | Target-stack research | web search + fetch (a deep-research skill if one exists) | model knowledge, every finding marked `[Unverified]` |
 | Sharpen the spec | `superpowers:brainstorming` | up to 5 questions to the user |
-| Execution later | `superpowers:writing-plans` + `subagent-driven-development`, or GitHub Spec Kit | prompts in the slice files |
+| Execution later | the slice prompts; if `superpowers` is already installed, suggest its command (see §9) | – |
 | Improve this skill | `skill-creator` | – |
 
-This skill produces the plan; execution happens in a later session in the target repo.
+This skill produces the plan; execution happens in a later session in the target repo. Never install plugins or tools for the user – only suggest commands for what is already there.
 
 ## 1. Inputs (one round, then go)
 
-Repo/path (read only), target stack (default: same stack, current versions), scope, and whether the original runs locally.
+Repo/path (read only), target stack (default: same stack, current versions), scope, whether the original runs locally, and **where the plan should live**: a new git repo (default – ask for the remote or repo name, or local only), a new branch in an existing repo, or files only (folder + zip).
 Ask all of these in one go. For the target stack offer concrete options (same stack, 2–3 plausible alternatives for this app, other) rather than a bare "different stack", so no second round of questions is needed.
 If the user is away or asks for a trial run, make sensible assumptions, mark them `[Assumption]`, and keep going.
 
@@ -157,7 +157,11 @@ Never call non-deterministic dependencies (LLM calls, external APIs, wall-clock 
 - File overview, slice dependency graph (what can run in parallel), first steps, intended execution skill.
 - `checklist.md` (slice × plan / tests red / green / parity / commit).
 
-Deliver the `vibe-plan/` folder (and a zip of it); the original stays untouched.
+**The plan lives in a git repo by default.** The plan folder is the root of the target repo: `CLAUDE.md` sits at the root, code and tests follow under `src/` and `tests/` from slice 00 on, so the first session can start right there. Run `git init`, add a `.gitignore` for the target stack, make one initial commit, and push to the remote the user named (or attach it if the session can). If the user named an existing repo, commit to a new branch there instead. Offer the folder and a zip **only** if the user does not want a repo or no remote is reachable – then say how to push it later.
+
+The original stays untouched.
+
+End the handover with how to start slice 00. If `superpowers` is installed in the session, also suggest its command for one slice (`superpowers:writing-plans` for `slices/NN-*.md`, constrained by `CLAUDE.md` and `research.md`, then `superpowers:subagent-driven-development`); if it is not installed, don't mention it – the slice prompts work on their own.
 
 ## Rules
 
@@ -168,6 +172,8 @@ Deliver the `vibe-plan/` folder (and a zip of it); the original stays untouched.
 - Examples in prompts are open lists, not checklists. Agents take named examples literally and weight them above everything else; when a prompt (yours or a template's) lists examples, say explicitly that they are examples and ask for anything else that matters.
 
 ## Output structure
+
+Root of the git repo (or the delivered folder when the user chose files only):
 
 ```
 vibe-plan/

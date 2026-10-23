@@ -6,7 +6,7 @@ Point Claude at an existing codebase and get everything a coding agent needs to 
 
 ## What you get
 
-A `vibe-plan/` folder with:
+A git repo (or, if you prefer, a folder and zip) that becomes the target repo of the rebuild, with:
 
 - **analysis.md** – stack, domain, features, interfaces, existing tests, legacy findings
 - **research.md** – current best practice for the target stack, with sources and the decisions drawn from it
