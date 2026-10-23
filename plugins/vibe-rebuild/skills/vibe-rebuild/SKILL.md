@@ -23,6 +23,15 @@ The user reads the chat; the work happens in files. This run produces long inter
 - **Between steps, one short status line at most** (e.g. "Analysis 3/4 done – data layer still running."). No headings, no bullet dumps of findings mid-run.
 - **Findings go into the plan files**, not into chat messages. The final message is a short summary: what was produced, the 2–3 most important findings, the open architecture questions, and the delivered folder/zip.
 
+## Keep the user posted
+
+Clean does not mean silent. A user staring at a window where nothing moves for twenty minutes assumes the run hung. So:
+
+- **Announce long steps.** Before any step that can take more than a few minutes (parallel analysis, research, building and testing the original), say in one line what runs and roughly how long it takes.
+- **No silent stretch longer than ~5 minutes.** Cut long work into pieces that each come back within a few minutes and post a status line after each piece: what finished, one number that shows progress (topics, sources, files, tests), what runs next. If the session offers a way to check in on a running task (a wake-up/monitor/send-later tool), use it instead of waiting blind.
+- **Make progress visible in files too.** Long-running agents append to their output file as they go (see §5) rather than writing everything at the end, so a status line can report real progress.
+- Status lines stay short and factual – no findings dumps, no agent markup.
+
 ## 0. Pick your tools
 
 Check what is available and tell the user in one line what you will use.
@@ -88,6 +97,8 @@ Collect first, decide later:
 3. **Go deep**: derive follow-up queries from what step 2 found and dig into each point that matters for this app – breaking changes, known pitfalls, migration guides from the source stack.
 4. **Distill**: end `research.md` with "Decisions for this rebuild" – each with the finding it rests on and its source. These feed `CLAUDE.md` (§6), the slice order (§7) and the rebuild-vs-refactor assessment (§9).
 5. **Present before slicing**: decisions that change architecture or scope go to the user together with the architecture-relevant open questions.
+
+**Run it in passes, not as one long job.** Research is the longest step of the run, so it follows "Keep the user posted" strictly: launch broad, deep and distill as separate short runs (one subagent call each, or inline), and after each pass post one status line – e.g. "Research broad done: 14 topics, 31 sources – going deep on 6 points (~5 min)." The research agent appends each finished topic to `research.md` immediately and logs one line per topic in `_raw/research-progress.md`, so progress is visible even mid-pass.
 
 Use `references/research-prompt.md` when delegating this to a subagent. Same stack and versions stay the same → keep it short: versions, deprecations, current conventions.
 Search queries contain only generic technology terms – never code, internal names, customer data or secrets from the original.

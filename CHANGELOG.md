@@ -3,6 +3,7 @@
 ## 2.2.0 – 2026-10-23
 - New phase §5 "Target-stack research" → `vibe-plan/research.md`: state the goal openly, research broad first, derive follow-up queries and go deep, then distill "Decisions for this rebuild" with sources. Guardrails (`CLAUDE.md`), slicing and the rebuild-vs-refactor assessment now build on it instead of training-data defaults. New template `references/research-prompt.md`; fallback without web access marks findings `[Unverified]`. Search queries never contain code, internal names or secrets from the original.
 - New rule: examples in prompts are open lists, not checklists – agents take named examples literally. The explorer prompt now says so explicitly.
+- New section "Keep the user posted": long steps are announced with a rough duration, no silent stretch longer than ~5 minutes, long work is cut into pieces that each report progress (counts of topics, sources, tests). The research runs as three separate passes (broad, deep, distill) with a status line after each; the research agent appends each finished topic to `research.md` and logs it in `_raw/research-progress.md`.
 - Slice prompt reads `research.md` and looks up current docs for any library or pattern it does not cover.
 - Phases after the PRD renumbered (Guardrails §6, Slicing §7, Parity §8, Handover §9).
 
