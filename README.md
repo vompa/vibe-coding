@@ -1,35 +1,35 @@
 # vibe-rebuild
 
-**Bestehende App → Bauplan für den Neubau per Vibe Coding, mit Paritätstests gegen das Original.**
+**Existing app → rebuild plan for vibe coding, with parity tests against the original.**
 
-Ein [Agent Skill](https://agentskills.io) und Claude-Code-Plugin. Er liest eine bestehende Codebasis und erzeugt die Unterlagen, mit denen ein Coding-Agent (Claude Code o. Ä.) die App Slice für Slice neu baut – und nachweist, dass der Neubau sich verhält wie das Original.
+An [Agent Skill](https://agentskills.io) and Claude Code plugin. It reads an existing codebase and produces everything a coding agent (Claude Code or similar) needs to rebuild the app slice by slice – and to prove the rebuild behaves like the original.
 
-> *English:* Turns an existing codebase into a rebuild plan for AI coding agents — analysis, PRD, glossary, CLAUDE.md guardrails, vertical slices with ready-to-run prompts, and parity tests against the original. The skill writes its output in German (it follows the user's language for questions).
-
-## Was herauskommt
+## What you get
 
 ```
 vibe-plan/
-  README.md          Einschätzung Neubau vs. Umbau, Slice-Graph, Startschritte
-  analysis.md        Stack, Domäne, Features, Schnittstellen, Tests, Legacy-Befunde
-  open-questions.md  offene Fragen mit markierten Annahmen
-  PRD.md             Verhalten aus Nutzersicht mit Given/When/Then
-  GLOSSARY.md        verbindliche Begriffe
-  CLAUDE.md          Leitplanken fürs Zielrepo (Architektur, harte Regeln, Befehle)
-  slices/NN-*.md     je Slice: Ziel, Umfang, fertiger Prompt, Definition of Done
-  parity/            Fachvertrag, Schnittstellenvertrag, Aufzeichnungsplan
+  README.md          rebuild-vs-refactor assessment, slice graph, first steps
+  analysis.md        stack, domain, features, interfaces, tests, legacy findings
+  open-questions.md  open questions with marked assumptions
+  PRD.md             behaviour from the user's view with Given/When/Then
+  GLOSSARY.md        binding terminology
+  CLAUDE.md          guardrails for the target repo (architecture, hard rules, commands)
+  slices/NN-*.md     per slice: goal, scope, ready-to-run prompt, Definition of Done
+  parity/            business contract, interface contract, recording plan
   checklist.md
 ```
 
-## Wie es arbeitet
+## How it works
 
-1. **Inventur** per Skript: Projekte, Zeilen je Ordner, Dateien > 300 Zeilen, vorhandene Spec/Doku.
-2. **Analyse** mit 3–5 parallelen Explorer-Agenten (bevorzugt `feature-dev:code-explorer`), festes Schema, Stichprobe der Zahlen gegen den Code.
-3. **PRD, Glossar, CLAUDE.md** – vorhandene Spezifikationen werden als primäre Quelle genutzt, mit Quellen-Rangfolge bei Widersprüchen.
-4. **Slicing** in vertikale, abhängigkeitsgeordnete Slices (je eine Agent-Session).
-5. **Parität** in drei Arten: Fachvertrag und Schnittstellenvertrag werden hart geprüft; implementierungsgebundene Prüfsummen nicht übernommen. LLM-Teile nur mit Fake-Modell.
+1. **Inventory** via script: projects, lines per folder, files > 300 lines, existing spec/docs.
+2. **Analysis** with 3–5 parallel explorer agents (preferably `feature-dev:code-explorer`), a fixed schema, and a spot-check of the numbers against the code.
+3. **PRD, glossary, CLAUDE.md** – existing specifications are used as the primary source, with a source precedence for contradictions.
+4. **Slicing** into vertical, dependency-ordered slices (one agent session each).
+5. **Parity** in three kinds: business and interface contracts are checked strictly; implementation-bound checksums are not carried over. LLM parts only with a fake model.
 
-Für die Ausführung danach eignet sich [superpowers](https://github.com/obra/superpowers) (`writing-plans` → `subagent-driven-development`) oder GitHub Spec Kit.
+For executing the plan afterwards, [superpowers](https://github.com/obra/superpowers) (`writing-plans` → `subagent-driven-development`) or GitHub Spec Kit work well.
+
+The plan is written in the user's language (English by default).
 
 ## Installation
 
@@ -38,36 +38,36 @@ Für die Ausführung danach eignet sich [superpowers](https://github.com/obra/su
 claude plugin marketplace add vompa/vibe-rebuild
 claude plugin install vibe-rebuild@vompa
 ```
-oder in einer Session: `/plugin install vibe-rebuild --marketplace vompa/vibe-rebuild`
+or inside a session: `/plugin install vibe-rebuild --marketplace vompa/vibe-rebuild`
 
-**Claude.ai / andere Agenten:** den Ordner `skills/vibe-rebuild/` als Skill hochladen bzw. in das Skills-Verzeichnis des Agenten kopieren.
+**Claude.ai / other agents:** upload the `skills/vibe-rebuild/` folder as a skill, or copy it into the agent's skills directory.
 
-## Benutzung
+## Usage
 
-Einfach beschreiben, was du vorhast – der Skill löst von selbst aus, z. B.:
+Just describe what you want – the skill triggers on its own, for example:
 
-- „Analysiere `github.com/acme/billing` und plane den Neubau in Go mit Claude Code.“
-- „Unsere WebForms-Lagerverwaltung soll auf .NET 10 + Blazor – mach einen Plan, den der Agent abarbeiten kann, und sichere die Parität ab.“
-- „Pflichtenheft und Umbaureihenfolge aus unserem Spring-Monolithen für die KI.“
+- "Analyze `github.com/acme/billing` and plan a rewrite in Go with Claude Code."
+- "Our WebForms inventory app should move to .NET 10 + Blazor – make a plan the agent can work through and make sure we keep parity."
+- "Derive a spec and a refactoring order for the AI from our Spring monolith."
 
-Explizit: `/vibe-rebuild:vibe-rebuild <repo oder pfad>`
+Explicitly: `/vibe-rebuild:vibe-rebuild <repo or path>`
 
-## Qualität
+## Quality
 
-- Getestet an einem realen Projekt ([OPCAgentSample](https://github.com/vompa/OPCAgentSample), ~37k Zeilen .NET/Vue): 22 Slices, Paritätsfälle aus 700+ bestehenden Tests.
-- Auslöse-Test (`tests/trigger-eval.json`, 10 positive und 10 knapp negative Anfragen, je 3 Läufe): **20/20**, 0 Fehlauslösungen.
+- Tried on a real project ([OPCAgentSample](https://github.com/vompa/OPCAgentSample), ~37k lines of .NET/Vue): 22 slices, parity cases drawn from 700+ existing tests.
+- Trigger test (`tests/trigger-eval.json`, 10 positive and 10 near-miss negative requests in English and German, 3 runs each): **20/20**, no false triggers.
   ```bash
   python3 tests/trigger_check.py tests/trigger-eval.json --runs 3
   ```
 
-## Entwicklung
+## Development
 
 ```bash
 claude plugin validate --strict .
-claude --plugin-dir .     # Plugin für eine Session laden
+claude --plugin-dir .     # load the plugin for one session
 ```
-Neue Version: `version` in `.claude-plugin/plugin.json` und `metadata.version` im SKILL.md erhöhen, `CHANGELOG.md` ergänzen.
+New version: bump `version` in `.claude-plugin/plugin.json` and `metadata.version` in SKILL.md, add a `CHANGELOG.md` entry.
 
-## Lizenz
+## License
 
-MIT – siehe [LICENSE](LICENSE).
+MIT – see [LICENSE](LICENSE).

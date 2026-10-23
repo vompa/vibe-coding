@@ -1,125 +1,126 @@
 ---
 name: vibe-rebuild
-description: Erstellt aus einer bestehenden App (Repo, Codebasis, Legacy-System) einen Bauplan für den Neubau per Vibe Coding mit KI-Agenten – analysis.md, PRD, Glossar, CLAUDE.md, vertikale Slices mit fertigen Prompts und Paritätstests gegen das Original. Verwenden, wenn jemand eine vorhandene Anwendung mit Claude Code oder anderen Agenten neu bauen, migrieren, modernisieren oder auf einen anderen Stack portieren will, einen Rebuild- oder Migrationsplan, eine Spec aus bestehendem Code oder Brownfield-Vibe-Coding braucht – auch wenn „Vibe Coding“ nicht wörtlich fällt. Nicht für neue Apps ohne Altcode, einzelne Features oder reine Code-Reviews.
+description: Turns an existing app (repo, codebase, legacy system) into a rebuild plan for vibe coding with AI agents – analysis.md, PRD, glossary, CLAUDE.md guardrails, vertical slices with ready-to-run prompts, and parity tests against the original. Use whenever someone wants to rebuild, rewrite, migrate, modernize or port an existing application to another stack with Claude Code or other coding agents, or needs a rebuild/migration plan, a spec or task breakdown derived from existing code, or a brownfield vibe-coding strategy – even if they never say "vibe coding". Not for greenfield apps without existing code, single features, or plain code reviews.
 license: MIT
-compatibility: Für Claude Code und Claude mit Dateizugriff und Subagenten; Skripte brauchen Python 3.10+.
+compatibility: Designed for Claude Code and Claude with file access and subagents; scripts need Python 3.10+.
 metadata:
   author: vompa
-  version: "1.0.0"
-  language: de
+  version: "2.0.0"
 ---
 
-# Vibe Rebuild – bestehende App per Vibe Coding neu bauen
+# Vibe Rebuild – rebuild an existing app with vibe coding
 
-Ziel: Aus einer bestehenden Codebasis einen Bauplan erzeugen, mit dem ein Coding-Agent die App Slice für Slice neu baut und dabei **nachweisbar gleichwertig** zum Original bleibt.
-Der Skill extrahiert die *Absicht* der App (Verhalten, Verträge, Fachzahlen), nicht ihre Implementierung, und übernimmt keinen Code. Warum: Wer Code kopiert, kopiert die Altlasten mit; wer nur Verhalten und Verträge mitnimmt, kann sauber neu schneiden und trotzdem Parität beweisen.
+Goal: turn an existing codebase into a plan a coding agent can follow to rebuild the app slice by slice while staying **provably equivalent** to the original.
+The skill extracts the app's *intent* (behaviour, contracts, business numbers), not its implementation, and copies no code. Why: copying code drags the legacy along; carrying over only behaviour and contracts lets you re-cut the design cleanly and still prove parity.
 
-## 0. Werkzeuge wählen
+Write the plan in the user's language (default: English).
 
-Kurz prüfen, was verfügbar ist, und dem Nutzer in einer Zeile sagen, was verwendet wird.
+## 0. Pick your tools
 
-| Aufgabe | Bevorzugt | Fallback |
+Check what is available and tell the user in one line what you will use.
+
+| Task | Preferred | Fallback |
 |---|---|---|
-| Analyse | `feature-dev:code-explorer`-Agenten parallel; ein PRD-aus-Code-Skill falls vorhanden | `Explore`-Subagenten |
-| Spec schärfen | `superpowers:brainstorming` | Rückfragen (max. 5) |
-| Ausführung später | `superpowers:writing-plans` + `subagent-driven-development`, alternativ GitHub Spec Kit | Prompts in den Slice-Dateien |
-| Skill verbessern | `skill-creator` | – |
+| Analysis | `feature-dev:code-explorer` agents in parallel; a code-to-PRD skill if one exists | `Explore` subagents |
+| Sharpen the spec | `superpowers:brainstorming` | up to 5 questions to the user |
+| Execution later | `superpowers:writing-plans` + `subagent-driven-development`, or GitHub Spec Kit | prompts in the slice files |
+| Improve this skill | `skill-creator` | – |
 
-Dieser Skill liefert den Plan; ausgeführt wird er in einer späteren Session im Zielrepo.
+This skill produces the plan; execution happens in a later session in the target repo.
 
-## 1. Eingaben (eine Runde, dann loslegen)
+## 1. Inputs (one round, then go)
 
-Repo/Pfad (nur lesen), Zielstack (Default: gleicher Stack, aktuelle Versionen), Scope, ob das Original lokal lauffähig ist.
-Ist der Nutzer nicht da oder bittet um einen Testlauf: sinnvolle Annahmen treffen, als `[Annahme]` markieren, weitermachen.
+Repo/path (read only), target stack (default: same stack, current versions), scope, and whether the original runs locally.
+If the user is away or asks for a trial run, make sensible assumptions, mark them `[Assumption]`, and keep going.
 
-## 2. Inventur (schnell, vor den Agenten)
+## 2. Inventory (fast, before the agents)
 
 ```
 python3 scripts/inventory.py <repo> > vibe-plan/_inventory.md
 ```
-Liefert Projekte, Dateizahlen und Zeilen je Ordner, Dateien über 300 Zeilen, Testdateien und vorhandene Doku.
-Daraus zwei Entscheidungen ableiten:
+Lists projects, files and lines per folder, files over 300 lines, test files, and existing documentation.
+Make two decisions from it:
 
-- **Vorhandene Spezifikation?** (`docs/`, `spec*`, `PRD*`, ADRs, Mockups, Kalibrier-/Fachdokumente). Wenn ja, ist sie die primäre Quelle der Absicht; Code und Tests belegen den Ist-Stand. Lege eine **Quellen-Rangfolge** fest (z. B. Fachdokument > Tests > Spec > Mockup > Kommentare) und schreibe sie ins PRD. Widersprüche zwischen Quellen sind normal und wertvoll – sammeln, nicht glätten.
-- **Analyse-Schnitt**: 3–5 Bereiche entlang der Schichten bzw. Projekte (z. B. Domäne+Simulation, Daten/Persistenz, API/Integrationen, Frontend+Infra+Tests). Faustregel ein Agent je ~8–12k Zeilen.
+- **Is there an existing spec?** (`docs/`, `spec*`, `PRD*`, ADRs, mockups, calibration/domain documents). If so, it is the primary source of intent; code and tests show the actual state. Set a **source precedence** (e.g. domain document > tests > spec > mockup > comments) and record it in the PRD. Contradictions between sources are normal and valuable – collect them, don't smooth them over.
+- **Analysis split**: 3–5 areas along layers or projects (e.g. domain + simulation, data/persistence, API/integrations, frontend + infra + tests). Rule of thumb: one agent per ~8–12k lines.
 
-## 3. Analyse → `vibe-plan/analysis.md`
+## 3. Analysis → `vibe-plan/analysis.md`
 
-Explorer-Agenten parallel starten, je Bereich einen, mit der Vorlage aus `references/explorer-prompt.md`. Sie liefern alle dasselbe Schema, das du zusammenführst:
+Launch the explorer agents in parallel, one per area, using the template in `references/explorer-prompt.md`. They all return the same schema, which you merge:
 
 ```
 # Analysis
-## Stack & Laufzeit   ## Domäne   ## Features   ## Schnittstellen
-## Nichtfunktionales  ## Bestehende Tests   ## Legacy-Befunde   ## Offene Fragen
+## Stack & runtime   ## Domain   ## Features   ## Interfaces
+## Non-functional    ## Existing tests   ## Legacy findings   ## Open questions
 ```
 
-Dieses Schema ist die Schnittstelle zu allen späteren Phasen – auch wenn ein externer Reverse-Engineering-Skill die Analyse liefert, wird sein Ergebnis zuerst in dieses Schema gebracht.
+This schema is the interface to every later phase – if an external reverse-engineering skill delivers the analysis, map its output into this schema first.
 
-**Stichprobe vor dem Weiterbauen**: 3–5 harte Zahlen aus den Agentenberichten (Anzahl Tools/Endpunkte/Tests, Default-Grenzwerte) per `grep` gegen den Code prüfen. Subagenten schätzen Zählungen gern; ein falscher Wert im PRD wird später zum falschen Akzeptanzkriterium.
+**Spot-check before building on it**: verify 3–5 hard numbers from the agent reports (counts of tools/endpoints/tests, default limits) against the code with `grep`. Subagents tend to estimate counts; a wrong number in the PRD becomes a wrong acceptance criterion later.
 
-**Offene Fragen** in eine eigene `open-questions.md`, getrennt nach *architekturrelevant* (ändern Zielarchitektur oder Scope), *fachlich* und *entfällt im Neubau*, jeweils mit der getroffenen `[Annahme]`. Architekturrelevante Fragen vor dem Slicing dem Nutzer vorlegen, wenn er erreichbar ist; sonst mit Annahmen weiter und das im README deutlich sagen.
+**Open questions** go into a separate `open-questions.md`, grouped as *architecture-relevant* (changes target architecture or scope), *functional*, and *dropped in the rebuild*, each with the `[Assumption]` taken. Put the architecture-relevant ones to the user before slicing if they are reachable; otherwise continue on assumptions and say so clearly in the README.
 
-## 4. PRD & Glossar
+## 4. PRD & glossary
 
-`PRD.md`: Verhalten aus Nutzersicht – Zweck, Grundsätze, Nutzer/Rollen, Features mit Story und Given/When/Then-Akzeptanzkriterien, Randfälle, Fehlerverhalten, API-Vertrag in Kurzform, „Bewusst behobene Legacy-Fehler“, Nicht-Ziele. Keine Klassen- oder Dateinamen. Liegt eine gute Spec vor, nicht abschreiben, sondern auf sie verweisen und nur Akzeptanzkriterien ergänzen.
-`GLOSSARY.md`: Begriff | Code-Bezeichner | Bedeutung. Der Agent benutzt nur diese Begriffe.
+`PRD.md`: behaviour from the user's point of view – purpose, principles, users/roles, features with a story and Given/When/Then acceptance criteria, edge cases, error behaviour, a short API contract, "Legacy bugs fixed on purpose", non-goals. No class or file names. If a good spec exists, don't copy it – reference it and add only the acceptance criteria.
+`GLOSSARY.md`: term | code identifier | meaning. The agent uses only these terms.
 
-Vorlagen: `references/templates.md`.
+Templates: `references/templates.md`.
 
-## 5. Leitplanken → `vibe-plan/CLAUDE.md` (für das Zielrepo)
+## 5. Guardrails → `vibe-plan/CLAUDE.md` (for the target repo)
 
-Zielarchitektur mit erlaubten Abhängigkeitsrichtungen – und wie sie **erzwungen** wird (Architekturtests, z. B. NetArchTest/ArchUnit, Analyzer-Regeln). Regeln, die nur im Text stehen, hält ein Agent über viele Sessions nicht durch.
-Dazu: harte Regeln (Dateigröße, eine Verantwortung, Konstanten einmal, keine Secrets, keine neuen Pakete ohne Rückfrage), „Verboten“ = Legacy-Befunde, exakte Befehle, Arbeitsweise (Plan → Tests → Code, ein Slice pro Session, Commit pro grünem Slice).
+Target architecture with allowed dependency directions – and how it is **enforced** (architecture tests such as NetArchTest/ArchUnit, analyzer rules). Rules that exist only as text don't survive many agent sessions.
+Plus: hard rules (file size, single responsibility, constants defined once, no secrets, no new packages without asking), "Forbidden" = legacy findings, exact commands, way of working (plan → failing tests → code, one slice per session, one commit per green slice).
 
 ## 6. Slicing → `vibe-plan/slices/NN-name.md`
 
-Vertikal und nach Abhängigkeit geordnet; Slice 00 = Gerüst inkl. CI, Architekturtests und Paritäts-Harness. Orientierung: ein Slice ≈ eine Agent-Session (1–2 h), grob ein Slice je 1,5–2k Zeilen Original.
-Slices als Liste in `vibe-plan/_slices.json` festhalten und rendern:
+Vertical and ordered by dependency; slice 00 = scaffold including CI, architecture tests and the parity harness. Sizing: one slice ≈ one agent session (1–2 h), roughly one slice per 1.5–2k lines of the original.
+Record the slices as a list in `vibe-plan/_slices.json` and render them:
 ```
 python3 scripts/render_slices.py vibe-plan/_slices.json vibe-plan/slices
 ```
-Jeder Slice hat Ziel, PRD-Bezug, Abhängigkeiten, Umfang, fertigen Prompt (Plan zuerst, dann failing Tests, dann Code), Definition of Done mit den konkreten Paritätsfällen, Nicht-Ziele.
+Each slice has goal, PRD reference, dependencies, scope, a ready-to-run prompt (plan first, then failing tests, then code), a Definition of Done with the concrete parity cases, and non-goals.
 
-## 7. Parität → `vibe-plan/parity/`
+## 7. Parity → `vibe-plan/parity/`
 
-Der zentrale Hebel. Paritätsfälle in drei Arten einteilen, weil sie unterschiedlich belastbar sind:
+The central lever. Sort parity cases into three kinds, because they are not equally robust:
 
-| Art | Beispiel | Im Neubau |
+| Kind | Example | In the rebuild |
 |---|---|---|
-| **Fachvertrag** | Kennzahlen, Summen, Startzustände aus Fachdoku und Tests | hart prüfen |
-| **Schnittstellenvertrag** | Statuscodes, Fehlerformate, Feldnamen, Ereignisreihenfolge | hart prüfen |
-| **Implementierungsgebunden** | Prüfsummen über Zufallsgeneratoren, Byte-Snapshots, Timing | nicht übernehmen; im Neubau neu festlegen |
+| **Business contract** | KPIs, totals, start states from domain docs and tests | check strictly |
+| **Interface contract** | status codes, error formats, field names, event order | check strictly |
+| **Implementation-bound** | checksums over random generators, byte snapshots, timing | do not carry over; define anew in the rebuild |
 
-Quellen, in dieser Reihenfolge:
-1. **Bestehende Tests des Originals** – meist die reichste Quelle; Assertions als Fälle übernehmen (Eingabe → erwartete Ausgabe).
-2. **Aufzeichnung gegen das laufende Original** (Request/Response je Endpunkt und Rolle), volatile Felder normalisiert; Vergleich z. B. mit Verify/Approval-Tests.
-3. Fachdokumente.
+Sources, in this order:
+1. **The original's existing tests** – usually the richest source; turn assertions into cases (input → expected output).
+2. **Recordings against the running original** (request/response per endpoint and role), volatile fields normalized; compare with Verify/approval tests or similar.
+3. Domain documents.
 
-Nicht-deterministische Abhängigkeiten (LLM-Aufrufe, externe APIs, Zeit) nie live in Paritätstests: Fake/Stub mit Skript, deterministische Fallbacks aufzeichnen, Uhr anhalten.
-`parity/README.md` beschreibt Harness, Aufzeichnung, Normalisierung und ein Abweichungsprotokoll (Bug im Neubau vs. bewusst behoben + PRD-Verweis).
+Never call non-deterministic dependencies (LLM calls, external APIs, wall-clock time) live in parity tests: use scripted fakes/stubs, record deterministic fallbacks, freeze the clock.
+`parity/README.md` describes harness, recording, normalization, and a deviation log (bug in the rebuild vs. fixed on purpose + PRD reference).
 
-## 8. Übergabe
+## 8. Handover
 
-`README.md` mit:
-- **Einschätzung Neubau vs. Umbau** – ist das Original schon gut strukturiert und getestet, ist ein gezielter Umbau der Legacy-Befunde oft günstiger; dann sagen, welche Slices dafür reichen würden.
-- Dateiübersicht, Abhängigkeitsgraph der Slices (was parallel geht), Startschritte, vorgesehener Execution-Skill.
-- `checklist.md` (Slice × Plan/Tests rot/Grün/Parität/Commit).
+`README.md` with:
+- **Assessment: rebuild vs. refactor** – if the original is already well structured and tested, a targeted refactor of the legacy findings is often cheaper; then say which slices would suffice for that.
+- File overview, slice dependency graph (what can run in parallel), first steps, intended execution skill.
+- `checklist.md` (slice × plan / tests red / green / parity / commit).
 
-Ergebnis als Ordner `vibe-plan/` (und gezippt) übergeben; das Original bleibt unverändert.
+Deliver the `vibe-plan/` folder (and a zip of it); the original stays untouched.
 
-## Regeln
+## Rules
 
-- Original nie verändern; nur lesen und Paritätstests ausführen.
-- Keinen Code übernehmen – Verhalten, Datenverträge, Schnittstellen, Fachzahlen schon.
-- Secrets, Connection Strings, personenbezogene Testdaten nie in den Plan; Platzhalter.
-- Lieber eine markierte Annahme als eine stille Erfindung.
+- Never modify the original; only read it and run parity tests.
+- Copy no code – behaviour, data contracts, interfaces and business numbers, yes.
+- Never put secrets, connection strings or personal test data into the plan; use placeholders.
+- A marked assumption beats a silent invention.
 
-## Ausgabe-Struktur
+## Output structure
 
 ```
 vibe-plan/
   README.md  analysis.md  open-questions.md  PRD.md  GLOSSARY.md  CLAUDE.md  checklist.md
   slices/00-scaffold.md … NN-*.md
-  parity/README.md  <bereich>-cases.md …
+  parity/README.md  <area>-cases.md …
   _inventory.md  _slices.json
 ```

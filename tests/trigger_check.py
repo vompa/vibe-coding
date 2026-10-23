@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Misst, wie zuverlässig der installierte Skill auslöst.
+"""Measure how reliably the installed skill triggers.
 
-Treffer = Claudes erster Tool-Aufruf ist `Skill` mit einem Namen, der den Skill-Namen enthält.
-Voraussetzung: Claude Code (`claude`) installiert, angemeldet, Plugin installiert.
+Hit = Claude's first tool call is `Skill` with a name containing the skill name.
+Requires Claude Code (`claude`) installed, signed in, and this plugin installed.
 
-Aufruf:
+Usage:
   python3 tests/trigger_check.py tests/trigger-eval.json \
-      [--runs 3] [--workers 6] [--model <modell-id>] [--skill vibe-rebuild] [--out result.json]
+      [--runs 3] [--workers 6] [--model <model-id>] [--skill vibe-rebuild] [--out result.json]
 
-Hinweis: Der Optimierer des skill-creator zählt nur seine eigene Testkopie als Treffer.
-Ist das Plugin bereits installiert, gewinnt der installierte Skill und der Optimierer meldet
-fälschlich 0 %. Dieses Skript misst deshalb direkt gegen den installierten Skill.
+Note: skill-creator's optimizer only counts its own temporary copy as a hit. When the plugin
+is already installed, the installed skill wins and the optimizer wrongly reports 0 %.
+This script therefore measures against the installed skill directly.
 """
 import argparse
 import concurrent.futures as cf

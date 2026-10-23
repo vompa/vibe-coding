@@ -1,6 +1,6 @@
 {
   "name": "vompa",
-  "description": "Plugins von vompa für KI-gestützte Softwareentwicklung",
+  "description": "Plugins by vompa for AI-assisted software engineering",
   "owner": {
     "name": "vompa",
     "url": "https://vompa.dev"
@@ -9,7 +9,7 @@
     {
       "name": "vibe-rebuild",
       "source": "./",
-      "description": "Bauplan für den Neubau bestehender Apps per Vibe Coding – mit Paritätstests gegen das Original."
+      "description": "Rebuild plan for existing apps via vibe coding – with parity tests against the original."
     }
   ]
 }

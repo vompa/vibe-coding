@@ -1,63 +1,63 @@
-# Vorlagen
+# Templates
 
 ## PRD.md
 ```
-# PRD – <Produktname> (Neubau)
-> Beschreibt was, nicht wie. Begriffe: GLOSSARY.md. Weiter gültige Quelldokumente: <Liste>.
-> Bei Widerspruch gilt: <Quellen-Rangfolge>.
+# PRD – <product name> (rebuild)
+> Describes what, not how. Terms: GLOSSARY.md. Source documents that remain valid: <list>.
+> On contradictions: <source precedence>.
 
-## Zweck            (2–3 Sätze)
-## Grundsätze       (G1…Gn – gelten für jedes Feature)
-## Nutzer           (Rolle | sieht/darf | typische Aufgaben)
+## Purpose          (2–3 sentences)
+## Principles       (P1…Pn – apply to every feature)
+## Users            (role | sees/may | typical tasks)
 ## Features
-### F1 <Name>
-**Story**: Als <Rolle> will ich <Ziel>, damit <Nutzen>.
-- AK1 Given … When … Then … (exakte Zahlen, wenn bekannt)
-- Randfälle: …
-- Fehler: …
-## API (Vertrag)    (Routen/Operationen kurz, Fehlerformat)
-## Bewusst behobene Legacy-Fehler   (dürfen in der Parität abweichen)
-## Nicht-Ziele
+### F1 <name>
+**Story**: As a <role> I want <goal> so that <benefit>.
+- AC1 Given … When … Then … (exact numbers where known)
+- Edge cases: …
+- Errors: …
+## API (contract)   (routes/operations in short, error format)
+## Legacy bugs fixed on purpose   (may deviate in parity)
+## Non-goals
 ```
 
 ## GLOSSARY.md
 ```
-| Begriff | Code | Bedeutung |
+| Term | Code | Meaning |
 ```
 
-## CLAUDE.md (Zielrepo)
+## CLAUDE.md (target repo)
 ```
-# CLAUDE.md – <Produkt> (Neubau)
-<Zweck in 2–3 Sätzen>; Verweis auf PRD.md, GLOSSARY.md; Ziel = Parität laut parity/.
+# CLAUDE.md – <product> (rebuild)
+<purpose in 2–3 sentences>; points to PRD.md, GLOSSARY.md; goal = parity per parity/.
 
-## Architektur       (Projekt-/Modulbaum mit Abhängigkeitspfeilen; wie erzwungen: Architekturtests, Analyzer)
-## Harte Regeln      (≤300 Zeilen/Datei, eine Verantwortung, Konstanten einmal, keine Secrets,
-                      keine neuen Pakete ohne Rückfrage, Fachlogik nur an einer Stelle, typisierte Fehler)
-## Verboten (Legacy) (konkrete Befunde aus analysis.md)
-## Befehle           (exakt ausführbar: build, test, parity, run, lint)
-## Arbeitsweise      (Slice lesen → Plan → failing Tests → Code → DoD → Commit; Unklarheit = fragen)
+## Architecture     (project/module tree with dependency arrows; how enforced: architecture tests, analyzers)
+## Hard rules       (≤300 lines per file, single responsibility, constants once, no secrets,
+                     no new packages without asking, business logic in one place, typed errors)
+## Forbidden (legacy) (concrete findings from analysis.md)
+## Commands         (exactly runnable: build, test, parity, run, lint)
+## Way of working   (read slice → plan → failing tests → code → DoD → commit; unclear = ask)
 ```
 
 ## parity/README.md
 ```
-# Paritäts-Harness
-## Drei Arten (Fachvertrag | Schnittstellenvertrag | implementierungsgebunden – nicht übernehmen)
-## Aufzeichnung vom Original (Startkonfiguration, deterministische Fallbacks, Uhr anhalten, fixtures/<bereich>/<fall>.json)
-## Normalisierung     (Ids, Tokens, Dauer, Realzeit-Zeitstempel → Platzhalter)
-## Nicht deterministische Teile (Fake-Modell, Stubs)
-## Abweichungsprotokoll (deviations.md: Fall | Original | Neubau | Bewertung)
+# Parity harness
+## Three kinds (business contract | interface contract | implementation-bound – not carried over)
+## Recording from the original (start config, deterministic fallbacks, frozen clock, fixtures/<area>/<case>.json)
+## Normalization     (ids, tokens, durations, wall-clock timestamps → placeholders)
+## Non-deterministic parts (fake model, stubs)
+## Deviation log     (deviations.md: case | original | rebuild | verdict)
 ```
 
-## _slices.json (Eingabe für scripts/render_slices.py)
+## _slices.json (input for scripts/render_slices.py)
 ```json
 [
   {
-    "nr": "00", "slug": "scaffold", "name": "Gerüst",
-    "goal": "Lauffähige, leere Solution mit allen Gates und Paritäts-Harness.",
-    "prd": "Grundsätze, CLAUDE.md", "deps": "–",
-    "scope": ["Solution + Projekte", "Architekturtests", "CI", "Paritäts-Harness"],
-    "parity": "Architekturtests grün auf leerer Solution",
-    "non_goals": "Fachlogik"
+    "nr": "00", "slug": "scaffold", "name": "Scaffold",
+    "goal": "Runnable empty solution with all quality gates and the parity harness.",
+    "prd": "Principles, CLAUDE.md", "deps": "–",
+    "scope": ["Solution + projects", "Architecture tests", "CI", "Parity harness"],
+    "parity": "Architecture tests green on the empty solution",
+    "non_goals": "Business logic"
   }
 ]
 ```

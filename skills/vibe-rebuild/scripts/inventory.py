@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Schnelle Inventur einer Codebasis als Markdown.
+"""Quick inventory of a codebase as Markdown.
 
-Aufruf: python3 inventory.py <repo-pfad> [--max-lines 300]
-Gibt aus: Projektdateien, Zeilen je Ordner (Top 25), Dateien über der Grenze,
-Testdateien je Ordner und vorhandene Dokumentation (Spec, PRD, ADR, Mockups).
-Liest nur; ignoriert .git, node_modules, bin, obj, dist, Build-Ausgaben und Binärdateien.
+Usage: python3 inventory.py <repo-path> [--max-lines 300]
+Prints: project files, lines per folder (top 25), files over the limit,
+test files per folder and existing documentation (spec, PRD, ADR, mockups).
+Read-only; skips .git, node_modules, bin, obj, dist, build output and binaries.
 """
 import collections
 import pathlib
@@ -59,7 +59,7 @@ def main() -> int:
             projects.append(str(rel))
         low = str(rel).lower()
         if p.suffix in {".md", ".html", ".pdf", ".txt"} and any(h in low for h in DOC_HINTS):
-            docs.append(str(rel) if p.suffix == ".pdf" else f"{rel} ({count_lines(p)} Z.)")
+            docs.append(str(rel) if p.suffix == ".pdf" else f"{rel} ({count_lines(p)} lines)")
         if p.suffix not in CODE_EXT:
             continue
         n = count_lines(p)
@@ -71,25 +71,25 @@ def main() -> int:
         elif n > limit:
             big.append((n, str(rel)))
 
-    print(f"# Inventur {root.name}\n")
-    print(f"Code-Dateien: {files}, Zeilen gesamt: {total}\n")
-    print("## Projekte / Build-Dateien")
-    print("\n".join(f"- {x}" for x in sorted(projects)) or "- keine gefunden")
-    print("\n## Vorhandene Dokumentation (mögliche primäre Quelle der Absicht)")
-    print("\n".join(f"- {x}" for x in sorted(docs)) or "- keine gefunden")
-    print("\n## Zeilen je Ordner (Top 25)")
+    print(f"# Inventory {root.name}\n")
+    print(f"Code files: {files}, total lines: {total}\n")
+    print("## Projects / build files")
+    print("\n".join(f"- {x}" for x in sorted(projects)) or "- none found")
+    print("\n## Existing documentation (possible primary source of intent)")
+    print("\n".join(f"- {x}" for x in sorted(docs)) or "- none found")
+    print("\n## Lines per folder (top 25)")
     for d, n in per_dir.most_common(25):
         print(f"- {d}: {n}")
-    print(f"\n## Produktivdateien über {limit} Zeilen (Legacy-Kandidaten)")
+    print(f"\n## Production files over {limit} lines (legacy candidates)")
     for n, f in sorted(big, reverse=True):
         print(f"- {f}: {n}")
     if not big:
-        print("- keine")
-    print("\n## Testdateien je Ordner")
+        print("- none")
+    print("\n## Test files per folder")
     for d, n in sorted(tests.items()):
         print(f"- {d}: {n}")
     if not tests:
-        print("- keine gefunden")
+        print("- none found")
     return 0
 
 
