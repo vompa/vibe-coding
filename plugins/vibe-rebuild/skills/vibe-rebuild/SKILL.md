@@ -5,7 +5,7 @@ license: MIT
 compatibility: Designed for Claude Code and Claude with file access and subagents; scripts need Python 3.10+.
 metadata:
   author: vompa
-  version: "2.1.0"
+  version: "2.1.1"
 ---
 
 # Vibe Rebuild – rebuild an existing app with vibe coding

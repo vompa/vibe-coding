@@ -1,7 +1,7 @@
 {
   "name": "vibe-rebuild",
   "displayName": "Vibe Rebuild",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Turns an existing app into a vibe-coding rebuild plan for AI agents: analysis, PRD, glossary, CLAUDE.md guardrails, vertical slices with ready-to-run prompts, and parity tests against the original.",
   "author": {
     "name": "vompa",
@@ -19,5 +19,10 @@
     "prd",
     "parity-tests",
     "claude-code"
-  ]
+  ],
+  "icon": "./.claude-plugin/icon.png",
+  "documentationUrl": "https://github.com/vompa/vibe-rebuild#readme",
+  "supportUrl": "https://github.com/vompa/vibe-rebuild/issues",
+  "privacyPolicyUrl": "https://github.com/vompa/vibe-rebuild/blob/main/plugins/vibe-rebuild/PRIVACY.md",
+  "termsOfServiceUrl": "https://github.com/vompa/vibe-rebuild/blob/main/plugins/vibe-rebuild/LICENSE"
 }

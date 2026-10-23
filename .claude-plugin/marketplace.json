@@ -8,7 +8,7 @@
   "plugins": [
     {
       "name": "vibe-rebuild",
-      "source": "./",
+      "source": "./plugins/vibe-rebuild",
       "description": "Rebuild plan for existing apps via vibe coding – with parity tests against the original."
     }
   ]

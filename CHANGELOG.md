@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.1.1 – 2026-10-23
+- Plugin moved to `plugins/vibe-rebuild/`; developer tooling (`tests/`, CI) is no longer part of the shipped bundle. Install command unchanged.
+- Directory listing fields: icon, documentation, support, privacy policy and terms (MIT license) links; added PRIVACY.md and a plugin README.
+
 ## 2.1.0 – 2026-10-23
 - New section "Keep the chat clean": subagent reports and `<task-notification>`/`<result>` markup are never echoed into the chat; reports are saved to `vibe-plan/_raw/<area>.md`, the chat gets at most one status line per step and a short final summary.
 - Explorer prompt: answer starts directly with the first heading, no preamble; the report is marked as orchestrator-only.

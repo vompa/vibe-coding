@@ -40,7 +40,7 @@ claude plugin install vibe-rebuild@vompa
 ```
 or inside a session: `/plugin install vibe-rebuild --marketplace vompa/vibe-rebuild`
 
-**Claude.ai / other agents:** upload the `skills/vibe-rebuild/` folder as a skill, or copy it into the agent's skills directory.
+**Claude.ai / other agents:** upload the `plugins/vibe-rebuild/skills/vibe-rebuild/` folder as a skill, or copy it into the agent's skills directory.
 
 ## Usage
 
@@ -62,11 +62,14 @@ Explicitly: `/vibe-rebuild:vibe-rebuild <repo or path>`
 
 ## Development
 
+Repository layout: the shipped plugin lives in `plugins/vibe-rebuild/` (what the directory and installs see); `tests/` and CI stay outside the plugin.
+
 ```bash
-claude plugin validate --strict .
-claude --plugin-dir .     # load the plugin for one session
+claude plugin validate --strict .                      # marketplace
+claude plugin validate --strict plugins/vibe-rebuild   # plugin
+claude --plugin-dir plugins/vibe-rebuild               # load the plugin for one session
 ```
-New version: bump `version` in `.claude-plugin/plugin.json` and `metadata.version` in SKILL.md, add a `CHANGELOG.md` entry.
+New version: bump `version` in `plugins/vibe-rebuild/.claude-plugin/plugin.json` and `metadata.version` in SKILL.md, add a `CHANGELOG.md` entry.
 
 ## License
 
