@@ -19,7 +19,7 @@ Write the plan in the user's language (default: English).
 
 The user reads the chat; the work happens in files. This run produces long intermediate material (agent reports, inventories, drafts) that must never land in the conversation:
 
-- **Agent reports are working material.** When a subagent finishes, its result (and any `<task-notification>`, `<result>` or other system/tool markup around it) is for you, not the user. Never paste, quote or echo it. Save the report body to `vibe-plan/_raw/<area>.md` right away and continue.
+- **Agent reports are working material.** When a subagent finishes, its result (and any `<task-notification>`, `<result>` or other system/tool markup around it) is for you, not the user. Never paste, quote or echo it. Save the report body to `rebuild/_raw/<area>.md` right away and continue.
 - **Between steps, one short status line at most** (e.g. "Analysis 3/4 done – data layer still running."). No headings, no bullet dumps of findings mid-run.
 - **Findings go into the plan files**, not into chat messages. The final message is a short summary: what was produced, the 2–3 most important findings, the open architecture questions, and the delivered folder/zip.
 
@@ -70,7 +70,7 @@ If the user is away or asks for a trial run, make sensible assumptions, mark the
 ## 2. Inventory (fast, before the agents)
 
 ```
-python3 scripts/inventory.py <repo> > vibe-plan/_inventory.md
+python3 scripts/inventory.py <repo> > rebuild/_inventory.md
 ```
 Lists projects, files and lines per folder, files over 300 lines, test files, and existing documentation.
 Make two decisions from it:
@@ -78,9 +78,9 @@ Make two decisions from it:
 - **Is there an existing spec?** (`docs/`, `spec*`, `PRD*`, ADRs, mockups, calibration/domain documents). If so, it is the primary source of intent; code and tests show the actual state. Set a **source precedence** (e.g. domain document > tests > spec > mockup > comments) and record it in the PRD. Contradictions between sources are normal and valuable – collect them, don't smooth them over.
 - **Analysis split**: 3–5 areas along layers or projects (e.g. domain + simulation, data/persistence, API/integrations, frontend + infra + tests). Rule of thumb: one agent per ~8–12k lines.
 
-## 3. Analysis → `vibe-plan/analysis.md`
+## 3. Analysis → `rebuild/analysis.md`
 
-Launch the explorer agents in parallel, one per area, using the template in `references/explorer-prompt.md`. As each one finishes, save its report to `vibe-plan/_raw/<area>.md` (silently – see "Keep the chat clean"). When all are in, merge them into one file with this schema:
+Launch the explorer agents in parallel, one per area, using the template in `references/explorer-prompt.md`. As each one finishes, save its report to `rebuild/_raw/<area>.md` (silently – see "Keep the chat clean"). When all are in, merge them into one file with this schema:
 
 ```
 # Analysis
@@ -101,7 +101,7 @@ This schema is the interface to every later phase – if an external reverse-eng
 
 Templates: `references/templates.md`.
 
-## 5. Target-stack research → `vibe-plan/research.md`
+## 5. Target-stack research → `rebuild/research.md`
 
 The analysis tells you what the old app does; it says nothing about how the target stack is built well *today*. Without this step, versions, architecture and guardrails come from training data – often outdated, and blind to whatever the model happens not to think of.
 
@@ -118,21 +118,21 @@ Collect first, decide later:
 Use `references/research-prompt.md` when delegating this to a subagent. Same stack and versions stay the same → keep it short: versions, deprecations, current conventions.
 Search queries contain only generic technology terms – never code, internal names, customer data or secrets from the original.
 
-## 6. Guardrails → `vibe-plan/CLAUDE.md` (for the target repo)
+## 6. Guardrails → `CLAUDE.md` (repo root)
 
 Built on the decisions in `research.md`, not on defaults from memory. Target architecture with allowed dependency directions – and how it is **enforced** (architecture tests such as NetArchTest/ArchUnit, analyzer rules). Rules that exist only as text don't survive many agent sessions.
 Plus: hard rules (file size, single responsibility, constants defined once, no secrets, no new packages without asking), "Forbidden" = legacy findings, exact commands, way of working (plan → failing tests → code, one slice per session, one commit per green slice).
 
-## 7. Slicing → `vibe-plan/slices/NN-name.md`
+## 7. Slicing → `rebuild/slices/NN-name.md`
 
 Vertical and ordered by dependency; slice 00 = scaffold including CI, architecture tests and the parity harness. Sizing: one slice ≈ one agent session (1–2 h), roughly one slice per 1.5–2k lines of the original.
-Record the slices as a list in `vibe-plan/_slices.json` and render them:
+Record the slices as a list in `rebuild/_slices.json` and render them:
 ```
-python3 scripts/render_slices.py vibe-plan/_slices.json vibe-plan/slices
+python3 scripts/render_slices.py rebuild/_slices.json rebuild/slices
 ```
 Each slice has goal, PRD reference, dependencies, scope, a ready-to-run prompt (plan first, then failing tests, then code), a Definition of Done with the concrete parity cases, and non-goals.
 
-## 8. Parity → `vibe-plan/parity/`
+## 8. Parity → `rebuild/parity/`
 
 The central lever. Sort parity cases into three kinds, because they are not equally robust:
 
@@ -159,17 +159,21 @@ Never call non-deterministic dependencies (LLM calls, external APIs, wall-clock 
 
 **Where the plan goes – in this order:**
 
-1. **Local git repo (default).** Ask for the full local path and show it back in full (e.g. `C:\Development\Repositories\<name>`, never `~/…` or a bare name). The plan folder is the root of the target repo: `CLAUDE.md` at the root, code and tests follow under `src/` and `tests/` from slice 00 on. `git init`, a `.gitignore` for the target stack, one initial commit. If the session reaches the user's machine only through remote file tools that may not write `.git`, build the repo in a scratch folder there and copy the finished `.git` in – never ask for delete rights on a parent folder that holds other projects.
+1. **Local git repo (default).** Ask for the full local path and show it back in full (e.g. `C:\Development\Repositories\<name>`, never `~/…` or a bare name). The plan becomes the target repo: only `CLAUDE.md` (Claude Code loads it from the root), `README.md` and `.gitignore` sit at the root; every plan document goes into `rebuild/`, detailed per-slice plans into `rebuild/plans/`, and the root stays free for `src/` and `tests/` from slice 00 on. `git init`, a `.gitignore` for the target stack, one initial commit. If the session reaches the user's machine only through remote file tools that may not write `.git`, build the repo in a scratch folder there and copy the finished `.git` in – never ask for delete rights on a parent folder that holds other projects.
 2. **GitHub**, when a local repo is not possible: the user creates an empty repo and names it, you push the initial commit (or a new branch in an existing repo).
 3. **Files only**, when the user wants neither: deliver the folder and a zip and say how to turn it into a repo later.
 
 The original stays untouched.
 
-**Handover message.** Name the result with its full location (local path, repo URL, or the delivered files), then how to start slice 00 from the slice prompt. Then suggest the superpowers command for slice 00 as one ready-to-paste block – after the repo is created, or, for files only, as an example directly below the delivered files. Mention that it needs the superpowers plugin; never install it yourself:
+**Handover message.** Name the result with its full location (local path, repo URL, or the delivered files). Then offer both ways to start slice 00, each as a ready-to-paste block – after the repo is created, or, for files only, as an example directly below the delivered files:
+
+*Directly with Claude Code* – open a fresh session in the repo and paste the prompt from `rebuild/slices/00-<name>.md` (it reads `CLAUDE.md`, the PRD sections and `rebuild/research.md`, plans first, then tests, then code).
+
+*With superpowers* – needs the superpowers plugin; never install it yourself:
 
 ```
-Use superpowers:writing-plans for slices/00-<name>.md, constrained by CLAUDE.md, research.md and parity/.
-Save the plan under docs/superpowers/plans/ and show it to me before any code.
+Use superpowers:writing-plans for rebuild/slices/00-<name>.md, constrained by CLAUDE.md, rebuild/research.md and rebuild/parity/.
+Save the plan under rebuild/plans/ and show it to me before any code.
 After I approve, execute it with superpowers:subagent-driven-development.
 ```
 
@@ -186,9 +190,12 @@ After I approve, execute it with superpowers:subagent-driven-development.
 Root of the git repo (or the delivered folder when the user chose files only):
 
 ```
-vibe-plan/
-  README.md  analysis.md  research.md  open-questions.md  PRD.md  GLOSSARY.md  CLAUDE.md  checklist.md
+CLAUDE.md  README.md  .gitignore
+rebuild/
+  analysis.md  research.md  open-questions.md  PRD.md  GLOSSARY.md  checklist.md
   slices/00-scaffold.md … NN-*.md
-  parity/README.md  <area>-cases.md …
+  parity/README.md  <area>-cases.md  deviations.md
+  plans/                 (detailed per-slice plans, e.g. from superpowers)
   _inventory.md  _slices.json  _raw/   (agent reports, working material)
+src/  tests/             (from slice 00 on)
 ```

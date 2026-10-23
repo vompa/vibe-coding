@@ -6,19 +6,20 @@ An [Agent Skill](https://agentskills.io) and Claude Code plugin. It reads an exi
 
 ## What you get
 
-By default the plan is committed as a git repo that becomes the target repo of the rebuild (`CLAUDE.md` at the root, code follows in `src/`); a folder and zip are offered only if you don't want a repo.
+By default the plan is committed as a local git repo (full path asked and shown), with GitHub as fallback and a folder/zip only if you want neither. The repo becomes the target repo of the rebuild: `CLAUDE.md` at the root, all plan documents in `rebuild/`, code follows in `src/` and `tests/`.
 
 ```
-vibe-plan/
-  README.md          rebuild-vs-refactor assessment, slice graph, first steps
+CLAUDE.md            guardrails for the target repo (architecture, hard rules, commands)
+README.md            rebuild-vs-refactor assessment, slice graph, first steps
+rebuild/
   analysis.md        stack, domain, features, interfaces, tests, legacy findings
   research.md        current best practice for the target stack, with sources and decisions
   open-questions.md  open questions with marked assumptions
   PRD.md             behaviour from the user's view with Given/When/Then
   GLOSSARY.md        binding terminology
-  CLAUDE.md          guardrails for the target repo (architecture, hard rules, commands)
   slices/NN-*.md     per slice: goal, scope, ready-to-run prompt, Definition of Done
   parity/            business contract, interface contract, recording plan
+  plans/             detailed per-slice plans (e.g. from superpowers)
   checklist.md
 ```
 

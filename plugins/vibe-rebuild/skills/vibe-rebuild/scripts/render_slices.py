@@ -19,10 +19,10 @@ TEMPLATE = """# Slice {nr} – {name}
 
 ## Prompt
 ```
-Read CLAUDE.md, GLOSSARY.md, research.md and the PRD sections "{prd}".
+Read CLAUDE.md, rebuild/GLOSSARY.md, rebuild/research.md and the rebuild/PRD.md sections "{prd}".
 Implement slice {nr} "{name}" (this file).
 0. If this slice needs a library or pattern research.md does not cover,
-   look up its current documentation first and add the findings to research.md.
+   look up its current documentation first and add the findings to rebuild/research.md.
 1. First present a plan (files, classes, tests) and wait for approval.
 2. Write this slice's acceptance and parity tests as failing tests (RED).
 3. Implement the minimum to get green, then refactor. Follow every rule in CLAUDE.md.

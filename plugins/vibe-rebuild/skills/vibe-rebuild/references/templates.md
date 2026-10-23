@@ -40,7 +40,7 @@
 ## CLAUDE.md (target repo)
 ```
 # CLAUDE.md – <product> (rebuild)
-<purpose in 2–3 sentences>; points to PRD.md, GLOSSARY.md, research.md; goal = parity per parity/.
+<purpose in 2–3 sentences>; points to rebuild/PRD.md, rebuild/GLOSSARY.md, rebuild/research.md; goal = parity per rebuild/parity/.
 
 ## Architecture     (project/module tree with dependency arrows; how enforced: architecture tests, analyzers)
 ## Hard rules       (≤300 lines per file, single responsibility, constants once, no secrets,
