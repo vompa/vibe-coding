@@ -19,7 +19,7 @@ Answer the user in the language of rebuild/README or README.md.
 - nothing → pick the lowest-numbered slice that is not ticked and whose dependencies are all ticked.
   Say which one you picked and why, then go on.
 - Before slice 00: check the prerequisites listed in README.md ("Voraussetzungen" / "Prerequisites").
-  If one is missing (SDK, built original, its path), say exactly what is missing and how to fix it, then stop.
+  If one is missing (SDK, tool), say exactly what is missing and how to fix it, then stop.
 
 ## 2. Read before planning
 - rebuild/slices/NN-*.md – goal, scope, PRD reference, parity cases, Definition of Done, non-goals

@@ -10,7 +10,8 @@ metadata:
 
 # Vibe Rebuild – rebuild an existing app with vibe coding
 
-Goal: turn an existing codebase into a plan a coding agent can follow to rebuild the app slice by slice while staying **provably equivalent** to the original.
+Goal: turn an existing codebase into a plan a coding agent can follow to rebuild the app slice by slice – in the same or another stack – while staying **provably equivalent** to the original.
+The plan is **self-contained**: the analysis captures everything the original does, so once the plan is written the rebuild needs neither the original's code nor a running original. Parity is proven against cases written into the plan, not against the old system.
 The skill extracts the app's *intent* (behaviour, contracts, business numbers), not its implementation, and copies no code. Why: copying code drags the legacy along; carrying over only behaviour and contracts lets you re-cut the design cleanly and still prove parity.
 
 Write the plan in the user's language (default: English).
@@ -27,7 +28,7 @@ The user reads the chat; the work happens in files. This run produces long inter
 
 Clean does not mean silent. A user staring at a window where nothing moves for twenty minutes assumes the run hung. So:
 
-- **Announce long steps.** Before any step that can take more than a few minutes (parallel analysis, research, building and testing the original), say in one line what runs and roughly how long it takes.
+- **Announce long steps.** Before any step that can take more than a few minutes (parallel analysis, research), say in one line what runs and roughly how long it takes.
 - **No silent stretch longer than ~5 minutes.** Cut long work into pieces that each come back within a few minutes and post a status line after each piece: what finished, one number that shows progress (topics, sources, files, tests), what runs next. If the session offers a way to check in on a running task (a wake-up/monitor/send-later tool), use it instead of waiting blind.
 - **Make progress visible in files too.** Long-running agents append to their output file as they go (see §5) rather than writing everything at the end, so a status line can report real progress.
 - Status lines stay short and factual – no findings dumps, no agent markup.
@@ -63,7 +64,7 @@ This skill produces the plan; execution happens in a later session in the target
 
 ## 1. Inputs (one round, then go)
 
-Repo/path (read only), target stack (default: same stack, current versions), scope, whether the original runs locally, and **where the plan should live**: a local git repo (default – ask for the full path), GitHub if local is not possible, or files only (folder + zip).
+Repo/path (read only), target stack (default: same stack, current versions), scope, and **where the plan should live**: a local git repo (default – ask for the full path), GitHub if local is not possible, or files only (folder + zip).
 Ask all of these in one go. For the target stack offer concrete options (same stack, 2–3 plausible alternatives for this app, other) rather than a bare "different stack", so no second round of questions is needed.
 If the user is away or asks for a trial run, make sensible assumptions, mark them `[Assumption]`, and keep going.
 
@@ -142,13 +143,17 @@ The central lever. Sort parity cases into three kinds, because they are not equa
 | **Interface contract** | status codes, error formats, field names, event order | check strictly |
 | **Implementation-bound** | checksums over random generators, byte snapshots, timing | do not carry over; define anew in the rebuild |
 
-Sources, in this order:
+Sources, in this order – all read during planning, none needed afterwards:
 1. **The original's existing tests** – usually the richest source; turn assertions into cases (input → expected output).
-2. **Recordings against the running original** (request/response per endpoint and role), volatile fields normalized; compare with Verify/approval tests or similar.
+2. **The code itself** for behaviour no test pins: exact response and error formats, limits, defaults, edge cases – taken from the analysis and spot-checked against the code.
 3. Domain documents.
 
+Write every case into `rebuild/parity/` as concrete input → expected output, with exact values and the source it came from, so the rebuild's acceptance tests can be written from the plan alone. Each test creates its own fixtures (files, data, config). The original is never built, started or queried to run these tests – not while planning, not while building.
+
+The interface contract is what clients rely on: names, parameters, defaults, response and error formats, status codes, event order. Free prose such as help or description texts is not copied – the rebuild writes its own from the PRD.
+
 Never call non-deterministic dependencies (LLM calls, external APIs, wall-clock time) live in parity tests: use scripted fakes/stubs, record deterministic fallbacks, freeze the clock.
-`parity/README.md` describes harness, recording, normalization, and a deviation log (bug in the rebuild vs. fixed on purpose + PRD reference).
+`parity/README.md` describes the harness (how cases become tests), normalization of volatile values, and a deviation log (bug in the rebuild vs. fixed on purpose + PRD reference).
 
 ## 9. Handover
 
@@ -170,13 +175,14 @@ The original stays untouched.
 **Handover message.** Keep it short and concrete, so the user knows exactly what to do next:
 1. The full location (local path, repo URL, or the delivered files).
 2. How to start: "Open a terminal in <full path>, run `claude`, type `/rebuild`." – plus one sentence on what happens then (it picks slice 00, shows a plan, builds after approval).
-3. Prerequisites that are still missing on the user's side (e.g. build the original), if any.
+3. Prerequisites that are still missing on the user's side (e.g. the target SDK), if any.
 4. One line pointing to the README section "Getting started" for commands, parallel work and troubleshooting.
 For files only, give the same steps as an example directly below the delivered files, with "after unpacking into a folder and running `git init`" as the first step. Mention that superpowers is optional and detected automatically; never install it yourself.
 
 ## Rules
 
-- Never modify the original; only read it and run parity tests.
+- Never modify the original; only read it.
+- The plan must stand on its own: anything the rebuild needs from the original goes into the plan files. If a slice would need to look at the original, the analysis has a gap – close it in the plan.
 - Copy no code – behaviour, data contracts, interfaces and business numbers, yes.
 - Never put secrets, connection strings or personal test data into the plan; use placeholders.
 - A marked assumption beats a silent invention.

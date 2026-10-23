@@ -1,6 +1,6 @@
 # Template: README section "Getting started"
 
-Put this section into the plan's `README.md` in the user's language, after the slice graph. Fill the `<…>` placeholders from the plan – especially the prerequisites (SDKs, how to build the original, how the tests find it) and the parallel strands from the slice graph. It must let someone who has never seen the plan start without asking.
+Put this section into the plan's `README.md` in the user's language, after the slice graph. Fill the `<…>` placeholders from the plan – especially the prerequisites (SDKs and tools for the target stack; the original is not needed) and the parallel strands from the slice graph. It must let someone who has never seen the plan start without asking.
 
 ```markdown
 ## Getting started
@@ -13,18 +13,16 @@ The whole rebuild runs through one Claude Code command: **`/rebuild`**. It picks
 |---|---|---|
 | Claude Code | runs `/rebuild` | `claude --version` |
 | <target SDK> | builds the rebuild | <command> |
-| <original's runtime> and the built original | parity comparison from slice 00 on | <build command in the original's folder> |
-| <how the tests find the original, e.g. an env var> | <why> | <how to set it> |
 | optional: superpowers plugin | finer plans, one subagent per task, reviews in between | install via `/plugin` in Claude Code; `/rebuild` detects it |
 
-If something is missing, `/rebuild` says exactly what and how to fix it before slice 00.
+If something is missing, `/rebuild` says exactly what and how to fix it before slice 00. The original app is not needed – everything the rebuild must match is written down in `rebuild/`.
 
 ### Each slice
 
 1. **Start Claude Code in the repo folder** – open a terminal there and run `claude`.
 2. **Type `/rebuild`.** Claude names the slice that is next and why.
 3. **Check the plan.** Claude saves it under `rebuild/plans/` and shows it (files, classes, tests). Approve it ("looks good, go") or say what to change.
-4. **Claude builds the slice** – failing tests first, then code until everything is green, including the parity comparison with the original. Short status lines in between.
+4. **Claude builds the slice** – failing tests first, then code until everything is green, including the parity cases from `rebuild/parity/`. Short status lines in between.
 5. **Done.** Claude ticks the slice in `rebuild/checklist.md` and ends with three lines: what is done, which slices are ready now, and "start a fresh session, `/rebuild`".
 6. **Fresh session** (new terminal or `/clear`), `/rebuild` again – one session per slice keeps the context clean.
 
@@ -44,7 +42,7 @@ If something is missing, `/rebuild` says exactly what and how to fix it before s
 ### When something goes wrong
 
 - **Tests stay red** – the slice is not ticked; fresh session, `/rebuild NN`, Claude resumes on the existing branch and plan.
-- **Rebuild behaves differently from the original** – Claude records it in `rebuild/parity/deviations.md` (bug in the rebuild or deliberate deviation with reason).
+- **A parity case fails** – Claude records it in `rebuild/parity/deviations.md` (bug in the rebuild or deliberate deviation with reason).
 - **An open domain question** – it is in `rebuild/open-questions.md`; answer Claude directly, the decision goes into the plan and spec.
 - **Where am I?** – `/rebuild status`.
 
@@ -59,6 +57,6 @@ If something is missing, `/rebuild` says exactly what and how to fix it before s
 | `rebuild/checklist.md` | progress |
 | `rebuild/PRD.md`, `rebuild/GLOSSARY.md` | intended behaviour, binding terms |
 | `rebuild/research.md` | technical decisions with sources |
-| `rebuild/parity/` | comparison cases with the original, deviation log |
+| `rebuild/parity/` | expected behaviour taken from the original (cases with exact values), deviation log |
 | `src/`, `tests/` | the new code (from slice 00 on) |
 ```

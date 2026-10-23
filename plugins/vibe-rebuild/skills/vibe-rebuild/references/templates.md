@@ -54,10 +54,10 @@
 ```
 # Parity harness
 ## Three kinds (business contract | interface contract | implementation-bound – not carried over)
-## Recording from the original (start config, deterministic fallbacks, frozen clock, fixtures/<area>/<case>.json)
+## From case to test (one acceptance/approval test per case, written from the plan; each test creates its own fixtures)
 ## Normalization     (ids, tokens, durations, wall-clock timestamps → placeholders)
 ## Non-deterministic parts (fake model, stubs)
-## Deviation log     (deviations.md: case | original | rebuild | verdict)
+## Deviation log     (deviations.md: case | expected (plan) | rebuild | verdict)
 ```
 
 ## _slices.json (input for scripts/render_slices.py)
