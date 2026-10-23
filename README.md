@@ -9,8 +9,9 @@ An [Agent Skill](https://agentskills.io) and Claude Code plugin. It reads an exi
 By default the plan is committed as a local git repo (full path asked and shown), with GitHub as fallback and a folder/zip only if you want neither. The repo becomes the target repo of the rebuild: `CLAUDE.md` at the root, all plan documents in `rebuild/`, code follows in `src/` and `tests/`.
 
 ```
+.claude/commands/rebuild.md   one command to run the rebuild slice by slice
 CLAUDE.md            guardrails for the target repo (architecture, hard rules, commands)
-README.md            rebuild-vs-refactor assessment, slice graph, first steps
+README.md            rebuild-vs-refactor assessment, slice graph, step-by-step getting started
 rebuild/
   analysis.md        stack, domain, features, interfaces, tests, legacy findings
   research.md        current best practice for the target stack, with sources and decisions

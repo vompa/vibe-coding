@@ -15,6 +15,7 @@ A git repo (or, if you prefer, a folder and zip) that becomes the target repo of
 - **slices/** – vertical, dependency-ordered slices, each with a ready-to-run prompt and a Definition of Done
 - **parity/** – business and interface contracts drawn from the original's tests, plus a recording plan
 - **open-questions.md**, **checklist.md**, and a rebuild-vs-refactor assessment
+- **`/rebuild`** – one Claude Code command that runs the plan slice by slice (`/rebuild`, `/rebuild 07`, `/rebuild status`), using superpowers if you have it installed
 
 ## How to use it
 

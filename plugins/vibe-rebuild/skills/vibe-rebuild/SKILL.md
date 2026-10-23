@@ -56,7 +56,7 @@ Check what is available and tell the user in one line what you will use.
 | Analysis | `feature-dev:code-explorer` agents in parallel; a code-to-PRD skill if one exists | `Explore` subagents |
 | Target-stack research | web search + fetch (a deep-research skill if one exists) | model knowledge, every finding marked `[Unverified]` |
 | Sharpen the spec | `superpowers:brainstorming` | up to 5 questions to the user |
-| Execution later | the slice prompts; always suggest the superpowers command in the handover (§9), never install it | – |
+| Execution later | `/rebuild` command written into the target repo (§9); uses superpowers if installed, never installs it | slice prompts |
 | Improve this skill | `skill-creator` | – |
 
 This skill produces the plan; execution happens in a later session in the target repo. Never install plugins or tools for the user – only suggest commands for what is already there.
@@ -154,8 +154,10 @@ Never call non-deterministic dependencies (LLM calls, external APIs, wall-clock 
 
 `README.md` with:
 - **Assessment: rebuild vs. refactor** – if the original is already well structured and tested, a targeted refactor of the legacy findings is often cheaper; then say which slices would suffice for that. Weigh in what `research.md` found about the target stack (migration effort, breaking changes).
-- File overview, slice dependency graph (what can run in parallel), first steps, intended execution skill.
+- File overview and slice dependency graph (what can run in parallel).
+- **Getting started** from `references/getting-started.md`, filled in for this plan – prerequisites, the `/rebuild` flow, commands, parallel work, what to do when something goes wrong, where things are. Someone who has never seen the plan must be able to start from it alone.
 - `checklist.md` (slice × plan / tests red / green / parity / commit).
+- `.claude/commands/rebuild.md` – copy `references/rebuild-command.md` unchanged. `/rebuild` picks the next ready slice (or `/rebuild NN`, `/rebuild status`), uses superpowers when it is installed and the slice prompt otherwise, and closes each slice with the next ready ones.
 
 **Where the plan goes – in this order:**
 
@@ -165,17 +167,12 @@ Never call non-deterministic dependencies (LLM calls, external APIs, wall-clock 
 
 The original stays untouched.
 
-**Handover message.** Name the result with its full location (local path, repo URL, or the delivered files). Then offer both ways to start slice 00, each as a ready-to-paste block – after the repo is created, or, for files only, as an example directly below the delivered files:
-
-*Directly with Claude Code* – open a fresh session in the repo and paste the prompt from `rebuild/slices/00-<name>.md` (it reads `CLAUDE.md`, the PRD sections and `rebuild/research.md`, plans first, then tests, then code).
-
-*With superpowers* – needs the superpowers plugin; never install it yourself:
-
-```
-Use superpowers:writing-plans for rebuild/slices/00-<name>.md, constrained by CLAUDE.md, rebuild/research.md and rebuild/parity/.
-Save the plan under rebuild/plans/ and show it to me before any code.
-After I approve, execute it with superpowers:subagent-driven-development.
-```
+**Handover message.** Keep it short and concrete, so the user knows exactly what to do next:
+1. The full location (local path, repo URL, or the delivered files).
+2. How to start: "Open a terminal in <full path>, run `claude`, type `/rebuild`." – plus one sentence on what happens then (it picks slice 00, shows a plan, builds after approval).
+3. Prerequisites that are still missing on the user's side (e.g. build the original), if any.
+4. One line pointing to the README section "Getting started" for commands, parallel work and troubleshooting.
+For files only, give the same steps as an example directly below the delivered files, with "after unpacking into a folder and running `git init`" as the first step. Mention that superpowers is optional and detected automatically; never install it yourself.
 
 ## Rules
 
@@ -191,6 +188,7 @@ Root of the git repo (or the delivered folder when the user chose files only):
 
 ```
 CLAUDE.md  README.md  .gitignore
+.claude/commands/rebuild.md
 rebuild/
   analysis.md  research.md  open-questions.md  PRD.md  GLOSSARY.md  checklist.md
   slices/00-scaffold.md … NN-*.md
