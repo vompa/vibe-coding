@@ -56,14 +56,14 @@ Check what is available and tell the user in one line what you will use.
 | Analysis | `feature-dev:code-explorer` agents in parallel; a code-to-PRD skill if one exists | `Explore` subagents |
 | Target-stack research | web search + fetch (a deep-research skill if one exists) | model knowledge, every finding marked `[Unverified]` |
 | Sharpen the spec | `superpowers:brainstorming` | up to 5 questions to the user |
-| Execution later | the slice prompts; if `superpowers` is already installed, suggest its command (see §9) | – |
+| Execution later | the slice prompts; always suggest the superpowers command in the handover (§9), never install it | – |
 | Improve this skill | `skill-creator` | – |
 
 This skill produces the plan; execution happens in a later session in the target repo. Never install plugins or tools for the user – only suggest commands for what is already there.
 
 ## 1. Inputs (one round, then go)
 
-Repo/path (read only), target stack (default: same stack, current versions), scope, whether the original runs locally, and **where the plan should live**: a new git repo (default – ask for the remote or repo name, or local only), a new branch in an existing repo, or files only (folder + zip).
+Repo/path (read only), target stack (default: same stack, current versions), scope, whether the original runs locally, and **where the plan should live**: a local git repo (default – ask for the full path), GitHub if local is not possible, or files only (folder + zip).
 Ask all of these in one go. For the target stack offer concrete options (same stack, 2–3 plausible alternatives for this app, other) rather than a bare "different stack", so no second round of questions is needed.
 If the user is away or asks for a trial run, make sensible assumptions, mark them `[Assumption]`, and keep going.
 
@@ -157,11 +157,21 @@ Never call non-deterministic dependencies (LLM calls, external APIs, wall-clock 
 - File overview, slice dependency graph (what can run in parallel), first steps, intended execution skill.
 - `checklist.md` (slice × plan / tests red / green / parity / commit).
 
-**The plan lives in a git repo by default.** The plan folder is the root of the target repo: `CLAUDE.md` sits at the root, code and tests follow under `src/` and `tests/` from slice 00 on, so the first session can start right there. Run `git init`, add a `.gitignore` for the target stack, make one initial commit, and push to the remote the user named (or attach it if the session can). If the user named an existing repo, commit to a new branch there instead. Offer the folder and a zip **only** if the user does not want a repo or no remote is reachable – then say how to push it later.
+**Where the plan goes – in this order:**
+
+1. **Local git repo (default).** Ask for the full local path and show it back in full (e.g. `C:\Development\Repositories\<name>`, never `~/…` or a bare name). The plan folder is the root of the target repo: `CLAUDE.md` at the root, code and tests follow under `src/` and `tests/` from slice 00 on. `git init`, a `.gitignore` for the target stack, one initial commit. If the session reaches the user's machine only through remote file tools that may not write `.git`, build the repo in a scratch folder there and copy the finished `.git` in – never ask for delete rights on a parent folder that holds other projects.
+2. **GitHub**, when a local repo is not possible: the user creates an empty repo and names it, you push the initial commit (or a new branch in an existing repo).
+3. **Files only**, when the user wants neither: deliver the folder and a zip and say how to turn it into a repo later.
 
 The original stays untouched.
 
-End the handover with how to start slice 00. If `superpowers` is installed in the session, also suggest its command for one slice (`superpowers:writing-plans` for `slices/NN-*.md`, constrained by `CLAUDE.md` and `research.md`, then `superpowers:subagent-driven-development`); if it is not installed, don't mention it – the slice prompts work on their own.
+**Handover message.** Name the result with its full location (local path, repo URL, or the delivered files), then how to start slice 00 from the slice prompt. Then suggest the superpowers command for slice 00 as one ready-to-paste block – after the repo is created, or, for files only, as an example directly below the delivered files. Mention that it needs the superpowers plugin; never install it yourself:
+
+```
+Use superpowers:writing-plans for slices/00-<name>.md, constrained by CLAUDE.md, research.md and parity/.
+Save the plan under docs/superpowers/plans/ and show it to me before any code.
+After I approve, execute it with superpowers:subagent-driven-development.
+```
 
 ## Rules
 
