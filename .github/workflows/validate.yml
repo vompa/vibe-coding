@@ -31,3 +31,5 @@ jobs:
           printf '%s' '[{"nr":"00","slug":"scaffold","name":"Scaffold","goal":"g","prd":"p","deps":"-","scope":["a"],"parity":"x","non_goals":"n"}]' > /tmp/s.json
           python plugins/vibe-rebuild/skills/vibe-rebuild/scripts/render_slices.py /tmp/s.json /tmp/slices
           test -f /tmp/slices/00-scaffold.md
+          python plugins/vibe-rebuild/skills/vibe-rebuild/scripts/render_slices.py /tmp/s.json /tmp/slices-de --lang de
+          grep -q "Hängt ab von" /tmp/slices-de/00-scaffold.md

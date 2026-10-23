@@ -130,8 +130,9 @@ Plus: hard rules (file size, single responsibility, constants defined once, no s
 Vertical and ordered by dependency; slice 00 = scaffold including CI, architecture tests and the parity harness. Sizing: one slice ≈ one agent session (1–2 h), roughly one slice per 1.5–2k lines of the original.
 Record the slices as a list in `rebuild/_slices.json` and render them:
 ```
-python3 scripts/render_slices.py rebuild/_slices.json rebuild/slices
+python3 scripts/render_slices.py rebuild/_slices.json rebuild/slices --lang <plan language>
 ```
+`--lang` writes the slice files and their prompts in the plan's language (`en`, `de` built in). For another language, render with `en` and translate the headings and the prompt, keeping file paths and command names unchanged.
 Each slice has goal, PRD reference, dependencies, scope, a ready-to-run prompt (plan first, then failing tests, then code), a Definition of Done with the concrete parity cases, and non-goals.
 
 ## 8. Parity → `rebuild/parity/`
@@ -160,16 +161,29 @@ Never call non-deterministic dependencies (LLM calls, external APIs, wall-clock 
 
 `README.md` with:
 - **Assessment: rebuild vs. refactor** – if the original is already well structured and tested, a targeted refactor of the legacy findings is often cheaper; then say which slices would suffice for that. Weigh in what `research.md` found about the target stack (migration effort, breaking changes).
-- File overview and slice dependency graph (what can run in parallel).
+- File overview and slice dependency graph (what can run in parallel), as a Mermaid block in the README plus rendered images (`rebuild/slice-graph.mmd/.png/.svg`), so it shows wherever the README is read. Size the picture for where it is seen:
+  - **Up to ~6 slices:** one compact top-down diagram is enough for the README and the side panel.
+  - **More slices:** a document version at roughly 2:1 for the README (group parallel strands into lanes and draw arrows between lanes, not between every slice, so lines don't cross) and a portrait version without group frames (`slice-graph-panel.png`) for the side panel or chat.
+  - Render with Mermaid CLI when available; otherwise ship the `.mmd` and the Mermaid block only. Show the panel image directly below the delivered result.
 - **Getting started** from `references/getting-started.md`, filled in for this plan – prerequisites, the `/rebuild` flow, commands, parallel work, what to do when something goes wrong, where things are. Someone who has never seen the plan must be able to start from it alone.
 - `checklist.md` (slice × plan / tests red / green / parity / commit).
 - `.claude/commands/rebuild.md` – copy `references/rebuild-command.md` unchanged. `/rebuild` picks the next ready slice (or `/rebuild NN`, `/rebuild status`), uses superpowers when it is installed and the slice prompt otherwise, and closes each slice with the next ready ones.
 
 **Where the plan goes – in this order:**
 
-1. **Local git repo (default).** Ask for the full local path and show it back in full (e.g. `C:\Development\Repositories\<name>`, never `~/…` or a bare name). The plan becomes the target repo: only `CLAUDE.md` (Claude Code loads it from the root), `README.md` and `.gitignore` sit at the root; every plan document goes into `rebuild/`, detailed per-slice plans into `rebuild/plans/`, and the root stays free for `src/` and `tests/` from slice 00 on. `git init`, a `.gitignore` for the target stack, one initial commit. If the session reaches the user's machine only through remote file tools that may not write `.git`, build the repo in a scratch folder there and copy the finished `.git` in – never ask for delete rights on a parent folder that holds other projects.
+1. **Local git repo (default).** Ask for the full local path and show it back in full (e.g. `C:\Development\Repositories\<name>`, never `~/…` or a bare name). The plan becomes the target repo: only `CLAUDE.md` (Claude Code loads it from the root), `README.md`, `.gitignore` and `.claude/commands/` sit at the root; every plan document goes into `rebuild/`, detailed per-slice plans into `rebuild/plans/`, and the root stays free for `src/` and `tests/` from slice 00 on. `git init`, a `.gitignore` for the target stack, one initial commit.
 2. **GitHub**, when a local repo is not possible: the user creates an empty repo and names it, you push the initial commit (or a new branch in an existing repo).
 3. **Files only**, when the user wants neither: deliver the folder and a zip and say how to turn it into a repo later.
+
+**Check where you run before writing anything** – the way to reach the target path depends on it:
+
+| Environment | How you notice | How to write the repo |
+|---|---|---|
+| Claude Code on the user's machine | the target path is on your own file system; normal file tools and shell work there | write all files directly, including `.git/` and `.claude/`; run `git init`, `git add`, `git commit` as usual |
+| Cloud session linked to the user's machine | remote-device tools are present; your own file system is a container | plain files via the file-transfer tool; `.git/` and `.claude/` are protected for transfer tools, so create them with the device shell: build the repo in a scratch folder on the device (`git init`, commit), then copy `.git/` and `.claude/` into the target folder. On a Windows folder mounted into a Linux shell, set `core.filemode=false`. Never ask for delete rights on a parent folder that holds other projects. |
+| No access to the user's machine | neither of the above | offer GitHub (2.) or files (3.) |
+
+Verify at the end, whatever the environment: `git log` shows the commit, `git status` is clean, `.claude/commands/rebuild.md` exists.
 
 The original stays untouched.
 
