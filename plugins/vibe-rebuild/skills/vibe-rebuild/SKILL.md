@@ -31,6 +31,21 @@ Clean does not mean silent. A user staring at a window where nothing moves for t
 - **No silent stretch longer than ~5 minutes.** Cut long work into pieces that each come back within a few minutes and post a status line after each piece: what finished, one number that shows progress (topics, sources, files, tests), what runs next. If the session offers a way to check in on a running task (a wake-up/monitor/send-later tool), use it instead of waiting blind.
 - **Make progress visible in files too.** Long-running agents append to their output file as they go (see §5) rather than writing everything at the end, so a status line can report real progress.
 - Status lines stay short and factual – no findings dumps, no agent markup.
+- **Start every status line with an overall percentage**, e.g. `[45 %] Analysis done (3/3) – research broad pass running (~5 min).` The percentage is a phase-based estimate, not a promise of remaining time:
+
+  | Phase | Weight | Counted inside the phase by |
+  |---|---|---|
+  | 1–2 Inputs, inventory | 5 % | done / not done |
+  | 3 Analysis | 25 % | explorer agents finished / launched, merge + spot-check counts as the last share |
+  | 4 PRD & glossary | 10 % | files written |
+  | 5 Target-stack research | 20 % | passes finished (broad, deep, distill); within a pass, topics finished / planned from `_raw/research-progress.md` |
+  | 6 Guardrails | 5 % | done / not done |
+  | 7 Slicing | 15 % | slices written / planned |
+  | 8 Parity | 15 % | case files written / planned |
+  | 9 Handover | 5 % | README, checklist, zip |
+
+  Sum the finished phases plus the counted share of the running one, round to 5 %. The number only goes up; if the plan grows (more slices than expected), slow it down rather than step back. Never show 100 % before the zip is delivered. When phases are skipped (e.g. no research because nothing changes), give their weight to the next phase.
+- When the task list is available, keep it in step with the same phases so the percentage and the list never disagree.
 
 ## 0. Pick your tools
 
