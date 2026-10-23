@@ -1,7 +1,7 @@
 {
   "name": "vibe-rebuild",
   "displayName": "Vibe Rebuild",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Turns an existing app into a vibe-coding rebuild plan for AI agents: analysis, PRD, glossary, CLAUDE.md guardrails, vertical slices with ready-to-run prompts, and parity tests against the original.",
   "author": {
     "name": "vompa",

@@ -5,7 +5,7 @@ license: MIT
 compatibility: Designed for Claude Code and Claude with file access and subagents; scripts need Python 3.10+.
 metadata:
   author: vompa
-  version: "2.0.0"
+  version: "2.1.0"
 ---
 
 # Vibe Rebuild – rebuild an existing app with vibe coding
@@ -14,6 +14,14 @@ Goal: turn an existing codebase into a plan a coding agent can follow to rebuild
 The skill extracts the app's *intent* (behaviour, contracts, business numbers), not its implementation, and copies no code. Why: copying code drags the legacy along; carrying over only behaviour and contracts lets you re-cut the design cleanly and still prove parity.
 
 Write the plan in the user's language (default: English).
+
+## Keep the chat clean
+
+The user reads the chat; the work happens in files. This run produces long intermediate material (agent reports, inventories, drafts) that must never land in the conversation:
+
+- **Agent reports are working material.** When a subagent finishes, its result (and any `<task-notification>`, `<result>` or other system/tool markup around it) is for you, not the user. Never paste, quote or echo it. Save the report body to `vibe-plan/_raw/<area>.md` right away and continue.
+- **Between steps, one short status line at most** (e.g. "Analysis 3/4 done – data layer still running."). No headings, no bullet dumps of findings mid-run.
+- **Findings go into the plan files**, not into chat messages. The final message is a short summary: what was produced, the 2–3 most important findings, the open architecture questions, and the delivered folder/zip.
 
 ## 0. Pick your tools
 
@@ -31,6 +39,7 @@ This skill produces the plan; execution happens in a later session in the target
 ## 1. Inputs (one round, then go)
 
 Repo/path (read only), target stack (default: same stack, current versions), scope, and whether the original runs locally.
+Ask all of these in one go. For the target stack offer concrete options (same stack, 2–3 plausible alternatives for this app, other) rather than a bare "different stack", so no second round of questions is needed.
 If the user is away or asks for a trial run, make sensible assumptions, mark them `[Assumption]`, and keep going.
 
 ## 2. Inventory (fast, before the agents)
@@ -46,7 +55,7 @@ Make two decisions from it:
 
 ## 3. Analysis → `vibe-plan/analysis.md`
 
-Launch the explorer agents in parallel, one per area, using the template in `references/explorer-prompt.md`. They all return the same schema, which you merge:
+Launch the explorer agents in parallel, one per area, using the template in `references/explorer-prompt.md`. As each one finishes, save its report to `vibe-plan/_raw/<area>.md` (silently – see "Keep the chat clean"). When all are in, merge them into one file with this schema:
 
 ```
 # Analysis
@@ -122,5 +131,5 @@ vibe-plan/
   README.md  analysis.md  open-questions.md  PRD.md  GLOSSARY.md  CLAUDE.md  checklist.md
   slices/00-scaffold.md … NN-*.md
   parity/README.md  <area>-cases.md …
-  _inventory.md  _slices.json
+  _inventory.md  _slices.json  _raw/   (agent reports, working material)
 ```

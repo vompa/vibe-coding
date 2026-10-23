@@ -23,6 +23,8 @@ exactly these headings, only what applies to your scope:
 
 Then add "Golden-master candidates": concrete input → observable output pairs, with the exact numbers.
 Say explicitly which files you did NOT read. Max ~1000 words.
+Start your answer directly with the first heading – no preamble ("I have read …"), no closing remarks.
+Your answer is saved to a file by the orchestrator; it is not shown to the end user.
 ```
 
 ## Notes
