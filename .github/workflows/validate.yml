@@ -33,8 +33,10 @@ jobs:
           test -f /tmp/slices/00-scaffold.md
           python plugins/vibe-rebuild/skills/vibe-rebuild/scripts/render_slices.py /tmp/s.json /tmp/slices-de --lang de
           grep -q "Hängt ab von" /tmp/slices-de/00-scaffold.md
-      - name: Check rebuild-loop scripts
+      - name: Check loop scripts
         run: |
           bash -n plugins/vibe-rebuild/skills/vibe-rebuild/assets/rebuild-loop.sh
           pwsh -NoProfile -Command "\$null = [scriptblock]::Create((Get-Content -Raw plugins/vibe-rebuild/skills/vibe-rebuild/assets/rebuild-loop.ps1))"
+          bash -n plugins/vibe-coding/skills/vibe-coding/assets/slice-loop.sh
+          pwsh -NoProfile -Command "\$null = [scriptblock]::Create((Get-Content -Raw plugins/vibe-coding/skills/vibe-coding/assets/slice-loop.ps1))"
           python tests/loop_test.py
