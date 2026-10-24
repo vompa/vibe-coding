@@ -15,8 +15,9 @@ A git repo (or, if you prefer, a folder and zip) that becomes the target repo of
 - **slices/** – vertical, dependency-ordered slices, each with a ready-to-run prompt and a Definition of Done
 - **parity/** – what must survive the rebuild: cases with exact expected values from the original's tests and code, plus a deviation log
 - **open-questions.md**, **checklist.md**, a slice graph, and a rebuild-vs-refactor assessment
-- **README** with a step-by-step getting-started section anyone can follow
+- **README** with the origin of the rebuild and a step-by-step getting-started section anyone can follow
 - **`/rebuild`** – one Claude Code command that runs the plan slice by slice (`/rebuild`, `/rebuild 07`, `/rebuild status`), using superpowers if you have it installed
+- **`rebuild-loop`** – a script (PowerShell and bash) that runs every slice in its own fresh Claude session, stops only for your plan approval and moves on by itself – no typing `/rebuild` after each slice
 
 ## How to use it
 
