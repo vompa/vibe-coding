@@ -118,7 +118,7 @@ Explicitly: `/vibe-rebuild:vibe-rebuild <repo or path>`
   ```bash
   python3 tests/trigger_check.py tests/trigger-eval.json --runs 3
   ```
-- Loop test (`tests/rebuild_loop_test.py`): both `rebuild-loop` scripts against a fake `claude` CLI – auto approval, parallel slices, red slice, open decision, no terminal, all done; runs in CI on every push.
+- Loop test (`tests/loop_test.py`): both `rebuild-loop` scripts against a fake `claude` CLI – auto approval, parallel slices, red slice, open decision, no terminal, all done; runs in CI on every push.
 
 ## Development
 

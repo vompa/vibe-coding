@@ -37,4 +37,4 @@ jobs:
         run: |
           bash -n plugins/vibe-rebuild/skills/vibe-rebuild/assets/rebuild-loop.sh
           pwsh -NoProfile -Command "\$null = [scriptblock]::Create((Get-Content -Raw plugins/vibe-rebuild/skills/vibe-rebuild/assets/rebuild-loop.ps1))"
-          python tests/rebuild_loop_test.py
+          python tests/loop_test.py
