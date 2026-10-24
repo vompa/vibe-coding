@@ -68,7 +68,8 @@ def make_stub(bin_dir: pathlib.Path) -> None:
     wrapper.write_text(f'#!/usr/bin/env bash\nexec "{posix(pathlib.Path(sys.executable))}" -X utf8 "{stub.as_posix()}" "$@"\n',
                        encoding="utf-8", newline="\n")
     wrapper.chmod(0o755)
-    (bin_dir / "claude.ps1").write_text(f"& '{sys.executable}' -X utf8 '{stub}' @args; exit $LASTEXITCODE\n", encoding="utf-8")
+    # rebuild-loop.ps1 resolves claude as an application, so Windows needs a .cmd, not a .ps1.
+    (bin_dir / "claude.cmd").write_text(f'@"{sys.executable}" -X utf8 "{stub}" %*\r\n', encoding="utf-8")
 
 
 def make_repo(base: pathlib.Path, done: int) -> pathlib.Path:
@@ -92,7 +93,7 @@ def command(shell: str, bin_dir: pathlib.Path, body: str) -> list[str]:
 
 def assert_stub_first(shell: str, bin_dir: pathlib.Path) -> None:
     """Never let a test reach the real claude CLI."""
-    probe = "command -v claude" if shell == "bash" else "(Get-Command claude).Source"
+    probe = "command -v claude" if shell == "bash" else "(Get-Command claude -CommandType Application | Select-Object -First 1).Source"
     found = subprocess.run(command(shell, bin_dir, probe), capture_output=True, text=True).stdout.strip()
     if "claude_stub" not in found and not found.startswith((posix(bin_dir), str(bin_dir))):
         sys.exit(f"{shell}: claude resolves to {found!r}, not the stub – aborting")

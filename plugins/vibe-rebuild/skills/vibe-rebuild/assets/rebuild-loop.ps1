@@ -52,7 +52,7 @@ function Test-AllDone { -not @(Get-Slices | Where-Object { -not (Test-Done $_.Nr
 
 # Runs one claude turn; output goes to the log and is returned for marker parsing.
 function Invoke-ClaudeTurn([string]$Log, [string[]]$Arguments) {
-    $output = & claude -p --permission-mode $PermissionMode @Arguments 2>&1 | Out-String
+    $output = & $script:ClaudeExe -p --permission-mode $PermissionMode @Arguments 2>&1 | Out-String
     Add-Content -Path $Log -Value $output -Encoding utf8
     if ($LASTEXITCODE -ne 0) { Stop-Loop "claude exited with $LASTEXITCODE – see $Log" }
     return $output
@@ -113,11 +113,13 @@ function Invoke-Round {
         Assert-SliceDone $run.Nr (Invoke-ClaudeTurn $run.Log @('--resume', $run.Session, $run.Message)) $run.Log
         return
     }
+    # Thread jobs run in this process; Start-Job's child processes hung on Linux CI runners.
     $jobs = foreach ($run in $runs) {
         Write-Host "[slice $($run.Nr)] building in parallel (log $($run.Log))"
-        Start-Job -WorkingDirectory (Get-Location).Path -ArgumentList $run.Session, $run.Message, $PermissionMode -ScriptBlock {
-            param($Session, $Message, $Mode)
-            & claude -p --permission-mode $Mode --resume $Session $Message 2>&1 | Out-String
+        Start-ThreadJob -ArgumentList $script:ClaudeExe, (Get-Location).Path, $run.Session, $run.Message, $PermissionMode -ScriptBlock {
+            param($Exe, $Directory, $Session, $Message, $Mode)
+            Set-Location $Directory
+            & $Exe -p --permission-mode $Mode --resume $Session $Message 2>&1 | Out-String
         }
     }
     for ($i = 0; $i -lt $runs.Count; $i++) {
@@ -131,7 +133,8 @@ if (-not ((Test-Path $SlicesFile) -and (Test-Path $ChecklistFile))) {
     Stop-Loop "run from the repo root (needs $SlicesFile and $ChecklistFile)"
 }
 if ($DryRun) { Get-ReadySlices; exit 0 }
-if (-not (Get-Command claude -ErrorAction SilentlyContinue)) { Stop-Loop 'claude CLI not found' }
+$ClaudeExe = (Get-Command claude -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+if (-not $ClaudeExe) { Stop-Loop 'claude CLI not found' }
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 $exclude = '.git/info/exclude'
 if ((Test-Path $exclude) -and -not (Select-String -Path $exclude -Pattern "^$LogDir/$" -Quiet)) {
