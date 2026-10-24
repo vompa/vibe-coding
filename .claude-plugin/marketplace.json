@@ -10,6 +10,11 @@
       "name": "vibe-rebuild",
       "source": "./plugins/vibe-rebuild",
       "description": "Rebuild existing apps better via vibe coding – same or new stack, nothing users rely on gets lost."
+    },
+    {
+      "name": "vibe-coding",
+      "source": "./plugins/vibe-coding",
+      "description": "Everyday coding in rounds of vertical slices – findings or ideas in, one squash commit per slice out, fresh session each, your repo's rules honoured."
     }
   ]
 }

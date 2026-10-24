@@ -1,0 +1,27 @@
+{
+  "name": "vibe-coding",
+  "displayName": "Vibe Coding",
+  "version": "1.0.0",
+  "description": "Turns findings lists and feature ideas into rounds of vertical slices and runs them one per fresh Claude session: plan first, tests first, one squash commit per slice, hands-off loop, decisions in files – in any repository, honouring its own rules.",
+  "author": {
+    "name": "vompa",
+    "url": "https://vompa.dev"
+  },
+  "homepage": "https://github.com/vompa/vibe-coding",
+  "repository": "https://github.com/vompa/vibe-coding",
+  "license": "MIT",
+  "keywords": [
+    "vibe-coding",
+    "slices",
+    "feedback-loop",
+    "tdd",
+    "squash",
+    "superpowers",
+    "claude-code"
+  ],
+  "icon": "./.claude-plugin/icon.png",
+  "documentationUrl": "https://github.com/vompa/vibe-coding#readme",
+  "supportUrl": "https://github.com/vompa/vibe-coding/issues",
+  "privacyPolicyUrl": "https://github.com/vompa/vibe-coding/blob/main/plugins/vibe-coding/PRIVACY.md",
+  "termsOfServiceUrl": "https://github.com/vompa/vibe-coding/blob/main/plugins/vibe-coding/LICENSE"
+}
