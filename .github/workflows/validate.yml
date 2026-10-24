@@ -27,13 +27,18 @@ jobs:
           skills-ref validate plugins/vibe-coding/skills/vibe-coding
       - name: Check scripts
         run: |
-          python -m py_compile plugins/vibe-rebuild/skills/vibe-rebuild/scripts/*.py tests/*.py
+          python -m py_compile plugins/vibe-rebuild/skills/vibe-rebuild/scripts/*.py plugins/vibe-coding/skills/vibe-coding/scripts/*.py tests/*.py
           python plugins/vibe-rebuild/skills/vibe-rebuild/scripts/inventory.py . > /dev/null
           printf '%s' '[{"nr":"00","slug":"scaffold","name":"Scaffold","goal":"g","prd":"p","deps":"-","scope":["a"],"parity":"x","non_goals":"n"}]' > /tmp/s.json
           python plugins/vibe-rebuild/skills/vibe-rebuild/scripts/render_slices.py /tmp/s.json /tmp/slices
           test -f /tmp/slices/00-scaffold.md
           python plugins/vibe-rebuild/skills/vibe-rebuild/scripts/render_slices.py /tmp/s.json /tmp/slices-de --lang de
           grep -q "Hängt ab von" /tmp/slices-de/00-scaffold.md
+          printf '%s' '[{"nr":"07","slug":"message-bars","name":"Message bars","goal":"g","round":"R01","source":"R01 - F-03","deps":"-","scope":["a"],"mirror":["src/a.ts:1"],"not_building":["b"],"acceptance":["Given a When b Then c"],"manual":["Click a"],"non_goals":"n"}]' > /tmp/c.json
+          python plugins/vibe-coding/skills/vibe-coding/scripts/render_slices.py /tmp/c.json /tmp/coding-slices
+          test -f /tmp/coding-slices/07-message-bars.md
+          python plugins/vibe-coding/skills/vibe-coding/scripts/render_slices.py /tmp/c.json /tmp/coding-slices-de --lang de
+          grep -q "Muster übernehmen" /tmp/coding-slices-de/07-message-bars.md
           python tests/render_slices_test.py
           python tests/markers_test.py
       - name: Check loop scripts
