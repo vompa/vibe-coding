@@ -179,7 +179,7 @@ Decided by the user (2026-10-24): the second plugin lives in this repository, wh
 10. `vibe-rebuild` is not migrated to `/slice` in this version; duplication between `rebuild-loop` and `slice-loop` is accepted and listed as the follow-up.
 11. Fixed names `work/` and `/slice`; a conflict is reported, not worked around.
 12. The checklist keeps only agent-ticked columns; manual acceptance lives in the round record's test list.
-13. Round start is one commit on the integration branch (tracked `work/` and `.claude/` files); `_raw/` and `.slice-loop/` are ignored; files from outside the repository are copied into `_raw/` (private) or summarised (public).
+13. Round start is one commit on the integration branch (tracked `work/` and `.claude/` files); `_raw/` and `.slice-loop/` are ignored; findings from outside the repository or from untracked files go into the tracked round record (a summary when the repository is public) – `_raw/` holds only working copies.
 14. One open round at a time; `round` field in `_slices.json`; `Status:` line in the round record; markers `ROUND-DONE: Rnn` / `ROUND-OPEN: Rnn <reason>`; open decisions carry over.
 15. Red baseline stops the slice; a repository without checks gets a harness slice first.
 16. Continued rebuild repositories number on after the last rebuild slice; numbers may grow beyond two digits.
