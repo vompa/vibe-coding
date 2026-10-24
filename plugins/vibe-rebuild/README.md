@@ -59,4 +59,4 @@ No data collection, no network access of its own, no credentials – see [PRIVAC
 
 ## License
 
-MIT – see [LICENSE](LICENSE). Source and issues: https://github.com/vompa/vibe-rebuild
+MIT – see [LICENSE](LICENSE). Source and issues: https://github.com/vompa/vibe-coding

@@ -1,5 +1,8 @@
 # Changelog
 
+## 2.3.1 – 2026-10-24
+Repository renamed to vompa/vibe-coding; links updated. No functional change.
+
 ## 2.3.0 – 2026-10-24
 Lessons from the end-to-end run on [mcp-time-net](https://github.com/vompa/mcp-time-net) (plan with 2.2.0, all 5 slices via `/rebuild`, published as a NuGet tool).
 - **Hands-off rebuild:** new `assets/rebuild-loop.ps1` and `assets/rebuild-loop.sh`, copied to `.claude/scripts/` in the target repo. They run each slice in a fresh headless Claude session (`claude -p --session-id`, then `--resume` after approval), stop for plan approval (Enter / change request / `q`), and continue with the next ready slice until all are ticked. `-Yes`/`--yes` approves automatically but still stops on `NEEDS-DECISION` or red slices; `-Parallel`/`--parallel` builds independent slices side by side (experimental); `-DryRun`/`--dry-run` lists ready slices. Stops when a slice reports `SLICE-DONE` but is not ticked, instead of building it again. Never pushes. Tested with a fake `claude` CLI in CI (`tests/rebuild_loop_test.py`).

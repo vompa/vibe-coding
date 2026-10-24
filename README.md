@@ -94,10 +94,10 @@ The plan is written in your language (English by default).
 
 **Claude Code**
 ```bash
-claude plugin marketplace add vompa/vibe-rebuild
+claude plugin marketplace add vompa/vibe-coding
 claude plugin install vibe-rebuild@vompa
 ```
-or inside a session: `/plugin install vibe-rebuild --marketplace vompa/vibe-rebuild`
+or inside a session: `/plugin install vibe-rebuild --marketplace vompa/vibe-coding`
 
 **Claude.ai / other agents:** upload the `plugins/vibe-rebuild/skills/vibe-rebuild/` folder as a skill, or copy it into the agent's skills directory.
 

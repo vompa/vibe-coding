@@ -10,4 +10,4 @@ vibe-rebuild is a skill (instructions, templates and two local helper scripts). 
 - **Web research uses Claude's own tools.** The target-stack research step asks Claude to use whatever web search your session already provides. The skill instructs that search queries contain only generic technology terms – never code, internal names, customer data or secrets from your repository.
 - **No credentials.** The plugin never reads, asks for or stores passwords, tokens or API keys.
 
-Questions: open an issue at https://github.com/vompa/vibe-rebuild/issues.
+Questions: open an issue at https://github.com/vompa/vibe-coding/issues.

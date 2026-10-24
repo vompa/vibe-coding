@@ -4,3 +4,4 @@ __pycache__/
 vibe-plan/
 result*.json
 *.skill
+*.stackdump
