@@ -78,10 +78,7 @@ Explicitly: `/vibe-rebuild:vibe-rebuild <repo or path>`
 
 ## Quality
 
-- Tried on real projects:
-  - [OPCAgentSample](https://github.com/vompa/OPCAgentSample) (~37k lines of .NET/Vue): 22 slices, parity cases drawn from 700+ existing tests.
-  - [Desktop Commander MCP](https://github.com/wonderwhy-er/DesktopCommanderMCP) core (~20k lines TypeScript → .NET 10): 15 slices, 90 sources in the research.
-  - The official MCP `time` server (~310 lines Python → .NET 10): 5 slices, 44 cases with exact values, done in about 20 minutes.
+- **End-to-end reference: [mcp-time-net](https://github.com/vompa/mcp-time-net).** The official MCP [`time` server](https://github.com/modelcontextprotocol/servers/tree/51b6382/src/time) (~310 lines Python) rebuilt on .NET 10 with vibe-rebuild 2.2.0 – the plan and then all 5 slices via `/rebuild` with superpowers, one squash commit per slice. Result: 44 parity cases with exact values green, 202 tests, every deviation from the original logged as an improvement on purpose. Its README walks through both phases step by step; the git history shows the plan commit followed by one commit per slice.
 - Trigger test (`tests/trigger-eval.json`, 10 positive and 10 near-miss negative requests in English and German, 3 runs each): **20/20**, no false triggers.
   ```bash
   python3 tests/trigger_check.py tests/trigger-eval.json --runs 3
