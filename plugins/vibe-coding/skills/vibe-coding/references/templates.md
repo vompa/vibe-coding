@@ -76,7 +76,7 @@ Ruling: <decision> – User, <date>
 
 ## Open decisions
 NEEDS-DECISION: <question>
-NEEDS-DECISION: <question carried over from Rnn>
+NEEDS-DECISION: <question> (from Rnn)
 
 ## Manual test list    (drafted per slice, completed at round close; format: round-close.md)
 ### Slice NN – <name>
@@ -93,7 +93,7 @@ NEEDS-DECISION: <question carried over from Rnn>
 One row per slice; numbers continue across rounds. The agent replaces `☐` by `☑` as each step is done; a slice is done when its row has a `☑` and no `☐`. Manual acceptance is never a column: the human works through the round record's manual test list.
 
 ## work/_slices.json
-Input for `scripts/render_slices.py` (`python3 scripts/render_slices.py work/_slices.json work/slices --lang <en|de>`).
+Input for `scripts/render_slices.py` (`python3 scripts/render_slices.py work/_slices.json work/slices --lang <en|de>`). The JSON below is an example – replace its entries with the round's own slices.
 ```json
 [
   {
@@ -120,7 +120,7 @@ Input for `scripts/render_slices.py` (`python3 scripts/render_slices.py work/_sl
   }
 ]
 ```
-Required: `nr`, `slug`, `name`, `goal`, `deps`, `scope`, `non_goals`. Optional text: `round`, `source`. Optional lists: `mirror`, `not_building`, `acceptance` (Given/When/Then, rendered as checkboxes in the Definition of Done), `manual` (rendered as `Manual:` checkboxes). Unknown fields are ignored. `nr` is a string of at least two digits and continues across rounds (after the highest number in `rebuild/_slices.json` when a rebuild repository continues here). `deps` lists slice numbers or `–`. `round` is the id of the round record. Keep `"nr"` and `"deps"` quoted in every entry: the loop reads them as text.
+Required: `nr`, `slug`, `name`, `goal`, `deps`, `scope`, `non_goals`. Optional text: `round`, `source`. Optional lists: `mirror`, `not_building`, `acceptance` (Given/When/Then, rendered as checkboxes in the Definition of Done), `manual` (rendered as `Manual:` checkboxes). Unknown fields are ignored. `nr` is a string of at least two digits and continues across rounds (after the highest number in `rebuild/_slices.json` when a rebuild repository continues here). `deps` lists slice numbers or `–`. `round` is the id of the round record. Set `round` on every entry in a vibe-coding repository – a slice without it is invisible to `/slice status` and to the round close. Keep `"nr"` and `"deps"` quoted in every entry: the loop reads them as text.
 
 ## CLAUDE.md (only for a repository without one)
 Lean; an existing `CLAUDE.md` is never replaced, its facts go into `work/conventions.md` by pointer.

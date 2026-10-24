@@ -14,7 +14,8 @@ The open round is the record in work/rounds/ whose first line is exactly "Status
 Rnn is the start of the file name. A slice belongs to a round by the field "round" in
 work/_slices.json. A slice is done when its row in work/checklist.md has a ☑ and no ☐.
 - no open round → say "No open round – start one with the vibe-coding skill" and stop; change nothing.
-  More than one → name them and stop (auto: "ROUND-OPEN: Rnn more than one round is open").
+  More than one → name them and stop (auto: "SLICE-OPEN: NN more than one round is open – close one
+  first"; with "close": "ROUND-OPEN: Rnn more than one round is open").
 - "status" → read work/checklist.md, work/_slices.json and the git branches named slice-*.
   Show one table for the slices of the open round: slice, name, state (done / in progress /
   ready / blocked by …; "in progress" = not done, but a branch slice-NN exists or the row has a ☑),
@@ -45,6 +46,9 @@ work/conventions.md. Red → change nothing and ask whether to fix that first
 that creates the checks itself may go on; otherwise stop ("SLICE-OPEN: NN no baseline check").
 
 ## 3. Plan and build the slice
+A branch slice-NN or a worktree for it may exist already (normal after a red slice and a re-run):
+continue on it, never create a second one and never delete or reset it silently. Re-read its plan in
+work/plans/ (and the superpowers ledger, if there is one) and the round record, and resume where they say.
 If the superpowers skills are available and "direct" is not in the arguments:
 1. superpowers:using-git-worktrees – worktree on a new branch "slice-NN" cut from the integration branch
 2. superpowers:writing-plans – save the plan as work/plans/<YYYY-MM-DD>-slice-NN.md with a section
@@ -72,6 +76,8 @@ the run with its NEEDS-DECISION line and nothing built.
 
 As each step finishes, tick its column in the slice's row of work/checklist.md on slice-NN: Plan when
 the plan is approved, Tests red when the new tests fail for the right reason, Green when they pass.
+A column that does not apply (for example Tests red in a harness or docs-only slice) is ticked too,
+and the reason goes into the round record under Decisions, so the row has no ☐ left.
 
 Keep me posted: one short status line at least every few minutes (what finished, what runs next).
 Long reports of subagents go to work/_raw/ (git-ignored), not into the chat.
@@ -85,19 +91,22 @@ Do 1–4 on slice-NN, so they land in the same commit as the code.
    you left out on purpose; under Manual test list a draft of the slice's manual check items.
    Decisions are recorded as "User, <date>" unless work/conventions.md allows names. No absolute
    paths, user or machine names in any file; personal names only where work/conventions.md allows.
-3. Write the entry that work/conventions.md names for the decision protocol, in that file's own
-   format and with its fields; leave out fields that exist only for pull requests (number, URL):
-   the slice lands as a local squash commit. Update the documents that work/conventions.md lists as
+3. Write the entry that work/conventions.md names for the decision protocol, if it names one, in
+   that file's own format and with its fields; leave out fields that exist only for pull requests
+   (number, URL): the slice lands as a local squash commit. Update the documents that work/conventions.md lists as
    "must change with a change" (status page, help, ADR when a principle changed).
 4. Tick Checks in the slice's row of work/checklist.md (replace ☐ by ☑), and Commit last, right
-   before the squash commit, so the finished row lands in it.
-5. Integrate: superpowers:finishing-a-development-branch (or by hand) – ONE squash commit on the
+   before the squash commit, so the finished row lands in it. No ☐ may be left in the row: a column
+   that does not apply is ticked too, with the reason under Decisions (see section 3).
+5. Commit these edits on slice-NN (task commit) before merging; uncommitted edits are lost and the
+   loop stops with "reported done but not ticked".
+6. Integrate: superpowers:finishing-a-development-branch (or by hand) – ONE squash commit on the
    integration branch named in work/conventions.md (`git merge --squash slice-NN`), message in the
    commit language and style of work/conventions.md naming the slice and its finding or AC ids;
    never push. Run the merge in the checkout of the integration branch so its work/checklist.md shows
    the tick. If the branch moved or the merge conflicts in work/checklist.md or the round record,
    keep every tick and entry from both sides. In auto mode take this option without asking, then
-   remove the worktree and the branch.
+   remove the merged slice-NN branch and its own worktree, nothing else.
 End with exactly three lines:
 - "Slice NN done" (or what is still open and why)
 - "Ready next: …" (e.g. "07, 08, 09 – can run in parallel in separate sessions"; all done: "none –
@@ -114,19 +123,24 @@ Only the open round; none → section 1. Never ask in auto mode.
 2. Run the full check chain from work/conventions.md on the integration branch. Red → change nothing
    and end with "ROUND-OPEN: Rnn <failing check>".
 3. Write the manual test list into the round record under "## Manual test list": complete the
-   drafted items and add the slices that have none, one block per slice with a manual check:
-       ### Slice NN – <name>
-       Start: <command from work/conventions.md>
-       1. <what to click or type>
-       Expected: <what must be visible or happen>
-       Closes: <finding or AC ids>
-       Result: ☐
-   One action per step; "Expected" names something observable. I tick "Result" or write what I saw.
+   drafted items, take missing items from the "manual" fields of this round's slices, and add the
+   slices that have none yet, one block per slice with a manual check. One action per step;
+   "Expected" names something observable; I tick "Result" or write what I saw. Write each block
+   without indentation, in this form:
+```
+### Slice NN – <name>
+Start: <command from work/conventions.md>
+1. <what to click or type>
+Expected: <what must be visible or happen>
+Closes: <finding or AC ids>
+Result: ☐
+```
 4. Set the first line of the round record to "Status: closed". Commit the round record in the commit
    language and style of work/conventions.md ("Round Rnn closed: <slug>"); never push.
-5. List the open decisions (NEEDS-DECISION lines under "Open decisions"): the next round inherits
-   them. Tell me where the manual test list is and how to report: answer in chat or add to the round
-   record; the next round starts from my notes. End with "ROUND-DONE: Rnn".
+5. List the open decisions – the entries under "## Open decisions" in the round record – as bullets
+   in your closing message, never as lines starting with "NEEDS-DECISION:" (that marker belongs to
+   plan runs, section 6): the next round inherits them. Tell me where the manual test list is and
+   how to report: answer in chat or add to the round record; the next round starts from my notes. End with "ROUND-DONE: Rnn".
 
 ## 6. Marker lines
 The loop script (.claude/scripts/slice-loop.*) reads these lines. Print each on a line of its own,
