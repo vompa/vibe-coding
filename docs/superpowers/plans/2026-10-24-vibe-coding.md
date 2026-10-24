@@ -297,7 +297,7 @@ git commit -m "Loop test parametrised for rebuild-loop and slice-loop (slice cas
 
 Changes against the rebuild scripts, same in both languages:
 - constants: `work/_slices.json`, `work/checklist.md`, `.slice-loop`, `SLICE_PERMISSION_MODE`, command `/slice`; usage header rewritten (no "rebuild").
-- number patterns: bash `slice_deps` uses `grep -o '[0-9][0-9]*'`; PowerShell `Get-Slices` uses `'\d{2,}'`.
+- number patterns: bash `slice_deps` uses `grep -oE '[0-9]{2,}'`; PowerShell `Get-Slices` uses `'\d{2,}'`.
 - `open_round()` / `Get-OpenRound`: the first file in `work/rounds/*.md` whose first line is `Status: open`; prints its round id (`R\d+` from the file name) or nothing. `main`: if none → print `slice-loop: no open round in work/rounds – start a round with the vibe-coding skill first` and exit 0 (after the file checks, before the `claude` check).
 - `--max-slices N` (`-MaxSlices`): N must be a positive integer, else die with the usage line; count built slices; when the count reaches N and slices remain, print `slice-loop: stopped after N slice(s) – M still open` and exit 0.
 - the parallel note names `work/checklist.md` and "the integration branch" instead of `main`.

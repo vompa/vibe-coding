@@ -54,7 +54,7 @@ slice_numbers() {
 slice_deps() {
   grep -o '"deps"[[:space:]]*:[[:space:]]*"[^"]*"' "$SLICES_FILE" \
     | sed 's/^"deps"[[:space:]]*:[[:space:]]*//' \
-    | while IFS= read -r deps; do { grep -o '[0-9][0-9]*' <<<"$deps" || true; } | tr '\n' ' '; echo; done
+    | while IFS= read -r deps; do { grep -oE '[0-9]{2,}' <<<"$deps" || true; } | tr '\n' ' '; echo; done
 }
 
 # A slice is done when its checklist row has at least one ☑ and no ☐.
@@ -155,7 +155,7 @@ build_slice() {
   fi
   echo "[slice $nr] building – this can take a while (log $log)" >&2
   output=$(claude_turn "$log" --resume "$session" "$approval$note")
-  grep -q "^SLICE-DONE: $nr" <<<"$output" \
+  grep -qE "^SLICE-DONE: $nr([^0-9]|$)" <<<"$output" \
     || die "slice $nr not finished: $(grep '^SLICE-OPEN:' <<<"$output" || echo 'no SLICE-DONE line') – see $log"
   is_done "$nr" || die "slice $nr reported done but is not ticked in $CHECKLIST_FILE – check it before running again"
   echo "[slice $nr] done" >&2

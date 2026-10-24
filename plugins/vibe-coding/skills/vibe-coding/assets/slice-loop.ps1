@@ -107,7 +107,7 @@ function Get-BuildMessage([string]$Approval) {
 }
 
 function Assert-SliceDone([string]$Nr, [string]$Output, [string]$Log) {
-    if (-not (Get-MarkerLines $Output "SLICE-DONE: $Nr")) {
+    if (-not ((Get-MarkerLines $Output 'SLICE-DONE:') -cmatch "^SLICE-DONE: $Nr(\D|$)")) {
         $open = Get-MarkerLines $Output 'SLICE-OPEN:'
         Stop-Loop "slice $Nr not finished: $(if ($open) { $open[-1] } else { 'no SLICE-DONE line' }) – see $Log"
     }
