@@ -19,11 +19,12 @@ jobs:
       - name: Install Claude Code
         run: npm install -g @anthropic-ai/claude-code
       - name: Validate plugin and marketplace
-        run: claude plugin validate --strict . && claude plugin validate --strict plugins/vibe-rebuild
+        run: claude plugin validate --strict . && claude plugin validate --strict plugins/vibe-rebuild && claude plugin validate --strict plugins/vibe-coding
       - name: Validate skill against the Agent Skills spec
         run: |
           pip install "skills-ref @ git+https://github.com/agentskills/agentskills.git#subdirectory=skills-ref"
           skills-ref validate plugins/vibe-rebuild/skills/vibe-rebuild
+          skills-ref validate plugins/vibe-coding/skills/vibe-coding
       - name: Check scripts
         run: |
           python -m py_compile plugins/vibe-rebuild/skills/vibe-rebuild/scripts/*.py tests/*.py
@@ -33,6 +34,8 @@ jobs:
           test -f /tmp/slices/00-scaffold.md
           python plugins/vibe-rebuild/skills/vibe-rebuild/scripts/render_slices.py /tmp/s.json /tmp/slices-de --lang de
           grep -q "Hängt ab von" /tmp/slices-de/00-scaffold.md
+          python tests/render_slices_test.py
+          python tests/markers_test.py
       - name: Check loop scripts
         run: |
           bash -n plugins/vibe-rebuild/skills/vibe-rebuild/assets/rebuild-loop.sh
