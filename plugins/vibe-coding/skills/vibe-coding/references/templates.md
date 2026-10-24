@@ -41,7 +41,7 @@ Status: open
 # Round Rnn – <slug>
 
 ## Source
-<findings file (path, or "copied to work/_raw/"), notes from <date>, or the idea in one sentence;
+<tracked findings file (path), notes from <date>, or the idea in one sentence;
 concept documents by path – referenced, not copied>
 
 ## Brief          (ideas only, ≤ 1 page)

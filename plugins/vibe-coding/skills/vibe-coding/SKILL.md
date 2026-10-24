@@ -14,7 +14,7 @@ Goal: turn a **findings list** (a UI review, the user's own test notes after try
 Why: working in rounds (review → change list → implementation in blocks → test → new findings) already works, but by hand, and each block used to become a pull request. One squash commit per slice cuts the pull requests, a fresh session per slice keeps the context clean, and files instead of chat keep the decisions. The skill makes this repeatable in any repository, with or without rules of its own.
 This is a skill for *how to run the work*, not a guide for writing prompts. It does not analyse or rebuild an old codebase – that is `vibe-rebuild`; a repository finished with `vibe-rebuild` continues here.
 
-Write the files this skill creates in the user's language (default: the language of the repository's `CLAUDE.md` or README, else English). `scripts/`, `assets/` and `references/` are folders of this skill; `work/` and `.claude/` are in the target repository.
+Write the files this skill creates in the user's language (default: the language of the repository's `CLAUDE.md` or README, else English). Paths `scripts/…`, `assets/…` and `references/…` are relative to this skill's folder (the one holding this file); `work/…` and `.claude/…` are relative to the target repository, which is the working directory – prefix the skill's folder when you run or copy a skill file.
 
 ## Keep the chat clean
 
@@ -65,7 +65,7 @@ Ask what is missing in one go; read the repository for the rest.
 - **The input:** a findings file (path), the user's notes in chat (screenshots welcome), or an idea (a sentence, a concept document, screenshots). Several sources are fine.
 - **The integration branch** the slices land on: propose it from `CLAUDE.md`, working-method documents, `git branch` and `git log` (for example `dev`, else `main`) and let the user confirm.
 - **The language** of the files (default above).
-- **The state of the repository,** before you write anything: `git status` and `git branch --show-current`. The working tree must be clean and the current branch the integration branch; otherwise stop, say what to do (commit, stash, switch) and let the user do it. Never switch branches, stash or reset yourself.
+- **The state of the repository,** before you write anything: `git status` and `git branch --show-current`. The working tree must be clean and the current branch the integration branch; otherwise stop, say what to do (commit, stash, switch) and let the user do it. Never switch branches, stash or reset yourself. A findings file that lies untracked inside the repository makes the tree unclean: ask the user to commit or remove it first, or copy its findings into the round record and leave the file untouched – then it is the one allowed exception in the tree checks of section 5.
 - **Open rounds.** Look in `work/rounds/`. One round is open at a time: a record whose first line is `Status: open` must be closed first (finish its slices, then `/slice close`) – stop and say so. The new round id is the next free fixed-width `Rnn` (`R01`, `R02`, …).
 - **Name conflicts.** `work/` and `.claude/commands/slice.md` are fixed names. If they exist for something else (a `work/` without `work/rounds/`; a `slice.md` that differs from `references/slice-command.md`), report it and stop; the user resolves the conflict.
 
@@ -73,10 +73,10 @@ If the user is away or asks for a trial run, make sensible assumptions, mark the
 
 ## 2. Conventions → `work/conventions.md`
 
-First round in a repository only. Later rounds read the file, check that the branch and commands still exist, and update only what changed.
+Discovered in the first round of a repository only. Later rounds read the file, check that the branch and commands still exist, and update only what changed (the user confirms the change); no rediscovery.
 
-Read what the repository already defines: `CLAUDE.md`, `AGENTS.md`, README, the working-method or contribution documents that `CLAUDE.md` links, protocol or changelog files, the CI workflow, `.editorconfig` and formatter configuration, and `git log` (branch names, commit style and language). In a large repository let an `Explore` subagent read, and save its report to `work/_raw/`.
-Write `work/conventions.md` from `references/templates.md`: one line per fact with the document it comes from – branches and merge style, commit language, the commands (build, test, lint/format, baseline check, checks for a slice, full check chain), where decisions are recorded and which documents must change with a change, languages, the privacy rule for names, how to start the app for manual testing, the finding-id scheme.
+Read what the repository already defines. Sources are examples, not a checklist – for instance `CLAUDE.md`, `AGENTS.md`, README, the working-method or contribution documents that `CLAUDE.md` links, protocol or changelog files, the CI workflow, `.editorconfig` and formatter configuration, and `git log` (branch names, commit style and language) – plus anything else that defines how this repository works. In a large repository let an `Explore` subagent read, and save its report to `work/_raw/`.
+Write `work/conventions.md` from `references/templates.md`: one line per fact with the document it comes from. The facts are examples too: branches and merge style, commit language, the commands (build, test, lint/format, baseline check, checks for a slice, full check chain), where decisions are recorded and which documents must change with a change, languages, the privacy rule for names, how to start the app for manual testing, the finding-id scheme – and any other fact slices will need.
 
 - **Extend, never replace.** Pointers, not copies: long rules stay in their document, `conventions.md` names the owner of each fact. Conflicts between documents are listed under `## Conflicts between documents`, never resolved silently.
 - **Privacy rule for names.** When the repository does not say, ask once whether files may name people (a private repository may); otherwise decisions are "User, <date>". Record the answer.
@@ -89,7 +89,7 @@ Write `work/conventions.md` from `references/templates.md`: one line per fact wi
 Read `references/intake.md` and follow its path: **A** findings list, **B** idea. Ceremony scales with size: a one-line finding gets no brief and no PRD, only an idea gets a brief, research runs only when the brief brings technology or packages the repository does not use yet (three short passes, one status line each, appended to `work/research.md`).
 Write `work/rounds/Rnn-<slug>.md` from `references/templates.md`, first line `Status: open`.
 
-- **The record carries everything the slices need.** Every slice runs in a fresh worktree cut from the integration branch, and `work/_raw/` is git-ignored, so it is not there. Put the intake table (id, where, observed → expected, size, source) or the brief into the record. A structured tracked file is referenced by path; a findings file outside the repository or untracked is copied to `work/_raw/` as your working copy (private repository) or summarised in the record (public repository).
+- **The record carries everything the slices need.** Every slice runs in a fresh worktree cut from the integration branch, and `work/_raw/` is git-ignored, so it is not there. Three cases: notes in chat, an untracked file and a file outside the repository → the intake table (id, where, observed → expected, size, source) goes into the record, summarised when the repository is public; a tracked structured file → referenced by path in `## Source`, only its ids in the record; an idea → the brief goes into the record. A copy in `work/_raw/` is only your working copy and never reaches a slice.
 - **Ids** continue the repository's scheme (`Finding ids` in `conventions.md`), otherwise `F-NN`. A finding that shows an earlier fix did not hold is marked `reopens <id>`.
 - **Open decisions.** What the user must decide becomes a `NEEDS-DECISION:` line under `## Open decisions`, together with those inherited from the previous round (`(from Rnn)`). Put them to the user in one message with your recommendation. An answer becomes `Ruling: <decision> – User, <date>` under `## Decisions`. Only answered items are sliced; if the user is away they stay open.
 
@@ -100,29 +100,31 @@ Record the slices in `work/_slices.json` (fields and an example: `references/tem
 ```
 python3 scripts/render_slices.py work/_slices.json work/slices --lang <lang>
 ```
-`--lang` writes the slice files and their prompts in the plan's language (`en`, `de` built in). For another language, render with `en` and translate the headings and the prompt, keeping file paths and command names unchanged.
+(Use `python` where `python3` is missing, e.g. on Windows.) `--lang` writes the slice files and their prompts in the plan's language (`en`, `de` built in). For another language, render with `en` and translate the headings and the prompt, keeping file paths and command names unchanged.
 
 - **Numbering is continuous across rounds.** New slices continue after the highest `nr` in `work/_slices.json`; in a repository that has `rebuild/_slices.json` (finished with vibe-rebuild), after the highest slice there when that is higher. Numbers have at least two digits; `nr` and `deps` stay quoted. Earlier entries stay untouched; the render rewrites all slice files from the list.
-- **Every entry** sets `round` (the one open round) and `source` (round and ids), `acceptance` as Given/When/Then lines with exact values, `manual` for every UI finding (what to click, what to see), `not_building`, and `mirror`: existing patterns read from the code as `file:line`, checked to exist. Mirror what the repository already does; never duplicate a class or pattern.
-- **`work/checklist.md`:** header `| Slice | Plan | Tests red | Green | Checks | Commit |`, one row `| NN name | ☐ | ☐ | ☐ | ☐ | ☐ |` per slice. Only the agent ticks these columns; manual acceptance is not a column – the user ticks `Result:` in the round record's manual test list.
+- **Every entry** sets `round` (the one open round) and `source` (round and ids), `acceptance` as Given/When/Then lines with exact values, `manual` for every UI finding (what to click, what to see), and, where they apply, `not_building` and `mirror`: existing patterns read from the code as `file:line`, checked to exist. Mirror what the repository already does; never duplicate a class or pattern.
+- **`work/checklist.md`:** round 1 creates it with the header `| Slice | Plan | Tests red | Green | Checks | Commit |`; every round appends one row `| NN name | ☐ | ☐ | ☐ | ☐ | ☐ |` per slice. Only the agent ticks these columns; manual acceptance is not a column – the user ticks `Result:` in the round record's manual test list.
 - Fill `## Slices` in the round record (slice | name | ids).
-- **Check before the handover:** every finding id or AC appears in a slice, every dependency points to an earlier slice, no slice needs more than one session.
+- **Check before the handover:** every finding id or AC appears in a slice, except items waiting on a `NEEDS-DECISION:` line; every dependency points to an earlier slice; no slice needs more than one session.
 
 ## 5. Handover
 
-Slices run in fresh worktrees cut from the integration branch, so everything below is **tracked** and committed.
+Slices run in fresh worktrees cut from the integration branch, so what they need is **tracked** and committed. Nothing is copied or committed before the user has confirmed both `work/conventions.md` (section 2) and the slice map.
 
-1. **Identity.** Show `git config user.name` and `git config user.email`. If they look private (a personal mail address, a name the privacy rule does not allow), ask which identity to use and set it with `git config --local`. Never touch the global config.
-2. **Copy, do not rewrite** (`cp` / `Copy-Item`): `references/slice-command.md` → `.claude/commands/slice.md`; `assets/slice-loop.ps1` and `assets/slice-loop.sh` → `.claude/scripts/`. A target that exists and differs from the skill's file is reported and left alone – the user decides.
-3. **`.gitignore`** gets `work/_raw/` and `.slice-loop/`; **`.gitattributes`** gets `*.sh text eol=lf` (a CRLF bash script fails with `$'\r'`). Create the files when missing, append missing lines, change no existing line.
-4. **Check.** `git status` lists only files this skill wrote, and the current branch is still the integration branch. Search every written file for absolute paths, the user name, the machine name and private mail addresses; personal names only where the privacy rule allows. Fix findings before committing.
-5. **One commit** on the integration branch: `git add work .claude .gitignore .gitattributes` (plus `CLAUDE.md` when you created it), message `Round Rnn: <slug> – N slices` in the repository's commit language and style. Never push.
-6. **Handover message** in the user's language. Short and concrete; the full local path of the repository appears here in chat, never in a file:
+1. **Confirm the slice map.** Show the slice map – `## Slices` of the round record with the `deps` of `work/_slices.json` (slice | name | depends on | ids) –, which slices can run in parallel, and the open decisions; wait for the user's confirmation. In a headless or trial run nobody can answer: write `[Assumption] conventions and slice map not yet confirmed by the user` under `## Decisions` in the record and repeat it in the handover message.
+2. **Identity.** Show `git config user.name` and `git config user.email`. If they look private (a personal mail address, a name the privacy rule does not allow), ask which identity to use and set it with `git config --local`. Never touch the global config.
+3. **Copy, do not rewrite** (`cp` / `Copy-Item`), after `mkdir -p .claude/commands .claude/scripts` (`New-Item -ItemType Directory -Force` in PowerShell): `references/slice-command.md` → `.claude/commands/slice.md`; `assets/slice-loop.ps1` and `assets/slice-loop.sh` → `.claude/scripts/`. A target that exists and differs from the skill's file is a name conflict: report it and stop.
+4. **`.gitignore`** gets `work/_raw/` and `.slice-loop/`; **`.gitattributes`** gets `*.sh text eol=lf` (a CRLF bash script fails with `$'\r'`). Create the files when missing, append missing lines, change no existing line.
+5. **Check.** `git status` lists only files this skill wrote (and the untracked findings file allowed in section 1), and the current branch is still the integration branch. Search every written file for absolute paths, the user name, the machine name, private mail addresses and anything similar; personal names only where the privacy rule allows. Fix findings before committing.
+6. **One commit** on the integration branch: `git add work .claude/commands/slice.md .claude/scripts/slice-loop.sh .claude/scripts/slice-loop.ps1 .gitignore .gitattributes` (plus `CLAUDE.md` when you created it; `work/_raw/` is ignored and stays out), message `Round Rnn: <slug> – N slices` in the repository's commit language and style. Never push.
+7. **Verify.** `git log -1` shows that commit with the agreed identity, `git status` is clean (apart from the allowed untracked findings file), and `.claude/commands/slice.md` and both `.claude/scripts/slice-loop.*` exist.
+8. **Handover message** in the user's language. Short and concrete; the full local path of the repository appears here in chat, never in a file:
    1. Where: path, branch, commit.
-   2. How to start: "Open a terminal in the repository folder, run `claude`, type `/slice`." One sentence on what happens: it picks the lowest ready slice, shows a plan, builds after approval and lands one squash commit; then a fresh session and `/slice` again for the next one. Also `/slice status` for the state, `/slice NN` for a given slice, `/slice NN plan` to stop after the plan.
-   3. Hands-off: `pwsh .claude/scripts/slice-loop.ps1` (`bash .claude/scripts/slice-loop.sh`) runs the slices one after another in fresh sessions, stops for plan approvals, open decisions and red slices, and closes the round after the last slice. Options: `-Yes` / `--yes` approves plans without asking, `-MaxSlices N` / `--max-slices N` stops after N slices, `-DryRun` / `--dry-run` only lists the ready slices, `-Parallel` / `--parallel` is experimental; env `SLICE_PERMISSION_MODE` (default `auto`).
+   2. How to start: "Open a terminal in the repository folder, run `claude`, type `/slice`." One sentence on what happens: it picks the lowest ready slice, shows a plan, builds after approval and lands one squash commit; then a fresh session and `/slice` again for the next one, and `/slice close` after the last. Also `/slice status` for the state, `/slice NN` for a given slice, `/slice NN plan` to stop after the plan.
+   3. Hands-off: `pwsh .claude/scripts/slice-loop.ps1` (`bash .claude/scripts/slice-loop.sh`) runs the slices one after another in fresh sessions, stops for plan approvals, open decisions and red slices, and closes the round after the last slice. Useful options: `-Yes` / `--yes` approves plans without asking, `-MaxSlices N` / `--max-slices N` stops after N slices; the others are in the script header.
    4. The slice map: slice | name | depends on | ids, and which slices can run in parallel.
-   5. Open decisions (or none) and prerequisites still missing on the user's side.
+   5. Open decisions (or none), the assumption of step 1 if it applies, and prerequisites still missing on the user's side.
    Mention that superpowers is optional and detected automatically; never install it yourself.
 
 ## 6. After the round
@@ -130,12 +132,12 @@ Slices run in fresh worktrees cut from the integration branch, so everything bel
 `/slice close` (`/slice` proposes it when the last slice is done; the loop runs it) runs the full check chain, writes the **manual test list** into the round record – per slice the start command, the steps, the expected result, the finding ids it closes and `Result: ☐` – sets `Status: closed` and commits the record as `Round Rnn closed: <slug>` on the integration branch, never pushed. Steps and formats: `references/round-close.md`.
 
 Every write of this skill and its command, so nothing surprises the user:
-- this skill: `work/`, `.claude/commands/slice.md`, `.claude/scripts/slice-loop.*`, `.gitignore`, `.gitattributes`, `CLAUDE.md` only where none exists – all in the one commit of section 5;
-- `/slice`: a branch and worktree `slice-NN` while it works, then one squash commit per slice on the integration branch – with the plan in `work/plans/`, the checklist tick, the round record entries, the repository's own protocol entry and the documents `conventions.md` lists as "must change with a change";
-- `/slice close`: the round-close commit above;
-- the loop: logs in `.slice-loop/` (git-ignored), otherwise only what `/slice` writes.
+- **Committed** in the one round-start commit of section 5: `work/` (without `_raw/`), `.claude/commands/slice.md`, `.claude/scripts/slice-loop.ps1` and `slice-loop.sh`, `.gitignore`, `.gitattributes`, and `CLAUDE.md` only where none exists.
+- **Git-ignored or local, never committed:** `work/_raw/` (working material); `.slice-loop/` (loop logs – both loop scripts also append it to `.git/info/exclude` when it is missing there); the repository-local git identity (`git config --local user.name` / `user.email`), set only with the user's approval.
+- **`/slice`, later:** a branch and worktree `slice-NN` while it works, then one squash commit per slice on the integration branch – with the plan in `work/plans/`, the checklist tick, the round record entries, the repository's own protocol entry and the documents `conventions.md` lists as "must change with a change".
+- **`/slice close`:** the round-close commit above. The loop writes nothing besides its logs and what `/slice` writes.
 
-The user tries the build with the manual test list, ticks `Result:` or writes what they saw, and answers the open decisions – in chat or in the round record. Those notes start the next round: go back to section 1 (the closed round no longer counts as open), skip conventions, run intake A with the notes as the findings list. Findings that show an earlier fix did not hold are marked `reopens <id>`, open decisions are copied as `(from Rnn)`, slice numbering continues.
+The user tries the build with the manual test list, ticks `Result:` or writes what they saw, and answers the open decisions – in chat or in the round record. Those notes start the next round: go back to section 1 (the closed round no longer counts as open), read and update `conventions.md` instead of rediscovering it, and run intake A with the notes as the findings list. Findings that show an earlier fix did not hold are marked `reopens <id>`, open decisions are copied as `(from Rnn)`, slice numbering continues.
 
 ## Rules
 
