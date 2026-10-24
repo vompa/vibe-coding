@@ -127,6 +127,7 @@ build_slice() {
   output=$(claude_turn "$log" --resume "$session" "$approval$note")
   grep -q "^SLICE-DONE: $nr" <<<"$output" \
     || die "slice $nr not finished: $(grep '^SLICE-OPEN:' <<<"$output" || echo 'no SLICE-DONE line') – see $log"
+  is_done "$nr" || die "slice $nr reported done but is not ticked in $CHECKLIST_FILE – check it before running again"
   echo "[slice $nr] done" >&2
 }
 

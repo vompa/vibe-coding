@@ -95,6 +95,7 @@ function Assert-SliceDone([string]$Nr, [string]$Output, [string]$Log) {
         $open = Get-MarkerLines $Output 'SLICE-OPEN:'
         Stop-Loop "slice $Nr not finished: $(if ($open) { $open[-1] } else { 'no SLICE-DONE line' }) – see $Log"
     }
+    if (-not (Test-Done $Nr)) { Stop-Loop "slice $Nr reported done but is not ticked in $ChecklistFile – check it before running again" }
     Write-Host "[slice $Nr] done"
 }
 

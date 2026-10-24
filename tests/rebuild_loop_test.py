@@ -32,10 +32,25 @@ elif build:
     if os.environ.get("STUB_FAIL") == nr:
         print(f"SLICE-OPEN: {nr} tests red")
         sys.exit(0)
-    path = "rebuild/checklist.md"
-    lines = open(path, encoding="utf-8").read().split("\n")
-    lines = [l.replace("\u2610", "\u2611") if re.match(rf"^\|\s*{nr}\b", l) else l for l in lines]
-    open(path, "w", encoding="utf-8", newline="\n").write("\n".join(lines))
+    if os.environ.get("STUB_NO_TICK") == nr:
+        print(f"SLICE-DONE: {nr}")
+        sys.exit(0)
+    # Parallel builds tick at the same time: lock the checklist like git would serialise the merges.
+    import time
+    while True:
+        try:
+            lock = os.open("rebuild/checklist.lock", os.O_CREAT | os.O_EXCL)
+            break
+        except FileExistsError:
+            time.sleep(0.05)
+    try:
+        path = "rebuild/checklist.md"
+        lines = open(path, encoding="utf-8").read().split("\n")
+        lines = [l.replace("\u2610", "\u2611") if re.match(rf"^\|\s*{nr}\b", l) else l for l in lines]
+        open(path, "w", encoding="utf-8", newline="\n").write("\n".join(lines))
+    finally:
+        os.close(lock)
+        os.remove("rebuild/checklist.lock")
     print(f"SLICE-DONE: {nr}")
 else:
     sys.exit(2)
@@ -47,6 +62,7 @@ CASES = [
     ("auto approve runs all slices", 1, ["--yes"], {}, (0, 5, 4)),
     ("parallel builds both ready slices", 3, ["--yes", "--parallel"], {}, (0, 5, 2)),
     ("red slice stops the loop", 3, ["--yes"], {"STUB_FAIL": "03"}, (1, 3, 1)),
+    ("done but not ticked stops instead of rebuilding", 3, ["--yes"], {"STUB_NO_TICK": "03"}, (1, 3, 1)),
     ("decision without terminal does not build", 3, ["--yes"], {"STUB_DECISION": "03"}, (1, 3, 0)),
     ("approval without terminal does not build", 3, [], {}, (1, 3, 0)),
     ("all done exits cleanly", 5, [], {}, (0, 5, 0)),
