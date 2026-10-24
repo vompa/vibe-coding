@@ -6,7 +6,7 @@ The words `plan` and `auto` are used by `.claude/scripts/rebuild-loop.*` (`asset
 
 ````markdown
 ---
-description: Rebuild Slice für Slice – nächste Slice, bestimmte Slice oder Status
+description: Rebuild slice by slice – next slice, a given slice, or status
 argument-hint: "[status | NN] [plan] [auto] [direct]"
 ---
 You drive the rebuild described in this repo. Arguments: "$ARGUMENTS".
