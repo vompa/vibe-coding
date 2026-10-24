@@ -2,14 +2,14 @@
 
 **Findings or ideas in, one squash commit per slice out – fresh Claude session each, your repo's rules honoured.**
 
-A skill for *running the work*, not a guide to writing prompts (other skills that carry the name `vibe-coding` cover that). Give Claude a findings list – a UI review, your own notes after trying a build, a bug list – or a feature idea. It turns the input into a *round* of vertical slices, each with a ready-to-run prompt and a Definition of Done, and the `/slice` command then works through them one per fresh Claude session: plan first, tests first, one squash commit per slice on your repository's own branch. The round ends with a manual test list; what you report on it is the findings list of the next round.
-
-It uses the way of working of [vibe-rebuild](../vibe-rebuild/README.md) for everyday changes in any repository instead of for rebuilding an old app. Your existing `CLAUDE.md`, working-method documents, branch rules and check commands are discovered once and followed, never replaced.
-
 ```bash
 claude plugin marketplace add vompa/vibe-coding
 claude plugin install vibe-coding@vompa
 ```
+
+A skill for *running the work*, not a guide to writing prompts (other skills that carry the name `vibe-coding` cover that). Give Claude a findings list – a UI review, your own notes after trying a build, a bug list – or a feature idea. It turns the input into a *round* of vertical slices, each with a ready-to-run prompt and a Definition of Done, and the `/slice` command then works through them one per fresh Claude session: plan first, tests first, one squash commit per slice on your repository's own branch. The round ends with a manual test list; what you report on it is the findings list of the next round.
+
+It uses the way of working of [vibe-rebuild](../vibe-rebuild/README.md) for everyday changes in any repository instead of for rebuilding an old app. Your existing `CLAUDE.md`, working-method documents, branch rules and check commands are discovered once and followed, never replaced.
 
 Needs Claude Code with file access; Python 3.10+ for the slice renderer; the `claude` CLI plus PowerShell 7 or bash for the hands-off loop. The [superpowers](https://github.com/obra/superpowers) plugin is used when it is installed and never installed for you.
 
@@ -71,7 +71,7 @@ Open a terminal in the repository, run `claude`, type `/slice`:
 | `/slice status` | one table: done, in progress, ready, blocked; open decisions; what is ready next |
 | `/slice close` | closes the round (see below) |
 
-If the superpowers plugin is installed, `/slice` uses it (worktree, `writing-plans`, `subagent-driven-development`, `finishing-a-development-branch`); otherwise it follows the slice prompt. Each slice lands as **one squash commit on the integration branch**; task commits stay on the branch `slice-NN`. The commit carries the plan, the checklist tick, the round-record entries (decisions, surprises, deferred minors, manual check items), the repository's own protocol entry and the documents your conventions list as "must change with a change". Nothing is pushed. Start a fresh session and type `/slice` again for the next slice; `/slice` proposes `close` after the last one.
+If the superpowers plugin is installed, `/slice` uses it (worktree, `writing-plans`, `subagent-driven-development`, `finishing-a-development-branch`); otherwise it follows the slice prompt. Each slice lands as **one squash commit on the integration branch**; task commits stay on the branch `slice-NN` (in auto mode, which the loop uses, the merged branch and its own worktree are removed after the squash). The commit carries the plan, the checklist tick, the round-record entries (decisions, surprises, deferred minors, manual check items), the repository's own protocol entry and the documents your conventions list as "must change with a change". Nothing is pushed. Start a fresh session and type `/slice` again for the next slice; `/slice` proposes `close` after the last one.
 
 ### Hands-off: all slices in one go
 
@@ -114,7 +114,7 @@ vibe-coding uses the same formats as [vibe-rebuild](../vibe-rebuild/README.md) �
 
 ## Privacy
 
-No data collection, no network access of its own, no credentials; it writes only the files listed above and pushes nothing – see [PRIVACY.md](PRIVACY.md).
+No data collection, no network access of its own, no credentials; it writes the planning files above and, slice by slice, the product changes you approve; it pushes nothing – see [PRIVACY.md](PRIVACY.md).
 
 ## License
 

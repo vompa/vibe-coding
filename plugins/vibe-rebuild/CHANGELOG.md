@@ -1,7 +1,7 @@
 # Changelog
 
 ## 2.3.1 – 2026-10-24
-Repository renamed to vompa/vibe-coding; links updated. No functional change.
+Repository renamed to vompa/vibe-coding; links updated; privacy text names `rebuild/` instead of `vibe-plan/`. No functional change.
 
 ## 2.3.0 – 2026-10-24
 Lessons from the end-to-end run on [mcp-time-net](https://github.com/vompa/mcp-time-net) (plan with 2.2.0, all 5 slices via `/rebuild`, published as a NuGet tool).
