@@ -33,11 +33,11 @@ The plan is self-contained: once it is written, neither you nor the coding agent
 1. **Inventory** via script: projects, lines per folder, files > 300 lines, existing spec/docs.
 2. **Analysis** with parallel explorer agents (preferably `feature-dev:code-explorer`), a fixed schema, and a spot-check of the numbers against the code.
 3. **PRD and glossary** – behaviour from the user's view; existing specifications are the primary source, legacy findings become "improvements on purpose".
-4. **Target-stack research** in three short passes – broad, deep, distill – with the goal stated openly, distilled into sourced decisions; architecture-relevant ones go to you before slicing.
-5. **CLAUDE.md guardrails** built on those decisions, with architecture rules enforced by tests.
+4. **Target-stack research** in three short passes – broad, deep, distill – with the goal stated openly, distilled into sourced decisions; architecture-relevant ones go to you before slicing. It checks the licence and terms of every recommended package (some break the build until a sponsorship declaration is made) and, when the target SDK is available, runs a short **probe** of the risky paths – transport, packaging, start-up, logging – because reading alone rarely finds the pitfalls.
+5. **CLAUDE.md guardrails** built on those decisions: one architecture test per dependency rule, every quality gate proven to turn red on a deliberate violation in slice 00, approved packages listed with their licence.
 6. **Slicing** into vertical, dependency-ordered slices (one agent session each), slice prompts in the plan's language.
 7. **Parity** – not a copy, a safety net: the business contract and the interface contract external callers depend on are kept and checked; wording, structure and anything implementation-bound may improve. Every case carries exact expected values from the original's tests and code.
-8. **Handover** – the plan as a git repo (written directly in Claude Code on your machine, via the device shell from a cloud session), a README that lets anyone start without prior knowledge, the slice graph sized for document and side panel, and the `/rebuild` command.
+8. **Handover** – the plan as a git repo (written directly in Claude Code on your machine, via the device shell from a cloud session), a README with the origin of the rebuild and a getting-started section anyone can follow, the slice graph sized for document and side panel, the `/rebuild` command and the `rebuild-loop` scripts. No absolute paths, user or machine names or personal names end up in the files, and the commit identity is checked before the first commit – the plan repo is often pushed later.
 
 Long steps are announced, status lines start with an overall percentage, and there is no silent stretch longer than a few minutes.
 
@@ -54,7 +54,39 @@ Open a terminal in the plan repo, run `claude`, type `/rebuild`:
 
 If the [superpowers](https://github.com/obra/superpowers) plugin is installed, `/rebuild` uses it automatically (worktree, `writing-plans`, `subagent-driven-development`); otherwise it follows the slice prompt. The skill never installs plugins.
 
-**Hands-off:** `pwsh .claude/scripts/rebuild-loop.ps1` (or `bash .claude/scripts/rebuild-loop.sh`) runs every slice in its own fresh headless Claude session, stops only for your plan approval, and moves on to the next ready slice – no more typing `/rebuild` after each slice. `-Yes` approves plans automatically (still stops on open decisions or red tests), `-Parallel` builds independent slices side by side.
+Each slice ends the same way: the plan lists its assumptions for you to confirm, tests come first, deviations and undocumented findings are written down in fixed places, and the slice lands as **one squash commit on `main`** (task commits stay on the branch `slice-NN`). Nothing is pushed. When every slice is done, `/rebuild` offers to turn the plan README into the product README.
+
+### Hands-off: all slices in one go
+
+Typing `/rebuild` in a fresh session after every slice is the safe default – each slice gets a clean context. The plan repo also ships a loop script that does exactly that for you:
+
+```bash
+pwsh .claude/scripts/rebuild-loop.ps1     # Windows, macOS, Linux (PowerShell 7)
+bash .claude/scripts/rebuild-loop.sh      # macOS, Linux, Git Bash
+```
+
+How it works:
+
+1. The script picks the next ready slice from `rebuild/_slices.json` and `rebuild/checklist.md`.
+2. It starts a **fresh headless Claude session** for that slice (`claude -p --session-id …`) that reads the plan, writes the slice plan and stops.
+3. You see the plan's path and any open decisions: **Enter** approves, **text** sends a change request and gets a revised plan, **`q`** stops.
+4. After approval the **same session** (`--resume`) builds the slice, runs the tests and closes it.
+5. The script checks that the slice is really ticked, then moves on – until every slice is done.
+
+| Option (PowerShell / bash) | Effect |
+|---|---|
+| *(none)* | asks for every plan |
+| `-Yes` / `--yes` | approves plans automatically; still stops when a plan reports an open decision (`NEEDS-DECISION`), a slice stays red, or a slice reports done without being ticked |
+| `-Parallel` / `--parallel` | builds slices that are ready at the same time side by side, each in its own worktree (experimental) |
+| `-DryRun` / `--dry-run` | only lists the slices that are ready now |
+
+Good to know:
+
+- Headless sessions can't answer permission prompts, so they run with `--permission-mode auto`; set `REBUILD_PERMISSION_MODE` to choose another mode.
+- Logs per slice go to `.rebuild-loop/` in the repo, which the script keeps out of git.
+- Approvals need a terminal. Without one (e.g. in CI) the script stops instead of approving silently.
+- The script never pushes and never installs anything.
+- Under the hood `/rebuild` prints marker lines the script reads (`PLAN:`, `NEEDS-DECISION:`, `SLICE-DONE:`, `SLICE-OPEN:`, `ALL-DONE`); `/rebuild NN plan auto` is what the script sends.
 
 The plan is written in your language (English by default).
 

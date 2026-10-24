@@ -33,11 +33,22 @@ The skill triggers on its own; you can also call it as `/vibe-rebuild:vibe-rebui
 1. Quick inventory of the codebase (projects, sizes, oversized files, existing docs).
 2. Parallel analysis by explorer subagents into a fixed schema, with numbers spot-checked against the code.
 3. PRD and glossary – existing specs are the primary source of intent; legacy findings become improvements on purpose.
-4. Target-stack research in three short passes (broad, deep, distill), distilled into sourced decisions.
-5. CLAUDE.md guardrails built on those decisions.
-6. Slicing into one-session work packages, prompts in your language.
+4. Target-stack research in three short passes (broad, deep, distill), distilled into sourced decisions – including the licence of every recommended package and, when the SDK is available, a short probe of transport, packaging and start-up.
+5. CLAUDE.md guardrails built on those decisions: one architecture test per rule, every quality gate proven to turn red.
+6. Slicing into one-session work packages, prompts in your language; each plan lists its assumptions for you to confirm.
 7. Parity cases: business and interface contracts are kept, the rest may improve – no original needed afterwards.
-8. Handover as a git repo with `/rebuild`: open a terminal there, run `claude`, type `/rebuild`.
+8. Handover as a git repo with `/rebuild` and `rebuild-loop` – no absolute paths or personal names in the files, commit identity checked first.
+
+## Running the rebuild
+
+Open a terminal in the plan repo and choose:
+
+- **Step by step:** run `claude`, type `/rebuild` – Claude picks the next slice, shows the plan, builds after your approval, and lands the slice as one squash commit on `main`. Fresh session, `/rebuild` again for the next one.
+- **Hands-off:** run `pwsh .claude/scripts/rebuild-loop.ps1` (or `bash .claude/scripts/rebuild-loop.sh`). Every slice runs in its own fresh headless session; you approve each plan with Enter (or type a change request), and the script moves on to the next ready slice until all are done. `-Yes` approves automatically but still stops on open decisions or red tests; `-Parallel` builds independent slices side by side (experimental); `-DryRun` lists what is ready.
+
+Nothing is pushed, nothing is installed. When all slices are done, `/rebuild` offers to turn the plan README into the product README.
+
+A complete run – plan, all slices, published result – is in [mcp-time-net](https://github.com/vompa/mcp-time-net).
 
 Status lines show an overall percentage, so you always see that the run is moving. Works best with Claude Code and subagents; uses superpowers for execution if you have it installed.
 
