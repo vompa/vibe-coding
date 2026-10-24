@@ -5,6 +5,8 @@ Usage: python3 render_slices.py <_slices.json> <output_dir> [--lang en|de]
 Entry fields (see references/templates.md, _slices.json):
   required: nr, slug, name, goal, deps, scope (list), non_goals
   optional text (default: an en dash): round, source
+    (round also names the round record the prompt points to; without it the prompt
+    points to the open round record in work/rounds/)
   optional lists (rendered as "- item", an en dash when missing or empty):
     mirror (patterns to copy as file:line), not_building,
     acceptance (Given/When/Then, rendered as checkboxes in the Definition of Done),
@@ -38,7 +40,7 @@ TEMPLATES = {
 
 ## Prompt
 ```
-Read CLAUDE.md, work/conventions.md, the round record work/rounds/{round}*.md and this slice file.
+Read CLAUDE.md, work/conventions.md, {round_ref} and this slice file.
 Implement slice {nr} "{name}" (this file).
 1. First present a plan (files, classes, tests) with a section "Assumptions (confirm on approval)"
    for every open point and a short "Review focus", save it under work/plans/,
@@ -76,7 +78,7 @@ Implement slice {nr} "{name}" (this file).
 
 ## Prompt
 ```
-Lies CLAUDE.md, work/conventions.md, die Rundendatei work/rounds/{round}*.md und diese Slice-Datei.
+Lies CLAUDE.md, work/conventions.md, {round_ref} und diese Slice-Datei.
 Setze Slice {nr} "{name}" um (diese Datei).
 1. Stelle zuerst einen Plan vor (Dateien, Klassen, Tests) mit einem Abschnitt
    „Annahmen (bei Freigabe bestätigen)“ für jeden offenen Punkt und einem kurzen „Review-Fokus“,
@@ -84,7 +86,7 @@ Setze Slice {nr} "{name}" um (diese Datei).
 2. Schreibe die Abnahmetests dieser Slice als fehlschlagende Tests (ROT).
 3. Implementiere das Minimum bis grün. Halte jede Regel in CLAUDE.md und work/conventions.md ein.
 4. Prüfe die Definition of Done. Halte Entscheidungen, Überraschungen und zurückgestellte
-   Kleinigkeiten in der Rundendatei und in der Protokolldatei fest, die work/conventions.md nennt.
+   Kleinigkeiten in der Rundenakte und in der Protokolldatei fest, die work/conventions.md nennt.
 ```
 
 ## Definition of Done
@@ -98,7 +100,21 @@ Setze Slice {nr} "{name}" um (diese Datei).
 """,
 }
 
-MANUAL_LABEL = {"en": "Manual", "de": "Manuell"}
+# Language-dependent pieces that are filled in code rather than in the template:
+# the prefix of manual check items and the prompt's pointer to the round record
+# (a glob for a given round, otherwise a description of how to find the open one).
+PHRASES = {
+    "en": {
+        "manual": "Manual",
+        "round_ref": "the round record work/rounds/{round}-*.md",
+        "open_round_ref": 'the open round record in work/rounds/ (first line "Status: open")',
+    },
+    "de": {
+        "manual": "Manuell",
+        "round_ref": "die Rundenakte work/rounds/{round}-*.md",
+        "open_round_ref": "die offene Rundenakte in work/rounds/ (erste Zeile „Status: open“)",
+    },
+}
 
 REQUIRED = ("nr", "slug", "name", "goal", "deps", "scope", "non_goals")
 OPTIONAL_TEXT = ("round", "source")
@@ -118,14 +134,18 @@ def checkboxes(items, prefix: str = "") -> str:
 
 def build_fields(entry: dict, lang: str) -> dict:
     """Return the template fields for one entry; unknown entry fields pass through."""
-    manual_prefix = f"{MANUAL_LABEL[lang]}: "
+    phrases = PHRASES[lang]
+    round_id = entry.get("round")
+    round_ref = (phrases["round_ref"].format(round=round_id) if round_id
+                 else phrases["open_round_ref"])
     return {
         **entry,
         **{key: entry.get(key) or EMPTY for key in OPTIONAL_TEXT},
+        "round_ref": round_ref,
         "scope": bullets(entry["scope"]),
         **{key: bullets(entry.get(key)) for key in OPTIONAL_LISTS},
         "checks": checkboxes(entry.get("acceptance"))
-        + checkboxes(entry.get("manual"), manual_prefix),
+        + checkboxes(entry.get("manual"), f"{phrases['manual']}: "),
     }
 
 
@@ -156,7 +176,9 @@ def main() -> int:
             print(f"Slice {s.get('nr', '?')}: missing fields {missing}", file=sys.stderr)
             return 1
         text = template.format(**build_fields(s, lang))
-        (out / f"{s['nr']}-{s['slug']}.md").write_text(text, encoding="utf-8")
+        # newline="\n" keeps LF on every platform (write_text would write CRLF on Windows).
+        with open(out / f"{s['nr']}-{s['slug']}.md", "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
     print(f"Wrote {len(slices)} slices to {out} ({lang})")
     return 0
 

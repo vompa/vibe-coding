@@ -185,6 +185,21 @@ def test_missing_required_field_fails():
     code, files = render([{k: v for k, v in MINIMAL.items() if k != "goal"}])
     assert code == 1 and not files
 
+def test_round_less_prompt_points_to_open_round():
+    code, files = render([MINIMAL])
+    text = files["100-sweep.md"]
+    assert code == 0 and "rounds/–" not in text
+    assert 'the open round record in work/rounds/ (first line "Status: open")' in text
+    code, files = render([FULL])
+    assert "work/rounds/R01-*.md" in files["05-labels.md"]
+
+def test_output_uses_lf_line_endings():
+    with tempfile.TemporaryDirectory() as tmp:
+        src = pathlib.Path(tmp, "s.json"); src.write_text(json.dumps([MINIMAL]), encoding="utf-8")
+        out = pathlib.Path(tmp, "out")
+        subprocess.run([sys.executable, str(SCRIPT), str(src), str(out)], check=True)
+        assert b"\r" not in (out / "100-sweep.md").read_bytes()
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
@@ -198,11 +213,11 @@ Expected: FAIL (script not found).
 
 - [ ] **Step 3: Implement the renderer**
 
-Copy `plugins/vibe-rebuild/skills/vibe-rebuild/scripts/render_slices.py`, then: `REQUIRED = ("nr", "slug", "name", "goal", "deps", "scope", "non_goals")`; `OPTIONAL_TEXT = ("round", "source")` default `–`; `OPTIONAL_LISTS = ("mirror", "not_building", "acceptance", "manual")` rendered as `- item` lines or `–` when missing/empty; acceptance items render as `- [ ] <item>`, manual items as `- [ ] Manual: <item>` inside the Definition of Done. The prompt block (en) tells the implementer to read `CLAUDE.md`, `work/conventions.md`, the round record `work/rounds/{round}*.md` and this slice file; plan with "Assumptions (confirm on approval)" and "Review focus", save to `work/plans/`; failing tests first; the minimum to go green; follow every rule in `CLAUDE.md` and `work/conventions.md`; record decisions, surprises and deferred minors in the round record and the repository's protocol file named in `conventions.md`. Definition of Done fixed lines: checks from `work/conventions.md` green; no test weakened or skipped; no new packages without approval; decisions recorded. German template mirrors it. Build the format dict with `{**defaults, **s, "scope": …, lists…}` so unknown fields pass through harmlessly.
+Copy `plugins/vibe-rebuild/skills/vibe-rebuild/scripts/render_slices.py`, then: `REQUIRED = ("nr", "slug", "name", "goal", "deps", "scope", "non_goals")`; `OPTIONAL_TEXT = ("round", "source")` default `–`; `OPTIONAL_LISTS = ("mirror", "not_building", "acceptance", "manual")` rendered as `- item` lines or `–` when missing/empty; acceptance items render as `- [ ] <item>`, manual items as `- [ ] Manual: <item>` inside the Definition of Done. The prompt block (en) tells the implementer to read `CLAUDE.md`, `work/conventions.md`, the round record (`work/rounds/{round}-*.md`, or the open round record in `work/rounds/` when the entry has no round) and this slice file; plan with "Assumptions (confirm on approval)" and "Review focus", save to `work/plans/`; failing tests first; the minimum to go green; follow every rule in `CLAUDE.md` and `work/conventions.md`; record decisions, surprises and deferred minors in the round record and the repository's protocol file named in `conventions.md`. Definition of Done fixed lines: checks from `work/conventions.md` green; no test weakened or skipped; no new packages without approval; decisions recorded. German template mirrors it. Build the format dict with `{**defaults, **s, "scope": …, lists…}` so unknown fields pass through harmlessly. Write each slice file with `open(path, "w", encoding="utf-8", newline="\n")` so the output is LF on every platform.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `python tests/render_slices_test.py` → four `ok` lines, exit 0.
+Run: `python tests/render_slices_test.py` → six `ok` lines, exit 0.
 Run: `python -m py_compile plugins/vibe-coding/skills/vibe-coding/scripts/render_slices.py`.
 
 - [ ] **Step 5: Commit**

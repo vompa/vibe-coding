@@ -40,6 +40,21 @@ def test_missing_required_field_fails():
     code, files = render([{k: v for k, v in MINIMAL.items() if k != "goal"}])
     assert code == 1 and not files
 
+def test_round_less_prompt_points_to_open_round():
+    code, files = render([MINIMAL])
+    text = files["100-sweep.md"]
+    assert code == 0 and "rounds/–" not in text
+    assert 'the open round record in work/rounds/ (first line "Status: open")' in text
+    code, files = render([FULL])
+    assert "work/rounds/R01-*.md" in files["05-labels.md"]
+
+def test_output_uses_lf_line_endings():
+    with tempfile.TemporaryDirectory() as tmp:
+        src = pathlib.Path(tmp, "s.json"); src.write_text(json.dumps([MINIMAL]), encoding="utf-8")
+        out = pathlib.Path(tmp, "out")
+        subprocess.run([sys.executable, str(SCRIPT), str(src), str(out)], check=True)
+        assert b"\r" not in (out / "100-sweep.md").read_bytes()
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
