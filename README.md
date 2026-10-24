@@ -26,7 +26,11 @@ A repository finished with vibe-rebuild continues with vibe-coding – see [Rela
     ```bash
     python3 tests/trigger_check.py tests/trigger-eval.json --runs 3
     ```
-  - vibe-coding: positive requests (findings lists, test feedback, feature ideas) and near-miss negatives (rebuilds, single fixes, code review), measured the same way with `--skill vibe-coding`; no vibe-rebuild case may trigger vibe-coding and the other way round.
+  - vibe-coding (`tests/trigger-eval-vibe-coding.json`, 10 positive requests – findings lists, test feedback, features to slice, setting up the loop – and 10 near-miss negatives – four rebuild requests, a single fix, a code review, a prompting question, a framework upgrade, unit tests, an architecture question; 3 runs each, plugin loaded from the checkout): **20/20**, no false triggers.
+    ```bash
+    python3 tests/trigger_check.py tests/trigger-eval-vibe-coding.json --skill vibe-coding --plugin-dir plugins/vibe-coding --runs 3
+    ```
+    The two skills stay apart: with both plugins loaded, none of the ten vibe-coding requests triggers vibe-rebuild (0 of 30 sessions) and none of the ten rebuild requests of `tests/trigger-eval.json` triggers vibe-coding (0 of 10 sessions).
 - **Loop test** (`tests/loop_test.py`): the loop scripts of both plugins (`rebuild-loop` and `slice-loop`, PowerShell and bash) against a fake `claude` CLI – auto approval, parallel slices, red slice, open decision, no terminal, all done; for `slice-loop` also `--max-slices`, a three-digit slice number and the round close. Runs in CI on every push to `main` and on pull requests.
 - **Renderer test** (`tests/render_slices_test.py`): the vibe-coding slice renderer – all sections, defaults for optional fields, German headings, a missing required field, LF line endings.
 - **Markers test** (`tests/markers_test.py`): the `/slice` command, both `slice-loop` scripts and the templates agree on the marker lines and file formats; no absolute user path or private mail address in the vibe-coding skill.

@@ -112,6 +112,14 @@ Try the build with that list. Tick `Result:` or write what you saw, answer the o
 
 vibe-coding uses the same formats as [vibe-rebuild](../vibe-rebuild/README.md) – `_slices.json`, `checklist.md`, the marker lines and the two-run plan approval – for a different job: vibe-rebuild analyses an old codebase and plans its rebuild with parity cases; vibe-coding does no analysis and no parity cases, it runs everyday changes. The two plugins are independent; install either or both. A repository finished with vibe-rebuild continues here after its last slice: `work/conventions.md` is derived from its `CLAUDE.md`, `rebuild/` stays as the record of the origin, and slice numbering in `work/` continues after the highest number in `rebuild/_slices.json` (rebuild slices 00–04, first slice here 05), so branch names `slice-NN` and markers never collide.
 
+## Quality
+
+Trigger eval (`tests/trigger-eval-vibe-coding.json` in the [source repository](https://github.com/vompa/vibe-coding)): 10 requests that should start the skill (findings lists, test feedback, features to slice, setting up the loop; English and German) and 10 near-miss requests that should not (four rebuild requests, a single fix, a code review, a prompting question, a framework upgrade, unit tests, an architecture question). 3 runs each: **20/20**, no false triggers. With both plugins loaded, none of the ten vibe-coding requests triggers vibe-rebuild and none of the ten rebuild requests of the vibe-rebuild eval triggers vibe-coding.
+
+```bash
+python3 tests/trigger_check.py tests/trigger-eval-vibe-coding.json --skill vibe-coding --plugin-dir plugins/vibe-coding --runs 3
+```
+
 ## Privacy
 
 No data collection, no network access of its own, no credentials; it writes the planning files above and, slice by slice, the product changes you approve; it pushes nothing – see [PRIVACY.md](PRIVACY.md).

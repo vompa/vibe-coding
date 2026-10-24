@@ -1,0 +1,22 @@
+[
+  {"query": "We just did a design review of the booking app against our design system. Here are the findings:\n1. Primary button on the booking form uses #3B82F6 instead of the brand token\n2. Table headers on the invoice list are not sticky and the header row jumps when sorting\n3. Empty state on the customer page shows raw 'null' text\n4. Date picker ignores the 24h setting\n5. Focus ring is missing on all icon-only buttons\nCan you work these through for me?", "should_trigger": true},
+  {"query": "Here is my test feedback after trying the build: the save button on the booking form does nothing when the date is empty, invoice totals round 19.995 to 19.99, and at 1024px the sidebar covers the table. Make something out of this we can go through step by step.", "should_trigger": true},
+  {"query": "slice the pos-readiness feature into agent-sized work packages. I want fewer PRs, not one per ticket – cash drawer, receipts, end-of-day report belong together where it makes sense.", "should_trigger": true},
+  {"query": "turn docs/review-2026-10-23.md into a round of slices and run it, please. Our CLAUDE.md has the branch and commit rules.", "should_trigger": true},
+  {"query": "I want build → I test → findings → next round with Claude Code, set it up in this repo. Right now I test, write notes and then paste them into a new chat each time and it's a mess.", "should_trigger": true},
+  {"query": "plan the next package (import, duplicates, GDPR export) as slices with acceptance criteria. Each slice should be something one agent session can finish with its own tests.", "should_trigger": true},
+  {"query": "Nimm die Änderungsliste aus docs/aenderungen.md und arbeite sie in Slices ab, je ein Squash-Commit. Die Regeln aus unserer CLAUDE.md sollen weiter gelten.", "should_trigger": true},
+  {"query": "Ich habe getestet, hier meine Punkte je Maske: Kundenliste – Suche findet keine Umlaute; Rechnung – Summe stimmt bei 19 % und 7 % gemischt nicht; Einstellungen – Speichern-Button reagiert nicht. Mach daraus die nächste Runde.", "should_trigger": true},
+  {"query": "wir brauchen die Kassa startfähig – zerlege das in Slices mit Given/When/Then und /slice, damit Claude Code die Stücke einzeln und der Reihe nach abarbeiten kann", "should_trigger": true},
+  {"query": "set up the hands-off loop so each slice runs in a fresh session and I only approve plans. we already have the slices written, I just don't want to babysit every one.", "should_trigger": true},
+  {"query": "We have an old ASP.NET WebForms app for warehouse management (about 80k lines). I want Claude Code to rebuild it on .NET 10 + Blazor, but in a way that guarantees everything still works the same at the end. How do we approach this? Please make a plan the agent can work through step by step.", "should_trigger": false},
+  {"query": "we're migrating our angularjs 1.x admin panel to vue 3 and want claude code to do most of the work. need a migration plan from the existing code with characterization tests so we catch regressions. repo is attached as zip", "should_trigger": false},
+  {"query": "Mein Chef will, dass wir unsere Java-Spring-Monolith-Bestellabwicklung per Agenten auf einen sauberen modularen Monolithen umbauen. Kannst du aus dem Code ein Pflichtenheft und eine Reihenfolge der Umbauschritte für die KI machen?", "should_trigger": false},
+  {"query": "Here's our legacy time-tracking repo (C#, WinForms, SQL Server). I need a brownfield strategy: what should the AI rewrite, what should we keep, and how do we make sure we keep parity?", "should_trigger": false},
+  {"query": "fix the null reference in InvoiceService.cs line 120 – it blows up when the customer has no billing address", "should_trigger": false},
+  {"query": "Review PR #482 for security, please. Focus on the new upload endpoint and how it handles file names and error cases.", "should_trigger": false},
+  {"query": "What is vibe coding and how do I prompt well? I'm new to this and want to understand the basics before I start my first project.", "should_trigger": false},
+  {"query": "Upgrade bitte unser Projekt von .NET 8 auf .NET 10 – Target Frameworks, Pakete, Breaking Changes fixen, Build grün machen.", "should_trigger": false},
+  {"query": "Write unit tests for the KPI module, especially the OEE and MTBF calculation. We have almost no coverage there.", "should_trigger": false},
+  {"query": "Explain the architecture of this repo to me: which projects are there, and how does data flow from the API to the database?", "should_trigger": false}
+]

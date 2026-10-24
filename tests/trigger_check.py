@@ -2,11 +2,17 @@
 """Measure how reliably the installed skill triggers.
 
 Hit = Claude's first tool call is `Skill` with a name containing the skill name.
-Requires Claude Code (`claude`) installed, signed in, and this plugin installed.
+Requires Claude Code (`claude`) installed, signed in, and this plugin installed - or, with
+`--plugin-dir`, loaded from a local plugin directory for the measured sessions.
 
 Usage:
   python3 tests/trigger_check.py tests/trigger-eval.json \
-      [--runs 3] [--workers 6] [--model <model-id>] [--skill vibe-rebuild] [--out result.json]
+      [--runs 3] [--workers 6] [--model <model-id>] [--skill vibe-rebuild] \
+      [--plugin-dir <path>] [--out result.json]
+
+Example, vibe-coding straight from this checkout (its skill then shows up as `vibe-coding:vibe-coding`):
+  python3 tests/trigger_check.py tests/trigger-eval-vibe-coding.json \
+      --skill vibe-coding --plugin-dir plugins/vibe-coding
 
 Note: skill-creator's optimizer only counts its own temporary copy as a hit. When the plugin
 is already installed, the installed skill wins and the optimizer wrongly reports 0 %.
@@ -20,13 +26,16 @@ import subprocess
 import sys
 
 
-def first_action(query: str, model: str | None, cwd: str) -> str:
+def first_action(query: str, model: str | None, cwd: str, plugin_dir: str | None) -> str:
     cmd = ["claude", "-p", query, "--output-format", "stream-json", "--verbose", "--max-turns", "1"]
     if model:
         cmd += ["--model", model]
+    if plugin_dir:
+        cmd += ["--plugin-dir", plugin_dir]
     env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, env=env, timeout=240)
+        p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           cwd=cwd, env=env, timeout=240)
     except subprocess.TimeoutExpired:
         return "timeout"
     for line in p.stdout.splitlines():
@@ -50,14 +59,16 @@ def main() -> int:
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--model")
     ap.add_argument("--skill", default="vibe-rebuild")
+    ap.add_argument("--plugin-dir", help="load this local plugin directory for the sessions (claude --plugin-dir)")
     ap.add_argument("--cwd", default=os.getcwd())
     ap.add_argument("--out")
     a = ap.parse_args()
 
+    plugin_dir = os.path.abspath(a.plugin_dir) if a.plugin_dir else None
     items = json.load(open(a.eval_set, encoding="utf-8"))
     res: dict[int, list[str]] = {i: [] for i in range(len(items))}
     with cf.ThreadPoolExecutor(a.workers) as ex:
-        futs = {ex.submit(first_action, it["query"], a.model, a.cwd): i
+        futs = {ex.submit(first_action, it["query"], a.model, a.cwd, plugin_dir): i
                 for i, it in enumerate(items) for _ in range(a.runs)}
         for f in cf.as_completed(futs):
             res[futs[f]].append(f.result())
