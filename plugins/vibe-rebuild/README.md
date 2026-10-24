@@ -7,7 +7,7 @@ claude plugin marketplace add vompa/vibe-coding
 claude plugin install vibe-rebuild@vompa
 ```
 
-Point Claude at an existing codebase and get everything a coding agent needs to rebuild it better, slice by slice – keeping the behaviour and contracts users rely on, improving the rest based on current best practice.
+Point Claude at an existing codebase and get everything a coding agent (Claude Code or similar) needs to rebuild it better, slice by slice – keeping the behaviour and contracts users rely on, improving the rest based on current best practice. Not a copy: the original is the template, not the yardstick.
 
 ## What you get
 
@@ -22,7 +22,7 @@ A git repo that becomes the target repo of the rebuild – local by default (the
 - **plans/** – detailed per-slice plans, created while building
 - **open-questions.md** (open questions with marked assumptions), **checklist.md** (progress per slice), a slice graph (Mermaid plus images, sized for the document and the side panel), and a rebuild-vs-refactor assessment
 - **README** with the origin of the rebuild and a step-by-step getting-started section anyone can follow
-- **`/rebuild`** – one Claude Code command that runs the plan slice by slice (`/rebuild`, `/rebuild 07`, `/rebuild status`), using superpowers (worktree, `writing-plans`, `subagent-driven-development`) if you have it installed, never installing it for you
+- **`/rebuild`** – one Claude Code command that runs the plan slice by slice (`/rebuild`, `/rebuild 07`, `/rebuild status`), using [superpowers](https://github.com/obra/superpowers) (worktree, `writing-plans`, `subagent-driven-development`) if you have it installed, never installing it for you
 - **`rebuild-loop`** – a script (PowerShell and bash) that runs every slice in its own fresh Claude session, stops only for your plan approval and moves on by itself – no typing `/rebuild` after each slice
 
 The plan is self-contained: once it is written, neither you nor the coding agent needs the original's code or a running original.
@@ -52,8 +52,15 @@ The skill triggers on its own; you can also call it as `/vibe-rebuild:vibe-rebui
 
 Open a terminal in the plan repo and choose:
 
-- **Step by step:** run `claude`, type `/rebuild` – Claude picks the next slice, shows the plan, builds after your approval, and lands the slice as one squash commit on `main` (task commits stay on the branch `slice-NN`). A fresh session and `/rebuild` again for the next one is the safe default – every slice gets a clean context. `/rebuild 07` builds exactly slice 07, `/rebuild status` shows done, in progress, ready and blocked slices, `/rebuild 07 direct` works without superpowers even if it is installed; without superpowers `/rebuild` follows the slice prompt.
-- **Hands-off:** run `pwsh .claude/scripts/rebuild-loop.ps1` (PowerShell 7: Windows, macOS, Linux) or `bash .claude/scripts/rebuild-loop.sh` (macOS, Linux, Git Bash). The script picks the next ready slice from `rebuild/_slices.json` and `rebuild/checklist.md` and starts a fresh headless session for it (`claude -p --session-id …`) that reads the plan, writes the slice plan and stops; you see the plan's path and any open decisions and approve with Enter, type a change request, or stop with `q`; the same session (`--resume`) then builds, tests and closes the slice, the script checks that it is really ticked and moves on to the next ready slice until all are done. `-Yes` approves automatically but still stops on open decisions (`NEEDS-DECISION`), red slices and slices reported done without a tick; `-Parallel` builds independent slices side by side, each in its own worktree (experimental); `-DryRun` lists what is ready.
+- **Step by step:** run `claude`, type `/rebuild` – Claude picks the next slice whose dependencies are done, shows the plan, builds after your approval (tests first), and lands the slice as one squash commit on `main` (task commits stay on the branch `slice-NN`). A fresh session and `/rebuild` again for the next one is the safe default – every slice gets a clean context. `/rebuild 07` builds exactly slice 07, `/rebuild status` shows done, in progress, ready and blocked slices, `/rebuild 07 direct` works without superpowers even if it is installed; without superpowers `/rebuild` follows the slice prompt.
+- **Hands-off:** run `pwsh .claude/scripts/rebuild-loop.ps1` (PowerShell 7: Windows, macOS, Linux) or `bash .claude/scripts/rebuild-loop.sh` (macOS, Linux, Git Bash). The script picks the next ready slice from `rebuild/_slices.json` and `rebuild/checklist.md` and starts a fresh headless session for it (`claude -p --session-id …`) that reads the plan, writes the slice plan and stops; you see the plan's path and any open decisions and approve with Enter, type a change request and get a revised plan, or stop with `q`; the same session (`--resume`) then builds, tests and closes the slice, the script checks that it is really ticked and moves on to the next ready slice until all are done.
+
+| Option (PowerShell / bash) | Effect |
+|---|---|
+| *(none)* | asks for every plan |
+| `-Yes` / `--yes` | approves plans automatically; still stops when a plan reports an open decision (`NEEDS-DECISION`), a slice stays red, or a slice reports done without being ticked |
+| `-Parallel` / `--parallel` | builds slices that are ready at the same time side by side, each in its own worktree (experimental) |
+| `-DryRun` / `--dry-run` | only lists the slices that are ready now |
 
 Good to know about the loop: headless sessions can't answer permission prompts, so they run with `--permission-mode auto` (set `REBUILD_PERMISSION_MODE` to choose another); logs per slice go to `.rebuild-loop/`, which the script keeps out of git; approvals need a terminal (without one, e.g. in CI, the script stops instead of approving silently); under the hood `/rebuild` prints marker lines the script reads (`PLAN:`, `NEEDS-DECISION:`, `SLICE-DONE:`, `SLICE-OPEN:`, `ALL-DONE`), and `/rebuild NN plan auto` is what the script sends.
 
@@ -61,7 +68,7 @@ Nothing is pushed, nothing is installed. Each slice ends the same way: the plan 
 
 A complete run – plan, all slices, published result – is in [mcp-time-net](https://github.com/vompa/mcp-time-net).
 
-Long steps are announced and status lines start with an overall percentage, so you always see that the run is moving. Works best with Claude Code and subagents; uses superpowers for execution if you have it installed.
+Long steps are announced, status lines start with an overall percentage, and there is no silent stretch longer than a few minutes, so you always see that the run is moving. Works best with Claude Code and subagents; uses superpowers for execution if you have it installed.
 
 ## Privacy
 
