@@ -19,13 +19,15 @@ work/_slices.json. A slice is done when its row in work/checklist.md has a ☑ a
 - "status" → read work/checklist.md, work/_slices.json and the git branches named slice-*.
   Show one table for the slices of the open round: slice, name, state (done / in progress /
   ready / blocked by …; "in progress" = not done, but a branch slice-NN exists or the row has a ☑),
-  then the number of open decisions in the round record and one line "Ready next: …". Stop there.
+  then the number of open decisions in the round record and one line "Ready next: …". Two or more
+  ready: offer parallel sessions (section 7). Stop there.
 - "close" → section 5.
 - a number NN (two or more digits) → work on slice NN. Already done: say so and stop. A slice it
   depends on (field "deps") is not done: say which one and ask before going on
   (auto: print "SLICE-OPEN: NN blocked by <deps>" and stop).
 - nothing → pick the lowest-numbered slice of the open round that is not done and whose
-  dependencies are all done. Say which one and why, then go on. Slices are left but none is ready:
+  dependencies are all done. Say which one and why; if others are ready too, offer them parallel
+  sessions first (section 7), then go on with yours. Slices are left but none is ready:
   show the status table and stop. Every slice of the round is done: say "All slices of Rnn done",
   propose "/slice close" (auto: print "ALL-DONE") and stop.
 
@@ -107,6 +109,7 @@ Do 1–4 on slice-NN, so they land in the same commit as the code.
    the tick. If the branch moved or the merge conflicts in work/checklist.md or the round record,
    keep every tick and entry from both sides. In auto mode take this option without asking, then
    remove the merged slice-NN branch and its own worktree, nothing else.
+7. Two or more slices are ready now: offer parallel sessions for them (section 7) before the lines below.
 End with exactly three lines:
 - "Slice NN done" (or what is still open and why)
 - "Ready next: …" (e.g. "07, 08, 09 – can run in parallel in separate sessions"; all done: "none –
@@ -152,3 +155,21 @@ from the first column, exactly as written – no bullet, quote or code format, n
 - "ALL-DONE" – every slice of the round is done, the round is still open
 - "ROUND-DONE: Rnn" – the round is closed
 - "ROUND-OPEN: Rnn <reason>" – the round could not be closed
+
+## 7. Parallel slices
+Ready = not done, no branch slice-NN, every slice in "deps" done. When two or more slices are ready
+(not counting the one this session works on), offer to start one separate session per ready slice,
+unasked and once per run; never in auto mode (the loop script starts the next run itself).
+- Offer, never start unasked: list the ready slices with name and kind (app, web, docs), say that
+  slices touching the same files collide when merged, suggest at most four at once (parallel builds
+  and test suites turn each other red under load), and ask which ones to start.
+- On a yes, start each chosen slice in its own session in this repository's main checkout, with
+  your harness's tool for separate sessions if it has one (sharing this checkout, not a worktree of
+  the harness: the slice creates its own worktree in section 3). Without such a tool, print one
+  ready-to-paste prompt per slice instead.
+- Each prompt carries: "/slice NN"; the round, the slice's name, goal, scope, not-building list and
+  acceptance cases from work/_slices.json; that other slices run in parallel sessions, so the merge
+  in section 4 may conflict in work/checklist.md, the round record and the documents that change with
+  a change, and every tick and entry of both sides stays; that it touches only its own branch and
+  worktree, never pushes, and ends with the three lines of section 4.
+- Never two sessions on one slice: a slice with a branch slice-NN is in progress, not ready.

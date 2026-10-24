@@ -10,6 +10,13 @@ def test_command_defines_every_marker():
     assert 'argument-hint: "[status | NN | close] [plan] [auto] [direct]"' in text
     assert "work/conventions.md" in text and "git merge --squash" in text and "never push" in text.lower()
 
+def test_command_offers_parallel_sessions_outside_auto():
+    text = (SKILL / "references/slice-command.md").read_text(encoding="utf-8")
+    section = text.split("## 7. Parallel slices", 1)[1]
+    assert text.count("(section 7)") >= 3, "status, nothing and the close of a slice point to section 7"
+    assert "never in auto mode" in section and "Offer, never start unasked" in section
+    assert "Never two sessions on one slice" in section and "ready-to-paste prompt" in section
+
 def test_loop_scripts_read_the_same_markers():
     for name in ("slice-loop.sh", "slice-loop.ps1"):
         text = (SKILL / f"assets/{name}").read_text(encoding="utf-8")
