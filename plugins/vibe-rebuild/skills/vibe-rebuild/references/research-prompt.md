@@ -25,6 +25,10 @@ Keep this run to roughly 5–10 minutes; if more is left, stop and list it as "N
 2. DEEP – from what pass 1 found, derive follow-up queries and go as deep as needed
    on each point that matters for this app: breaking changes, known pitfalls,
    migration guides from <source stack>, official recommendations vs. community practice.
+   For every package you would recommend: licence, paid tiers, and any sponsorship,
+   registration or declaration a build enforces – list them under "Licences & terms".
+   Also list what only a short probe can settle (start-up, transport, packaging, logging)
+   under "Pitfalls & breaking changes" as "[To probe]" – the orchestrator runs the probe.
 3. DISTILL – end with "## Decisions for this rebuild": one line per decision,
    the finding it rests on, and its source. Mark anything not backed by a source [Unverified].
 
@@ -38,8 +42,10 @@ Structure of research.md:
 ## Goal & scope
 ## Versions & support
 ## Findings by topic        (one subsection per topic, sources inline)
+## Licences & terms
 ## Pitfalls & breaking changes
 ## Decisions for this rebuild
+## Findings per slice        (leave empty – filled while building)
 ## Sources
 
 Reply with one line only: pass, topics finished, sources, what the next pass should cover.

@@ -2,10 +2,10 @@
 name: vibe-rebuild
 description: Turns an existing app (repo, codebase, legacy system) into a rebuild plan for vibe coding with AI agents – analysis.md, PRD, glossary, CLAUDE.md guardrails, vertical slices with ready-to-run prompts, and acceptance cases that keep what users rely on. Use whenever someone wants to rebuild, rewrite, migrate, modernize or port an existing application to another stack with Claude Code or other coding agents, or needs a rebuild/migration plan, a spec or task breakdown derived from existing code, or a brownfield vibe-coding strategy – even if they never say "vibe coding". Not for greenfield apps without existing code, single features, or plain code reviews.
 license: MIT
-compatibility: Designed for Claude Code and Claude with file access and subagents; scripts need Python 3.10+.
+compatibility: Designed for Claude Code and Claude with file access and subagents; scripts need Python 3.10+; the generated rebuild-loop needs the claude CLI plus PowerShell 7 or bash.
 metadata:
   author: vompa
-  version: "2.2.0"
+  version: "2.3.0"
 ---
 
 # Vibe Rebuild – rebuild an existing app with vibe coding
@@ -111,9 +111,10 @@ Collect first, decide later:
 
 1. **State the goal openly** – "rebuild <app> on <target stack> following current best practice". Don't hand the research a short list of topics to check: an agent given two examples examines those two thoroughly and treats everything else as out of scope.
 2. **Go broad**: current stable versions and support windows, recommended project structure, how architecture rules are enforced, testing and parity tooling, and the target-stack equivalents of every area in `analysis.md` (persistence, auth, messaging, UI, deployment …). Save everything, structured and with sources, to `research.md`.
-3. **Go deep**: derive follow-up queries from what step 2 found and dig into each point that matters for this app – breaking changes, known pitfalls, migration guides from the source stack.
-4. **Distill**: end `research.md` with "Decisions for this rebuild" – each with the finding it rests on and its source. These feed `CLAUDE.md` (§6), the slice order (§7) and the rebuild-vs-refactor assessment (§9).
-5. **Present before slicing**: decisions that change architecture or scope go to the user together with the architecture-relevant open questions.
+3. **Go deep**: derive follow-up queries from what step 2 found and dig into each point that matters for this app – breaking changes, known pitfalls, migration guides from the source stack. **License and terms of every package you would recommend**: licence, paid tiers, sponsorship or registration duties that a build enforces (some packages break the build until a declaration is made). A package that needs money or a licence decision goes to the user, not into `CLAUDE.md`.
+4. **Probe what reading cannot show**: if the target SDK is available, build a throwaway hello-world for the risky paths – the planned transport or hosting, the distribution path (package, tool, container), how the process starts, stops and logs – in a scratch folder outside the plan repo. Record what behaved differently from the docs under "Pitfalls & breaking changes", marked `[Probed]`. Reading-only research tends to find no pitfalls; the real ones show up the first time something runs. Without the SDK, make the probe the first task of slice 00.
+5. **Distill**: end `research.md` with "Decisions for this rebuild" – each with the finding it rests on and its source. These feed `CLAUDE.md` (§6), the slice order (§7) and the rebuild-vs-refactor assessment (§9).
+6. **Present before slicing**: decisions that change architecture or scope go to the user together with the architecture-relevant open questions.
 
 **Run it in passes, not as one long job.** Research is the longest step of the run, so it follows "Keep the user posted" strictly: launch broad, deep and distill as separate short runs (one subagent call each, or inline), and after each pass post one status line – e.g. "Research broad done: 14 topics, 31 sources – going deep on 6 points (~5 min)." The research agent appends each finished topic to `research.md` immediately and logs one line per topic in `_raw/research-progress.md`, so progress is visible even mid-pass.
 
@@ -122,12 +123,17 @@ Search queries contain only generic technology terms – never code, internal na
 
 ## 6. Guardrails → `CLAUDE.md` (repo root)
 
-Built on the decisions in `research.md`, not on defaults from memory. Target architecture with allowed dependency directions – and how it is **enforced** (architecture tests such as NetArchTest/ArchUnit, analyzer rules). Rules that exist only as text don't survive many agent sessions.
-Plus: hard rules (file size, single responsibility, constants defined once, no secrets, no new packages without asking), "Forbidden" = legacy findings, exact commands, way of working (plan → failing tests → code, one slice per session, one commit per green slice).
+Built on the decisions in `research.md`, not on defaults from memory. Target architecture with allowed dependency directions – and how it is **enforced** (architecture tests such as NetArchTest/ArchUnit, analyzer rules). Rules that exist only as text don't survive many agent sessions, so:
+
+- **One architecture test per rule.** Every dependency rule written in the Architecture section gets its own test, and `CLAUDE.md` lists the mapping rule → test. A rule without a test is a gap for slice 00, not a guideline.
+- **Every quality gate is proven to bite.** Build flags such as "warnings as errors" or "enforce code style" can silently skip rule groups (naming rules, formatting). Slice 00 commits a deliberate violation per gate in a throwaway branch, shows the build or CI turning red, and removes it; the formatter/linter check runs in CI, not only locally.
+- **Approved packages with their licence**: a short table package | version line | licence; anything else needs asking.
+
+Plus: hard rules (file size, single responsibility, constants defined once, no secrets, no new packages without asking), "Forbidden" = legacy findings, exact commands, way of working (plan with assumptions → failing tests → code, one slice per session, task commits on branch `slice-NN`, **one squash commit per green slice on `main`**).
 
 ## 7. Slicing → `rebuild/slices/NN-name.md`
 
-Vertical and ordered by dependency; slice 00 = scaffold including CI, architecture tests and the parity harness. Sizing: one slice ≈ one agent session (1–2 h), roughly one slice per 1.5–2k lines of the original.
+Vertical and ordered by dependency; slice 00 = scaffold including CI, the parity harness, one architecture test per rule in `CLAUDE.md` (mapping complete) and the proof that every quality gate turns red on a violation (§6). Sizing: one slice ≈ one agent session (1–2 h), roughly one slice per 1.5–2k lines of the original.
 Record the slices as a list in `rebuild/_slices.json` and render them:
 ```
 python3 scripts/render_slices.py rebuild/_slices.json rebuild/slices --lang <plan language>
@@ -160,18 +166,23 @@ Never call non-deterministic dependencies (LLM calls, external APIs, wall-clock 
 ## 9. Handover
 
 `README.md` with:
+- **Origin** – full link to the original (repository URL, path inside it if only part was rebuilt, commit, licence) and one line "Plan created with vibe-rebuild <version> on <date>". The README later becomes the product README, and readers must be able to find the original without asking.
 - **Assessment: rebuild vs. refactor** – if the original is already well structured and tested, a targeted refactor of the legacy findings is often cheaper; then say which slices would suffice for that. Weigh in what `research.md` found about the target stack (migration effort, breaking changes).
 - File overview and slice dependency graph (what can run in parallel), as a Mermaid block in the README plus rendered images (`rebuild/slice-graph.mmd/.png/.svg`), so it shows wherever the README is read. Size the picture for where it is seen:
   - **Up to ~6 slices:** one compact top-down diagram is enough for the README and the side panel.
   - **More slices:** a document version at roughly 2:1 for the README (group parallel strands into lanes and draw arrows between lanes, not between every slice, so lines don't cross) and a portrait version without group frames (`slice-graph-panel.png`) for the side panel or chat.
   - Render with Mermaid CLI when available; otherwise ship the `.mmd` and the Mermaid block only. Show the panel image directly below the delivered result.
 - **Getting started** from `references/getting-started.md`, filled in for this plan – prerequisites, the `/rebuild` flow, commands, parallel work, what to do when something goes wrong, where things are. Someone who has never seen the plan must be able to start from it alone.
-- `checklist.md` (slice × plan / tests red / green / parity / commit).
+- `checklist.md` (slice × plan / tests red / green / parity / commit): one row per slice starting with `| NN `, every cell `☐` until done, then `☑` – `/rebuild` and `rebuild-loop` read exactly this format.
 - `.claude/commands/rebuild.md` – copy `references/rebuild-command.md` unchanged. `/rebuild` picks the next ready slice (or `/rebuild NN`, `/rebuild status`), uses superpowers when it is installed and the slice prompt otherwise, and closes each slice with the next ready ones.
+- `.claude/scripts/rebuild-loop.ps1` and `.claude/scripts/rebuild-loop.sh` – copy `assets/rebuild-loop.ps1` and `assets/rebuild-loop.sh` unchanged with a file copy (`cp` / `Copy-Item`), not by rewriting them, and add `*.sh text eol=lf` to the target repo's `.gitattributes` – a CRLF bash script fails with `$'\r'`. They run every slice in its own fresh headless Claude session, stop for plan approval, and move on to the next ready slice, so nobody has to type `/rebuild` after each slice.
+
+**No personal or machine data in any file.** Paths in files are relative to the repo ("open a terminal in the repo folder"); the full local path appears only in the handover message in chat. No user names, machine names, private e-mail addresses or personal names – decisions are recorded as "User, <date>".
 
 **Where the plan goes – in this order:**
 
-1. **Local git repo (default).** Ask for the full local path and show it back in full (e.g. `C:\Development\Repositories\<name>`, never `~/…` or a bare name). The plan becomes the target repo: only `CLAUDE.md` (Claude Code loads it from the root), `README.md`, `.gitignore` and `.claude/commands/` sit at the root; every plan document goes into `rebuild/`, detailed per-slice plans into `rebuild/plans/`, and the root stays free for `src/` and `tests/` from slice 00 on. `git init`, a `.gitignore` for the target stack, one initial commit.
+1. **Local git repo (default).** Ask for the full local path and show it back in full in chat (e.g. `C:\Development\Repositories\<name>`, never `~/…` or a bare name) – but never write it into a file. The plan becomes the target repo: only `CLAUDE.md` (Claude Code loads it from the root), `README.md`, `.gitignore`, `.gitattributes` and `.claude/` (commands and scripts) sit at the root; every plan document goes into `rebuild/`, detailed per-slice plans into `rebuild/plans/`, and the root stays free for `src/` and `tests/` from slice 00 on. `git init`, a `.gitignore` for the target stack, one initial commit.
+   **Check the commit identity first**: a fresh repo commits with the global git identity, which is often a private address. Show `git config user.name` / `user.email` and, if it looks private, ask which identity to use (e.g. the GitHub noreply address) and set it with `git config --local` – the plan commit is the first thing that becomes public when the repo is pushed.
 2. **GitHub**, when a local repo is not possible: the user creates an empty repo and names it, you push the initial commit (or a new branch in an existing repo).
 3. **Files only**, when the user wants neither: deliver the folder and a zip and say how to turn it into a repo later.
 
@@ -183,13 +194,13 @@ Never call non-deterministic dependencies (LLM calls, external APIs, wall-clock 
 | Cloud session linked to the user's machine | remote-device tools are present; your own file system is a container | plain files via the file-transfer tool; `.git/` and `.claude/` are protected for transfer tools, so create them with the device shell: build the repo in a scratch folder on the device (`git init`, commit), then copy `.git/` and `.claude/` into the target folder. On a Windows folder mounted into a Linux shell, set `core.filemode=false`. Never ask for delete rights on a parent folder that holds other projects. |
 | No access to the user's machine | neither of the above | offer GitHub (2.) or files (3.) |
 
-Verify at the end, whatever the environment: `git log` shows the commit, `git status` is clean, `.claude/commands/rebuild.md` exists.
+Verify at the end, whatever the environment: `git log` shows the commit with the agreed identity, `git status` is clean, `.claude/commands/rebuild.md` and both `.claude/scripts/rebuild-loop.*` exist, and a search over all committed files finds no absolute path, user or machine name.
 
 The original stays untouched.
 
 **Handover message.** Keep it short and concrete, so the user knows exactly what to do next:
 1. The full location (local path, repo URL, or the delivered files).
-2. How to start: "Open a terminal in <full path>, run `claude`, type `/rebuild`." – plus one sentence on what happens then (it picks slice 00, shows a plan, builds after approval).
+2. How to start: "Open a terminal in <full path>, run `claude`, type `/rebuild`." – plus one sentence on what happens then (it picks slice 00, shows a plan, builds after approval). Then the hands-off way: "or run `pwsh .claude/scripts/rebuild-loop.ps1` (`bash .claude/scripts/rebuild-loop.sh`) – it runs all slices one after another in fresh sessions and only stops for your plan approvals."
 3. Prerequisites that are still missing on the user's side (e.g. the target SDK), if any.
 4. One line pointing to the README section "Getting started" for commands, parallel work and troubleshooting.
 For files only, give the same steps as an example directly below the delivered files, with "after unpacking into a folder and running `git init`" as the first step. Mention that superpowers is optional and detected automatically; never install it yourself.
@@ -200,6 +211,7 @@ For files only, give the same steps as an example directly below the delivered f
 - The plan must stand on its own: anything the rebuild needs from the original goes into the plan files. If a slice would need to look at the original, the analysis has a gap – close it in the plan.
 - Copy no code – behaviour, data contracts, interfaces and business numbers, yes.
 - Never put secrets, connection strings or personal test data into the plan; use placeholders.
+- No personal or machine data in files: no absolute paths, user or machine names, private e-mail addresses or personal names (decisions: "User, <date>"). This holds for the commands and plans written later, too.
 - A marked assumption beats a silent invention.
 - Examples in prompts are open lists, not checklists. Agents take named examples literally and weight them above everything else; when a prompt (yours or a template's) lists examples, say explicitly that they are examples and ask for anything else that matters.
 
@@ -208,8 +220,9 @@ For files only, give the same steps as an example directly below the delivered f
 Root of the git repo (or the delivered folder when the user chose files only):
 
 ```
-CLAUDE.md  README.md  .gitignore
+CLAUDE.md  README.md  .gitignore  .gitattributes
 .claude/commands/rebuild.md
+.claude/scripts/rebuild-loop.ps1  rebuild-loop.sh
 rebuild/
   analysis.md  research.md  open-questions.md  PRD.md  GLOSSARY.md  checklist.md
   slices/00-scaffold.md … NN-*.md

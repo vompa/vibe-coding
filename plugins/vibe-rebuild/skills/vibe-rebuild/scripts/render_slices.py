@@ -25,10 +25,13 @@ Read CLAUDE.md, rebuild/GLOSSARY.md, rebuild/research.md and the rebuild/PRD.md 
 Implement slice {nr} "{name}" (this file).
 0. If this slice needs a library or pattern rebuild/research.md does not cover,
    look up its current documentation first and add the findings to rebuild/research.md.
-1. First present a plan (files, classes, tests) and wait for approval.
+1. First present a plan (files, classes, tests) with a section "Assumptions (confirm on approval)"
+   for every open point and a short "Review focus", and wait for approval.
 2. Write this slice's acceptance and parity tests as failing tests (RED).
 3. Implement the minimum to get green, then refactor. Follow every rule in CLAUDE.md.
-4. Check the Definition of Done and report any deviations.
+4. Check the Definition of Done and report any deviations: deviations from the plan at the top of
+   the plan file, from the original in rebuild/parity/deviations.md, and what the docs did not say
+   under "Findings per slice" in rebuild/research.md.
 ```
 
 ## Definition of Done
@@ -37,6 +40,7 @@ Implement slice {nr} "{name}" (this file).
 - [ ] Build without warnings, architecture tests green
 - [ ] No file > 300 lines, no new packages without approval
 - [ ] No dead code, no TODOs without an issue
+- [ ] Deviations and findings recorded (plan, deviations.md, research.md)
 
 ## Non-goals
 {non_goals}
@@ -56,10 +60,14 @@ Lies CLAUDE.md, rebuild/GLOSSARY.md, rebuild/research.md und die Abschnitte "{pr
 Setze Slice {nr} "{name}" um (diese Datei).
 0. Braucht diese Slice eine Bibliothek oder ein Muster, das rebuild/research.md nicht abdeckt,
    lies zuerst die aktuelle Dokumentation und ergänze die Erkenntnisse in rebuild/research.md.
-1. Stelle zuerst einen Plan vor (Dateien, Klassen, Tests) und warte auf Freigabe.
+1. Stelle zuerst einen Plan vor (Dateien, Klassen, Tests) mit einem Abschnitt
+   „Annahmen (bei Freigabe bestätigen)“ für jeden offenen Punkt und einem kurzen „Review-Fokus“,
+   und warte auf Freigabe.
 2. Schreibe die Abnahme- und Parity-Tests dieser Slice als fehlschlagende Tests (ROT).
 3. Implementiere das Minimum bis grün, dann aufräumen. Halte jede Regel in CLAUDE.md ein.
-4. Prüfe die Definition of Done und melde Abweichungen.
+4. Prüfe die Definition of Done und melde Abweichungen: Abweichungen vom Plan oben in der
+   Plan-Datei, vom Original in rebuild/parity/deviations.md, und was die Doku nicht sagte
+   unter „Findings per slice“ in rebuild/research.md.
 ```
 
 ## Definition of Done
@@ -68,6 +76,7 @@ Setze Slice {nr} "{name}" um (diese Datei).
 - [ ] Build ohne Warnungen, Architekturtests grün
 - [ ] Keine Datei > 300 Zeilen, keine neuen Pakete ohne Freigabe
 - [ ] Kein toter Code, keine TODOs ohne Issue
+- [ ] Abweichungen und Befunde festgehalten (Plan, deviations.md, research.md)
 
 ## Nicht in dieser Slice
 {non_goals}

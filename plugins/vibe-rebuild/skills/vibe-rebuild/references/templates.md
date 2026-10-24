@@ -13,7 +13,9 @@
 ### F1 <name>
 **Story**: As a <role> I want <goal> so that <benefit>.
 - AC1 Given … When … Then … (exact numbers where known)
-- Edge cases: …
+- Edge cases: …  (for every input, new ones above all: range limits and overflow at both ends,
+  wrong type (number/bool/object instead of text), missing vs. null vs. empty, whitespace and
+  control characters, several invalid inputs at once – which error wins)
 - Errors: …
 ## API (contract)   (routes/operations in short, error format)
 ## Improvements on purpose   (from legacy findings and research, each with reason; may deviate from the original)
@@ -27,8 +29,10 @@
 ## Goal & scope
 ## Versions & support         (version | support until | source)
 ## Findings by topic          (one subsection per topic; sources inline)
-## Pitfalls & breaking changes (incl. migration notes from the source stack)
+## Licences & terms         (package | licence | paid tiers / build-enforced declarations | source)
+## Pitfalls & breaking changes (incl. migration notes from the source stack; [Probed] = seen in the probe)
 ## Decisions for this rebuild (decision | rests on | source)  → feeds CLAUDE.md, slices, README assessment
+## Findings per slice       (filled while building: "### Slice NN" – what the docs did not say, with the fix)
 ## Sources
 ```
 
@@ -42,12 +46,16 @@
 # CLAUDE.md – <product> (rebuild)
 <purpose in 2–3 sentences>; points to rebuild/PRD.md, rebuild/GLOSSARY.md, rebuild/research.md; goal = all cases in rebuild/parity/ green; improve the rest per rebuild/research.md.
 
-## Architecture     (project/module tree with dependency arrows; how enforced: architecture tests, analyzers)
+## Architecture     (project/module tree with dependency arrows; how enforced: one architecture
+                     test per rule, listed as rule → test; analyzers; gates proven to turn red)
 ## Hard rules       (≤300 lines per file, single responsibility, constants once, no secrets,
-                     no new packages without asking, business logic in one place, typed errors)
+                     no new packages without asking, business logic in one place, typed errors,
+                     no absolute paths / user, machine or personal names in files)
+## Approved packages (package | version line | licence)
 ## Forbidden (legacy) (concrete findings from analysis.md)
-## Commands         (exactly runnable: build, test, parity, run, lint)
-## Way of working   (read slice → plan → failing tests → code → DoD → commit; unclear = ask)
+## Commands         (exactly runnable: build, test, parity, run, lint/format check)
+## Way of working   (read slice → plan with assumptions → failing tests → code → DoD → findings
+                     into research.md → task commits on slice-NN → one squash commit on main; unclear = ask)
 ```
 
 ## parity/README.md
@@ -57,7 +65,8 @@
 ## From case to test (one acceptance/approval test per case, written from the plan; each test creates its own fixtures)
 ## Normalization     (ids, tokens, durations, wall-clock timestamps → placeholders)
 ## Non-deterministic parts (fake model, stubs)
-## Deviation log     (deviations.md: case | expected (plan) | rebuild | verdict)
+## Deviation log     (deviations.md: case | expected (plan) | rebuild | verdict – bug in the rebuild, or
+                     improvement on purpose with PRD reference and "decided by User, <date>"; no personal names)
 ```
 
 ## _slices.json (input for scripts/render_slices.py)
@@ -67,8 +76,8 @@
     "nr": "00", "slug": "scaffold", "name": "Scaffold",
     "goal": "Runnable empty solution with all quality gates and the parity harness.",
     "prd": "Principles, CLAUDE.md", "deps": "–",
-    "scope": ["Solution + projects", "Architecture tests", "CI", "Parity harness"],
-    "parity": "Architecture tests green on the empty solution",
+    "scope": ["Solution + projects", "One architecture test per rule in CLAUDE.md (mapping complete)", "CI incl. format/lint check", "Proof that every quality gate turns red on a deliberate violation", "Parity harness", "Probe from research.md if it could not run during planning"],
+    "parity": "Architecture tests green on the empty solution; every gate shown red once",
     "non_goals": "Business logic"
   }
 ]

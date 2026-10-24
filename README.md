@@ -10,8 +10,9 @@ By default the plan is committed as a local git repo (full path asked and shown)
 
 ```
 .claude/commands/rebuild.md   one command to run the rebuild slice by slice
+.claude/scripts/rebuild-loop.*  runs all slices one after another in fresh sessions
 CLAUDE.md            guardrails for the target repo (architecture, hard rules, commands)
-README.md            rebuild-vs-refactor assessment, slice graph, step-by-step getting started
+README.md            origin, rebuild-vs-refactor assessment, slice graph, step-by-step getting started
 rebuild/
   analysis.md        stack, domain, features, interfaces, tests, legacy findings
   research.md        current best practice for the target stack, with sources and decisions
@@ -53,6 +54,8 @@ Open a terminal in the plan repo, run `claude`, type `/rebuild`:
 
 If the [superpowers](https://github.com/obra/superpowers) plugin is installed, `/rebuild` uses it automatically (worktree, `writing-plans`, `subagent-driven-development`); otherwise it follows the slice prompt. The skill never installs plugins.
 
+**Hands-off:** `pwsh .claude/scripts/rebuild-loop.ps1` (or `bash .claude/scripts/rebuild-loop.sh`) runs every slice in its own fresh headless Claude session, stops only for your plan approval, and moves on to the next ready slice – no more typing `/rebuild` after each slice. `-Yes` approves plans automatically (still stops on open decisions or red tests), `-Parallel` builds independent slices side by side.
+
 The plan is written in your language (English by default).
 
 ## Installation
@@ -83,6 +86,7 @@ Explicitly: `/vibe-rebuild:vibe-rebuild <repo or path>`
   ```bash
   python3 tests/trigger_check.py tests/trigger-eval.json --runs 3
   ```
+- Loop test (`tests/rebuild_loop_test.py`): both `rebuild-loop` scripts against a fake `claude` CLI – auto approval, parallel slices, red slice, open decision, no terminal, all done; runs in CI on every push.
 
 ## Development
 
