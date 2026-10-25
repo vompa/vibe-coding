@@ -140,7 +140,7 @@ test('the pane shows the round as a legend with groups, opens a session and star
 test('Start writes a request into the prompt box, after any draft the person typed', async ($, on) => {
   const { filled, box } = await startBoard($, on, sessions, Date.UTC(2026, 9, 25, 16, 0, 0))
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect((await ui.find({ type: 'Text', text: /slots free/ }))?.text).toBe('3 of 4 slots free')
+  expect((await ui.find({ type: 'Text', text: /slots free/ }))?.text).toBe('2 of 3 slots free')
   // Start writes a request into the prompt box instead of starting sessions itself; Enter makes it the person's message.
   await ui.press({ key: 'start-ready' })
   expect(filled).toHaveLength(1)

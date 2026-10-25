@@ -167,8 +167,8 @@ Ready = not done, no branch slice-NN, every slice in "deps" done. When two or mo
 (not counting the one this session works on), offer to start one separate session per ready slice,
 unasked and once per run; never in auto mode (the loop script starts the next run itself).
 - Offer, never start unasked: list the ready slices with name and kind (app, web, docs), say that
-  slices touching the same files collide when merged, suggest at most four at once (parallel builds
-  and test suites turn each other red under load), and ask which ones to start.
+  slices touching the same files collide when merged, suggest at most three at once (parallel builds
+  and test suites turn each other red under load; four were almost too many), and ask which ones to start.
 - On a yes, start each chosen slice in its own session in this repository's main checkout, with
   your harness's tool for separate sessions if it has one (sharing this checkout, not a worktree of
   the harness: the slice creates its own worktree in section 3), on the slice's model: the field

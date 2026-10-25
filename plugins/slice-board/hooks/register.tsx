@@ -10,8 +10,8 @@ const SESSIONS_MS = 30_000
 const STEPS = ['Plan', 'Red', 'Green', 'Checks', 'Commit']
 const LIST_SESSIONS = 'mcp__ccd_session_mgmt__list_sessions'
 const OPEN_SESSION = 'mcp__ccd_window__open_session_in'
-/** Parallel builds and test suites turn each other red under load: at most this many slices in progress at once. */
-const MAX_PARALLEL = 4
+/** Parallel builds and test suites turn each other red under load: at most this many slices in progress at once (four were almost too many). */
+const MAX_PARALLEL = 3
 
 /** The groups of the pane in the order of the bar and the legend, with a fill for the desktop and a theme color for the terminal. */
 const GROUPS: { state: SliceState; label: string; fill: string; cell: string }[] = [
