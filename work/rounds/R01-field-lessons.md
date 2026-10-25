@@ -43,6 +43,7 @@ Ruling: slice 09 plan approved with its six assumptions as recommended (rule blo
 Ruling: slice 02 plan approved with its nine assumptions as recommended (hints template after the conventions template, creation and appending in SKILL.md section 2, read line and parallel-prompt clause in the command, check scope split on the `Checks for a slice` line, findings marking in SKILL.md section 3 plus the command, command budget kept at 220 lines and 16 "never", phrase tests, README tree line, CHANGELOG bullet with a manual privacy scan) – User, 2026-10-25
 Ruling: slice 03 plan approved with all nine assumptions (hint `[auto | parallel]`, step 5 stops with the message file and SLICE-READY, loop scripts untouched until slice 05, section 6 meaning, parallel prompts, "ready to merge" in status, budget, phrase tests) – User, 2026-10-25 (via the orchestrating session)
 Ruling: slice 04 plan approved with all ten assumptions (lock paragraph at the end of step 1 with a clause in section 2, `mkdir` / `New-Item` without `-Force` plus an `owner` file, wait 30 minutes for a live slice under 60 minutes old and report anything else, `status` line, template and SKILL.md pointers, line limit 230, slice 08 untouched and merged in before the squash, phrase tests) – User, 2026-10-25 (via the orchestrating session)
+Ruling: Slice 08 – plan approved with all six assumptions (merge queue named as `slice-loop --merge` or the running loop, rules sentence without the conflict clause, three new assertions in the existing Start test, README Ready paragraph and request sentence, command/loop scripts/tests untouched, slice-board and baseline checks) – User, 2026-10-25 (via the orchestrating session)
 
 ## Surprises
 - `CLAUDE.md` does not exist at the repository root, although the slice command names it. The rules came from `work/conventions.md` and the workspace note; nothing changed for that.
@@ -56,9 +57,11 @@ Ruling: slice 04 plan approved with all ten assumptions (lock paragraph at the e
 - Slice 03: the command grew by 6 lines (214 → 220), not the 8 the plan estimated, so assumption 8 (raise the size limit to 230) was not needed: the guard stays at 220 lines and 16 "never". The six new tests were red first for the intended reasons; the two changed assertions (`MARKERS`, the argument hint) follow the contract. The step for the squash message sits at the end of step 5 (as a paragraph, not a new numbered step) so the numbering of 6a to 6d stays as other documents cite it.
 - Slice 04: the command grew by 8 lines (220 → 228) and the guard moved from 220 to 230 lines as planned; "never" count unchanged (16). The four new tests were red first for the intended reasons. The numbers of the lock (60 minutes age, 30 minutes wait) are this slice's choice, documented in the command and in the plan.
 - Slice 04: `claude plugin validate --strict .` fails for the known slice-board warning only (see slice 02); the plugin-level validation is green.
+- Slice 08: the Start test was red for the intended reason (the request said `"/slice NN"` and the old conflict clause). The request text is generic (`NN`), not per slice, so the test asserts `"/slice NN parallel"`; it went green with the one edit of `requestStart`. `claude plugin test plugins/slice-board`: 5 of 5 pass. The slice-board plugin-level validation keeps its warning about the missing `version`.
 
 ## Deferred minors
 - Slice 04: the lock is a protocol in prose; nothing executes it in the loop scripts (slice 05 decides whether the queue uses it for its own checks). A lock left by a crashed session is only reported, never removed: the user removes the directory by hand.
+- Slice 08: the request names `slice-loop --merge`, which slice 05 introduces; until then the phrase "or the running loop" is the only working path.
 - Slice 02: the marketplace validation warning (slice-board without `version`) is not fixed here; slice 07 (release) is the natural place, or a separate fix to the slice-board manifest.
 - Slice 03: the loop scripts do not read `SLICE-READY` yet (slice 05); until then a loop run with `auto` ends at the new marker and is reported as stopped. `SLICE-DONE:` stays defined for runs without `auto` and `parallel`.
 - A scan test over `work/` in `tests/markers_test.py` (conventions: extend when round files change) is a follow-up; this slice's acceptance cases name phrase tests only, and the scan ran by hand.
@@ -100,4 +103,11 @@ Start: `claude --plugin-dir plugins/vibe-coding` in a scratch repository with th
 1. Create `.slice-loop/full-suite.lock/` by hand with an `owner` file naming another slice and the current time, then run `/slice NN` on a slice whose checks include a full suite.
 Expected: the session reports the lock with owner and time, waits and retries every minute while the owner's branch exists, and stops with `SLICE-OPEN: NN lock held by slice MM since <time>` in auto mode when the branch is gone; it never removes the lock.
 Closes: F-01 (lock), F-05
+Result: ☐
+
+### Slice 08 – slice-board starts sessions with /slice NN parallel
+Start: `claude plugin test plugins/slice-board`, then open the pane in a repository with an open round and two ready slices
+1. Press Start in the pane.
+Expected: the prompt box holds a request that briefs each session with `/slice NN parallel`, says it ends with `SLICE-READY: NN` and names the merge queue (`slice-loop --merge`, or the running loop).
+Closes: F-01 (parallel sessions from the pane)
 Result: ☐

@@ -265,8 +265,10 @@ async function requestStart($: EngineInterface, round: string, rows: SliceRow[])
     `Start one separate session per slice of round ${round} for: ${list}. ` +
     `Each in this repository's main checkout without an app worktree, on the slice's "model" from work/_slices.json ` +
     `(never this session's model), titled "Slice NN – <name> (${round})", ` +
-    `briefed with "/slice NN", the slice's goal, scope, not-building list and acceptance cases from work/_slices.json, ` +
-    `the parallel rules (own branch and worktree, keep both sides on squash conflicts, never push) and work/session-hints.md.`
+    `briefed with "/slice NN parallel", the slice's goal, scope, not-building list and acceptance cases from work/_slices.json, ` +
+    `the parallel rules (own branch and worktree, never push) and work/session-hints.md. ` +
+    `Each session ends with SLICE-READY: NN; the squash happens through the merge queue in the main checkout ` +
+    `(slice-loop --merge, or the running loop), never in the session itself.`
   const box = await $.prompt.read()
   const { isFilled } = await $.prompt.fill(box.text.trim() ? { text: `\n${text}`, mode: 'append' } : { text })
   $.ui.toast(isFilled ? 'Start request is in the prompt box: Enter sends it.' : 'The prompt box is busy: close the dialog and press Start again.')
