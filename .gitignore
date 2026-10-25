@@ -9,3 +9,7 @@ result*.json
 # slice-board: files the engine writes beside a loaded mod
 plugins/slice-board/.claude-plugin/types/
 plugins/slice-board/tsconfig.json
+
+# vibe-coding rounds
+work/_raw/
+.slice-loop/

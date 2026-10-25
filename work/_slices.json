@@ -1,0 +1,276 @@
+[
+  {
+    "nr": "01", "slug": "command-sweep", "name": "Command sweep: worktree recipe, conflict checklist, red under load, commit -F",
+    "goal": "The /slice command spells out the worktree recipe, the conflict checklist before a squash, the load rule for red tests and commit messages from a file, so slice sessions stop improvising them.",
+    "round": "R01", "source": "R01 – F-02, F-03, F-06, F-08 (command)",
+    "deps": "–", "model": "haiku",
+    "scope": [
+      "references/slice-command.md section 3: the worktree recipe – `git worktree add .claude/worktrees/slice-NN -b slice-NN <integration branch>`, enter that folder, `.claude/worktrees/` in `.git/info/exclude`; the squash always runs in the main checkout (F-02)",
+      "references/slice-command.md section 4 step 6: the conflict checklist before the squash commit (F-03)",
+      "references/slice-command.md section 4 step 1: a red test that is green alone or in a second unchanged run is load, not a regression; check commands never end in a pipe inside an && chain (F-06)",
+      "references/slice-command.md sections 3 and 4: every commit message is passed with `git commit -F <file>` from a file or heredoc (F-08)",
+      "tests/markers_test.py: one assertion per new phrase, written first"
+    ],
+    "mirror": [
+      "tests/markers_test.py:13 – how a test pins a section's wording (split at the heading, assert the phrases)",
+      "plugins/vibe-coding/skills/vibe-coding/references/slice-command.md:56 – the worktree line the recipe replaces",
+      "plugins/vibe-coding/skills/vibe-coding/references/slice-command.md:111 – the squash step the checklist extends"
+    ],
+    "not_building": [
+      "Changes to the loop scripts or to who squashes (slices 03, 05, 06)",
+      "The session-hints file (slice 02)"
+    ],
+    "acceptance": [
+      "Given slice-command.md When section 3 is read Then it prescribes `git worktree add .claude/worktrees/slice-NN -b slice-NN <integration branch>`, entering that folder and `.claude/worktrees/` in `.git/info/exclude`, and says that superpowers:using-git-worktrees is used only where it follows this recipe (F-02)",
+      "Given section 4 When the squash step is read Then it requires, in this order: merge the integration branch into slice-NN right before the squash; `grep '^<<<<<<<'` over the resolved files is empty; every line of both sides is still present; the number of `Result:` lines equals ours plus theirs minus the merge base; resolving and committing never run in one command (F-03)",
+      "Given section 4 When the checks step is read Then a red test that is green when run alone or in a second unchanged run counts as load, is noted under Surprises and does not stop the slice; and check commands never end in `| tail` or another pipe inside an `&&` chain, because the pipe hides the exit code (F-06)",
+      "Given sections 3 and 4 When a commit is described Then its message is passed with `git commit -F <file>` from a file or heredoc, never inline, because Git Bash rewrites a leading `/` into a path (F-08)",
+      "Given the unchanged command When the new tests in tests/markers_test.py run Then they fail; after the edits `python tests/markers_test.py` and `claude plugin validate --strict plugins/vibe-coding` pass"
+    ],
+    "manual": [
+      "Read the four new paragraphs in one pass: each fits its section, none contradicts section 7 or the auto-mode rules"
+    ],
+    "non_goals": "New markers, loop changes, wording changes outside the four findings"
+  },
+  {
+    "nr": "02", "slug": "skill-templates", "name": "Skill and templates: session hints, check scope, findings marking",
+    "goal": "The skill, the templates and the command treat work/session-hints.md, the check scope per slice and the marking of a tracked findings list as part of every round.",
+    "round": "R01", "source": "R01 – F-04, F-05, F-07",
+    "deps": "01", "model": "sonnet",
+    "scope": [
+      "references/templates.md: a `## work/session-hints.md` template – repository-specific hints for slice sessions, grown round by round; example bullets marked as an open list (F-04)",
+      "SKILL.md: section 2 creates work/session-hints.md in the first round and later rounds append to it; section 6 lists it among the committed files; the output structure shows it (F-04)",
+      "references/slice-command.md: section 2 reads work/session-hints.md when it exists; the parallel prompts of section 7 name it (F-04)",
+      "references/templates.md, conventions template, line `Checks for a slice`: distinguishes 'one screen touched: its test classes plus the cross-page scan tests' from 'shared code touched: full suite' and names the rule 'never two full suites at once'; SKILL.md section 2 asks for this split when discovering the conventions (F-05)",
+      "SKILL.md section 3 and references/slice-command.md section 4: when the round's source is a tracked findings file, the record names the file and its marking format under `## Source`, and each slice marks its ids there as 'done in slice NN' in that format before the squash (F-07)",
+      "plugins/vibe-coding/README.md 'What you get': work/session-hints.md in the tree",
+      "tests/markers_test.py: contract tests first"
+    ],
+    "mirror": [
+      "plugins/vibe-coding/skills/vibe-coding/references/templates.md:86 – how a template section introduces a file (heading, one paragraph, fenced example)",
+      "plugins/vibe-coding/skills/vibe-coding/SKILL.md:135 – the write list every new file joins",
+      "work/session-hints.md:1 – the first instance of the file, written for this repository"
+    ],
+    "not_building": [
+      "The full-suite lock (slice 04)",
+      "Changes to scripts/render_slices.py",
+      "A script that marks findings automatically"
+    ],
+    "acceptance": [
+      "Given templates.md When read Then it holds a section `## work/session-hints.md` with a purpose line and example bullets marked as an open list (F-04)",
+      "Given SKILL.md When sections 2 and 6 are read Then the first round creates work/session-hints.md from the template, later rounds append to it, and `work/session-hints.md` appears in the committed-files list and in the output structure (F-04)",
+      "Given slice-command.md When section 2 is read Then work/session-hints.md is in the read list, marked 'when it exists'; and When section 7 is read Then every parallel prompt names it (F-04)",
+      "Given the conventions template When the `Checks for a slice` line is read Then it shows the cases 'one screen touched: its test classes plus the cross-page scan tests' and 'shared code touched: full suite' and the rule 'never two full suites at once'; and SKILL.md section 2 asks the user for this split (F-05)",
+      "Given a round whose source is a tracked findings file When SKILL.md section 3 and slice-command.md section 4 are read Then the record names the file and its marking format, and each slice marks its ids as 'done in slice NN' in that format before the squash; a round whose source is the intake table marks nothing (F-07)",
+      "Given the unchanged files When the new tests in tests/markers_test.py run Then they fail; afterwards `python tests/markers_test.py` passes and `claude plugin validate --strict plugins/vibe-coding` is green"
+    ],
+    "manual": [
+      "Read SKILL.md sections 2, 3 and 6 in one pass: the new sentences fit the phase table and the write list, nothing is said twice"
+    ],
+    "non_goals": "Changes to intake.md beyond a pointer; any loop change"
+  },
+  {
+    "nr": "03", "slug": "ready-marker", "name": "SLICE-READY marker and the parallel argument",
+    "goal": "In auto and parallel runs /slice stops before the squash: it commits the finished branch, leaves the Commit column open, writes the squash message to a file and ends with SLICE-READY: NN, so one merge queue in the main checkout does every squash.",
+    "round": "R01", "source": "R01 – F-01 (marker), F-08",
+    "deps": "02", "model": "sonnet",
+    "scope": [
+      "references/slice-command.md front matter: the argument `parallel` – hint `[status | NN | close] [plan] [auto | parallel] [direct]`",
+      "Section 4: with `auto` or `parallel`, after the task commit of step 5 the session writes the squash message (commit language and style of work/conventions.md, slice and ids) to `.slice-loop/slice-NN.msg` in the main checkout (the parent of `git rev-parse --git-common-dir`), does not merge, leaves Commit at ☐ and ends with `SLICE-READY: NN`; without both arguments it squashes itself as before and ends with the three closing lines",
+      "Section 6: the marker `SLICE-READY: NN` – branch committed, checklist ticked through Checks, squash message written; waits for the merge queue",
+      "Section 7: parallel prompts carry `/slice NN parallel` and say that the squash happens in the main checkout through the merge queue (`slice-loop --merge`, slice 05) or the running loop",
+      "Section 1 `status`: a branch slice-NN whose checklist row is ticked through Checks shows the state 'ready to merge'",
+      "tests/markers_test.py: `SLICE-READY:` in MARKERS, the new argument hint, the message file, the section 7 wording – written first"
+    ],
+    "mirror": [
+      "plugins/vibe-coding/skills/vibe-coding/references/slice-command.md:154 – the marker list the new marker joins",
+      "plugins/vibe-coding/skills/vibe-coding/references/slice-command.md:165 – the parallel prompts that change",
+      "tests/markers_test.py:7 – the MARKERS list and the argument-hint assertion"
+    ],
+    "not_building": [
+      "Reading the marker in the loop scripts (slice 05)",
+      "Changes to the slice-board plugin (open decision)",
+      "Removing SLICE-DONE: the loop keeps accepting it"
+    ],
+    "acceptance": [
+      "Given the front matter When read Then the argument hint is exactly `[status | NN | close] [plan] [auto | parallel] [direct]` and tests/markers_test.py asserts it",
+      "Given a run with `auto` or `parallel` When section 4 is read Then after step 5 it writes `.slice-loop/slice-NN.msg` in the main checkout, never merges, leaves Commit at ☐ and ends with `SLICE-READY: NN` as the last line; a run with neither argument still squashes itself and ends with the three closing lines",
+      "Given section 6 When read Then `SLICE-READY: NN` is listed with 'branch committed, checklist ticked through Checks, squash message written; waits for the merge queue'",
+      "Given section 7 When read Then every parallel prompt starts with `/slice NN parallel` and names the merge queue in the main checkout",
+      "Given `/slice status` When a branch slice-NN exists whose row has every tick but Commit Then the state column says 'ready to merge'",
+      "Given the unchanged command When the new tests run Then they fail; afterwards `python tests/markers_test.py` passes and `python tests/loop_test.py` passes unchanged"
+    ],
+    "manual": [
+      "Run `/slice NN parallel` in a scratch repository with the copied command: the session ends with SLICE-READY, the branch slice-NN and the message file exist, the integration branch did not move"
+    ],
+    "non_goals": "The merge queue itself (slice 05)"
+  },
+  {
+    "nr": "04", "slug": "suite-lock", "name": "Full-suite lock",
+    "goal": "Two slice sessions never run a full test suite at the same time: before a full suite /slice takes a lock under .slice-loop/ in the main checkout and releases it afterwards; an orphaned lock is reported, never overwritten.",
+    "round": "R01", "source": "R01 – F-01 (lock), F-05",
+    "deps": "03", "model": "sonnet",
+    "scope": [
+      "references/slice-command.md section 4 (and section 2 when the baseline check is a full suite): before a command that work/conventions.md names a full suite, create `.slice-loop/full-suite.lock/` in the main checkout atomically – a directory, `mkdir` in bash, `New-Item -ItemType Directory` without `-Force` in PowerShell – and write `owner` with `slice NN` and an ISO-8601 timestamp",
+      "Held lock: wait and retry every minute up to a documented limit; orphaned lock (the owner's branch slice-MM is gone, or the timestamp is older than a documented age): report it to the user, in auto `SLICE-OPEN: NN lock held by slice MM since <time>`, and never remove or overwrite another session's lock; release the own lock right after the suite, red or green",
+      "Section 1 `status`: one line for a held lock (owner, since when)",
+      "references/templates.md, conventions template: the rule 'never two full suites at once' points to the lock",
+      "SKILL.md section 6: `.slice-loop/full-suite.lock/` among the local, never committed files",
+      "tests/markers_test.py: contract tests first"
+    ],
+    "mirror": [
+      "plugins/vibe-coding/skills/vibe-coding/references/slice-command.md:93 – the close-the-slice steps the lock protocol joins",
+      "plugins/vibe-coding/skills/vibe-coding/assets/slice-loop.sh:16 – `.slice-loop` as the loop's local folder, kept out of git through .git/info/exclude"
+    ],
+    "not_building": [
+      "A lock helper script",
+      "Locks for anything but full suites",
+      "Changes to the loop scripts (slice 05)"
+    ],
+    "acceptance": [
+      "Given section 4 When read Then before a full suite it creates `.slice-loop/full-suite.lock/` in the main checkout with `mkdir` (bash) or `New-Item -ItemType Directory` without `-Force` (PowerShell), writes `owner` with the slice number and an ISO-8601 timestamp, and releases it right after the suite, red or green",
+      "Given a lock held by another slice When its branch slice-MM exists and the timestamp is younger than the documented age Then the session waits and retries every minute up to the documented limit",
+      "Given a lock whose owner branch is gone or whose timestamp is older than the documented age When found Then the session reports it (auto: `SLICE-OPEN: NN lock held by slice MM since <time>`) and never removes or overwrites it",
+      "Given `/slice status` When a lock is held Then one line names the owner and the time",
+      "Given templates.md When the conventions template is read Then 'never two full suites at once' points to the lock; and SKILL.md section 6 lists `.slice-loop/full-suite.lock/` as local",
+      "Given the unchanged files When the new tests in tests/markers_test.py run Then they fail; afterwards `python tests/markers_test.py` passes"
+    ],
+    "manual": [
+      "In a scratch repository create the lock directory by hand with an owner file, then run `/slice NN` on a slice whose checks include a full suite: the session reports the lock and waits or stops as described"
+    ],
+    "non_goals": "Locks across repositories; detecting running test processes"
+  },
+  {
+    "nr": "05", "slug": "merge-queue", "name": "Merge queue in both loop scripts",
+    "goal": "Both loop scripts squash the finished branches one after another in the main checkout: they accept SLICE-READY, merge each branch, commit with the message from the file, tick Commit, remove the merged branch and worktree, and stop with the file names on any conflict; --merge runs that queue alone.",
+    "round": "R01", "source": "R01 – F-01 (queue), F-08 (loop)",
+    "deps": "04", "model": "opus",
+    "scope": [
+      "assets/slice-loop.sh and assets/slice-loop.ps1, functionally identical: a build turn that ends in `SLICE-READY: NN` (besides `SLICE-DONE: NN`) hands the slice to the merge queue",
+      "Merge queue: in the main checkout, with a clean working tree, `git merge --squash slice-NN`; on any conflict reset the merge (`git reset --merge`), keep the branch, report the conflicted files (`git diff --name-only --diff-filter=U`) and exit 1",
+      "Commit: tick the Commit column of row NN in work/checklist.md, stage, `git commit -F .slice-loop/slice-NN.msg`; when the file is missing, write `Slice NN: <name> (<source>)` from work/_slices.json to a temporary file and use that with -F (F-08); then the usual is_done check",
+      "Cleanup: `git worktree remove <path>` without `--force` when `git worktree list --porcelain` shows the branch, then `git branch -d slice-NN`; a worktree that cannot be removed is reported and left",
+      "`--parallel` / `-Parallel`: builds run side by side, squashes run one after another in the main process in finishing order",
+      "`--merge` / `-Merge`: squash every branch slice-NN whose checklist row on the branch (`git show slice-NN:work/checklist.md`) has every column but Commit ticked, lowest number first, then exit 0 without starting a session; works without an open round",
+      "tests/loop_test.py: the vibe-coding profile runs in a real git repository with a local test identity; the fake claude creates the worktree and branch, ticks the row through Checks, adds a file, commits, writes the message file and prints SLICE-READY; the vibe-rebuild profile is unchanged",
+      "Script headers and usage lines: the new option"
+    ],
+    "mirror": [
+      "plugins/vibe-coding/skills/vibe-coding/assets/slice-loop.sh:161 – build_slice, where the marker is read and is_done is checked",
+      "plugins/vibe-coding/skills/vibe-coding/assets/slice-loop.ps1:115 – Assert-SliceDone, the PowerShell twin",
+      "plugins/vibe-coding/skills/vibe-coding/assets/slice-loop.sh:32 – parse_args, how an option is added and documented",
+      "tests/loop_test.py:16 – the fake claude; tests/loop_test.py:133 – make_repo; tests/loop_test.py:64 – the profile table with its expected tuples"
+    ],
+    "not_building": [
+      "Rule-based conflict resolution (slice 06): in this slice every conflict stops the loop",
+      "Changes to rebuild-loop.* or to the vibe-rebuild profile of the test",
+      "A third runtime for the queue: the logic lives in each shell"
+    ],
+    "acceptance": [
+      "Given a round with ready slices When `slice-loop --yes` runs with the fake claude Then after each slice the integration branch has one new commit whose message is the content of `.slice-loop/slice-NN.msg`, the row is fully ticked, no branch slice-NN and no worktree remain, the working tree is clean, and the round closes",
+      "Given two prepared branches slice-100 and slice-101 whose rows are ticked through Checks and which conflict in a file shared.txt When `slice-loop --merge` runs Then slice-100 is squashed, slice-101 stops the loop with exit 1 and `shared.txt` in the message, the working tree is clean and branch slice-101 still exists",
+      "Given one prepared ready branch When `slice-loop --merge` runs Then it is squashed and the loop exits 0 without any claude call (stub-calls.log is empty)",
+      "Given a branch slice-NN whose row still has Checks at ☐ When `slice-loop --merge` runs Then the branch is not merged",
+      "Given a missing message file When a ready branch is squashed Then the commit message is `Slice NN: <name> (<source>)` from work/_slices.json, passed with -F",
+      "Given both scripts When `python tests/loop_test.py` runs Then every case passes for bash and pwsh alike; `bash -n`, the PowerShell parse and `python tests/markers_test.py` (both loop scripts name `SLICE-READY:`) are green"
+    ],
+    "manual": [
+      "Run the loop against a scratch repository with the copied command: two slices in a row land as two squash commits, `git worktree list` shows only the main checkout afterwards"
+    ],
+    "non_goals": "Conflict resolution; merging into any branch but the one checked out in the main folder"
+  },
+  {
+    "nr": "06", "slug": "merge-rules", "name": "Rule-based resolution of checklist and round record",
+    "goal": "Conflicts that parallel slices always produce – in work/checklist.md and the round record – are resolved by rule inside the merge queue; both sides stay complete, no marker survives, and any other conflict still stops the loop with the file names.",
+    "round": "R01", "source": "R01 – F-01 (resolution)",
+    "deps": "05", "model": "opus",
+    "scope": [
+      "Both loop scripts: when every conflicted file is work/checklist.md or the open round record work/rounds/Rnn-*.md, resolve by rule; otherwise reset and stop as in slice 05",
+      "work/checklist.md: start from the integration branch's version; for every row of the branch's version with the same slice number take the union of ticks per column (☑ when either side has it); rows only on one side are kept, new ones appended in the branch's order; then tick Commit for NN",
+      "Round record: for every conflict hunk keep the integration branch's side first and the branch's side after it, drop the three marker lines",
+      "Verification before the commit, both files: no line starts with `<<<<<<<`, `=======` or `>>>>>>>`; every line of `git show HEAD:<file>` and of `git show slice-NN:<file>` occurs in the result; the number of lines starting with `Result:` equals ours plus theirs minus the merge base; a failed check resets the merge and stops with the file name",
+      "tests/loop_test.py: the fake claude appends a Surprises line and a manual-test block with `Result: ☐` to the round record on every build; new cases for parallel builds and for a foreign conflict beside the two round files"
+    ],
+    "mirror": [
+      "plugins/vibe-coding/skills/vibe-coding/assets/slice-loop.sh:69 – is_done, how a checklist row is matched by its number",
+      "plugins/vibe-coding/skills/vibe-coding/assets/slice-loop.ps1:49 – Test-Done, the PowerShell twin",
+      "plugins/vibe-coding/skills/vibe-coding/references/slice-command.md section 4 step 6 after slice 01 – the same checklist, applied by hand"
+    ],
+    "not_building": [
+      "Resolving conflicts in any other file",
+      "Resolving a conflict inside one table row beyond the tick union",
+      "A third runtime: the rules live in each shell"
+    ],
+    "acceptance": [
+      "Given two ready slices built in parallel (`--yes --parallel`) whose branches tick adjacent rows and append different lines to the round record When the queue squashes both Then both rows are fully ticked, both appended lines are in the record, no marker line exists in either file, and the integration branch has two new commits",
+      "Given a conflict in work/checklist.md where the integration branch has a new row the branch lacks When resolved Then the row is still there and the branch's row has the union of ticks",
+      "Given both sides added a manual-test block ending in `Result: ☐` When resolved Then the record has the base count plus two such lines and both blocks are complete",
+      "Given a conflict in shared.txt beside work/checklist.md When the queue runs Then it stops naming only shared.txt and resolves nothing",
+      "Given both scripts When `python tests/loop_test.py` runs Then every case passes for bash and pwsh alike; `bash -n`, the PowerShell parse and `python tests/markers_test.py` are green"
+    ],
+    "manual": [
+      "Reproduce by hand in a scratch repository: two branches that both tick rows and append to the record; `slice-loop --merge` lands both, `git log -p` shows both appendices and no marker"
+    ],
+    "non_goals": "Merging the documents listed as 'must change with a change' (they still stop the loop)"
+  },
+  {
+    "nr": "07", "slug": "release-1-2-0", "name": "Release 1.2.0: version, changelog, READMEs",
+    "goal": "vibe-coding 1.2.0 is documented and consistent: version, changelog, both READMEs and the full check chain.",
+    "round": "R01", "source": "R01 – all findings",
+    "deps": "06, 08", "model": "sonnet",
+    "scope": [
+      "plugins/vibe-coding/.claude-plugin/plugin.json `version` and SKILL.md `metadata.version`: 1.2.0",
+      "plugins/vibe-coding/CHANGELOG.md: `## 1.2.0 – <date>` with one bold-led bullet per theme – merge queue and SLICE-READY, full-suite lock, session hints, check scope, findings marking, command sweep (worktree recipe, conflict checklist, red under load, commit -F) – tests named",
+      "plugins/vibe-coding/README.md: the tree with work/session-hints.md; `/slice NN parallel`; the loop table with `--merge`/`-Merge`; the marker list with `SLICE-READY:`; the lock and the merge queue under 'Good to know'",
+      "Root README.md: the loop test paragraph names the merge-queue cases; the markers test paragraph the new contracts",
+      "Full check chain from work/conventions.md, green"
+    ],
+    "mirror": [
+      "plugins/vibe-coding/CHANGELOG.md:3 – the 1.1.0 entry: bold lead, what and why, tests named",
+      "plugins/vibe-coding/README.md:76 – the hands-off section and its option table"
+    ],
+    "not_building": [
+      "Changes to slice-board or vibe-rebuild",
+      "Pushing, tagging or publishing"
+    ],
+    "acceptance": [
+      "Given plugin.json and SKILL.md When read Then both say 1.2.0, and `claude plugin validate --strict plugins/vibe-coding` and `claude plugin validate --strict .` pass",
+      "Given CHANGELOG.md When read Then `## 1.2.0 – <date>` lists every theme of slices 01–06 and names the tests that cover them",
+      "Given plugins/vibe-coding/README.md When read Then it shows work/session-hints.md in the tree, `/slice NN parallel`, `--merge`/`-Merge`, `SLICE-READY:` and the full-suite lock; and the root README's loop test paragraph names the merge-queue cases",
+      "Given the integration branch When the full check chain from work/conventions.md runs Then every step is green (skills-ref may be skipped locally and noted under Decisions)"
+    ],
+    "manual": [
+      "Read the plugin README top to bottom once: every option and marker it names exists in the command or the scripts"
+    ],
+    "non_goals": "New behaviour"
+  },
+  {
+    "nr": "08", "slug": "slice-board-parallel", "name": "slice-board starts sessions with /slice NN parallel",
+    "goal": "Sessions started from the slice-board pane end with SLICE-READY instead of squashing themselves, so the merge queue in the main checkout does every squash of a parallel round.",
+    "round": "R01", "source": "R01 – F-01 (parallel sessions from the pane); Ruling of 2026-10-25",
+    "deps": "03", "model": "sonnet",
+    "scope": [
+      "plugins/slice-board/hooks/register.tsx, requestStart: the request briefs each session with `/slice NN parallel`, and its rules sentence says the session ends with `SLICE-READY: NN` and that the squash happens through the merge queue in the main checkout (`slice-loop --merge`, or the running loop), never in the session itself",
+      "plugins/slice-board/hooks/register.test.tsx: the Start test asserts `/slice NN parallel`, `SLICE-READY` and `slice-loop --merge` in the prompt-box text – written first",
+      "plugins/slice-board/README.md: the Ready paragraph names `/slice NN parallel` and the merge queue"
+    ],
+    "mirror": [
+      "plugins/slice-board/hooks/register.tsx:262 – requestStart, the text the pane writes into the prompt box",
+      "plugins/slice-board/hooks/register.test.tsx:139 – the Start test that reads the prompt box"
+    ],
+    "not_building": [
+      "A pane state for slices that await the merge queue",
+      "Starting the merge queue from the pane",
+      "Changes to vibe-coding files (slices 01–07)"
+    ],
+    "acceptance": [
+      "Given the pane's Start When the request lands in the prompt box Then it briefs each session with `/slice NN parallel` and says the squash happens through the merge queue in the main checkout (`slice-loop --merge` or the running loop), and register.test.tsx asserts both",
+      "Given the unchanged register.tsx When `claude plugin test plugins/slice-board` runs with the new assertions Then the Start test fails; afterwards every slice-board test passes and `claude plugin validate plugins/slice-board` is green",
+      "Given plugins/slice-board/README.md When the Ready paragraph is read Then it names `/slice NN parallel` and the merge queue"
+    ],
+    "manual": [
+      "Open the pane in a repository with an open round and two ready slices, press Start: the prompt-box text carries `/slice NN parallel` for each slice and names the merge queue"
+    ],
+    "non_goals": "The pane's state model; the vibe-coding command and scripts"
+  }
+]
