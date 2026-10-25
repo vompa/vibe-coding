@@ -96,8 +96,10 @@ test('the pane shows the round as a legend with groups, opens a session and star
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
-    expect((await ui.find({ type: 'Text', text: /^25 % done$/ }))?.text).toBe('25 % done')
-    expect((await ui.find({ type: 'Text', text: /R01/ }))?.text).toBe('1 / 4 · R01')
+    expect((await ui.find({ type: 'Text', text: /^Round R01$/ }))?.text).toBe('Round R01')
+    expect((await ui.find({ type: 'Text', text: /done$/ }))?.text).toBe('1 / 4 done')
+    // The bar is one line high and carries each group's share inside its segment.
+    expect((await ui.find({ type: 'Text', text: /^25 %$/ }))?.text).toBe('25 %')
     // In progress is open by default, with the slice's step and share; the other groups are folded.
     expect((await ui.find({ type: 'Text', text: /app-c/ }))?.text).toBe('● 03 app-c')
     expect((await ui.find({ type: 'Text', text: /Green/ }))?.text).toBe('Green · 40 %')

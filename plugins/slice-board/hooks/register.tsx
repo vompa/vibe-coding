@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { ElementConstructor, EngineInterface, Register, SvgProps } from 'claude-code'
+import type { EngineInterface, Register } from 'claude-code'
 
 import type { Board, SliceRow, SliceSession, SliceState } from '../types'
 
@@ -287,26 +287,6 @@ async function startSlices($: EngineInterface, root: string, round: string, numb
   }
 }
 
-/** A thin bar of the groups' shares, with a small gap between segments and rounded ends; stretches to the width it is drawn in. */
-function barSvg(parts: { value: number; fill: string }[], height: number): string {
-  const gap = 3
-  const drawn = parts.filter(part => part.value > 0)
-  let x = 0
-  const rects = drawn
-    .map((part, index) => {
-      const w = Math.max(1, part.value * 1000 - (index < drawn.length - 1 ? gap : 0))
-      const rect = `<rect x="${x.toFixed(1)}" y="0" width="${w.toFixed(1)}" height="${height}" fill="${part.fill}"/>`
-      x += w + gap
-      return rect
-    })
-    .join('')
-  return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="${height}" viewBox="0 0 1000 ${height}" preserveAspectRatio="none">` +
-    `<clipPath id="round"><rect width="1000" height="${height}" rx="${height / 2}"/></clipPath>` +
-    `<g clip-path="url(#round)"><rect width="1000" height="${height}" fill="rgba(127,127,127,0.18)"/>${rects}</g></svg>`
-  )
-}
-
 export const register: Register = on => {
   let cwd = ''
 
@@ -330,11 +310,10 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const elements = $.ui.resolve(e)
     const { Box, Text, Button } = elements
-    const isTerminal = e.surface === 'terminal'
-    const Svg = isTerminal ? undefined : (elements as unknown as { Svg?: ElementConstructor<SvgProps> }).Svg
+    // Air between rows and groups on surfaces that draw in pixels; the terminal keeps one line per row.
+    const air = e.surface === 'terminal' ? 0 : 1
     const data = await read($, board)
     const open = await read($, expanded)
-    const width = Math.max(20, (e.props as { bodyColumns?: number }).bodyColumns ?? e.viewport?.columns ?? 60)
     if (!data) return <Text dimColor>No round here: work/_slices.json not found.</Text>
     if (data.problem) return <Text dimColor>{data.problem}</Text>
 
@@ -404,7 +383,7 @@ export const register: Register = on => {
           </Text>
         ) : null
       return (
-        <Box key={`row-${row.nr}`} justifyContent="space-between" alignItems="center" paddingLeft={2} gap={1}>
+        <Box key={`row-${row.nr}`} justifyContent="space-between" alignItems="center" paddingLeft={4} gap={1}>
           <Box flexGrow={1} flexShrink={1}>
             {left}
           </Box>
@@ -416,28 +395,29 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column">
         <Box justifyContent="space-between">
-          <Text>{percentOf(done.length)} done</Text>
+          <Text>Round {data.round}</Text>
           <Text color="subtle">
-            {done.length} / {data.rows.length} · {data.round}
+            {done.length} / {data.rows.length} done
           </Text>
         </Box>
-        <Box marginTop={isTerminal ? 0 : 1} marginBottom={isTerminal ? 0 : 1}>
-          {Svg ? (
-            <Svg alt={`${percentOf(done.length)} done`} source={barSvg(GROUPS.map(group => ({ value: rowsOf(group.state).length / total, fill: group.fill })), 6)} />
-          ) : (
-            <Text>
-              {GROUPS.map(group => (
-                <Text color={group.cell}>{'━'.repeat(Math.round((rowsOf(group.state).length / total) * width))}</Text>
-              ))}
-            </Text>
-          )}
+        <Box marginTop={1} marginBottom={1}>
+          {GROUPS.filter(group => rowsOf(group.state).length > 0).map(group => {
+            const share = rowsOf(group.state).length / total
+            return (
+              <Box key={`bar-${group.state}`} width={0} flexGrow={rowsOf(group.state).length} backgroundColor={group.fill} justifyContent="center" overflow="hidden">
+                <Text color="#ffffff" wrap="truncate-end">
+                  {share >= 0.08 ? percentOf(rowsOf(group.state).length) : ' '}
+                </Text>
+              </Box>
+            )
+          })}
         </Box>
 
         {GROUPS.map(group => {
           const rows = rowsOf(group.state)
           const isOpen = open[group.state] && rows.length > 0
           return (
-            <Box key={`group-${group.state}`} flexDirection="column">
+            <Box key={`group-${group.state}`} flexDirection="column" marginTop={air} gap={air}>
               <Box justifyContent="space-between" alignItems="center">
                 <Box alignItems="center" gap={1}>
                   <Text color={group.cell}>{'■'}</Text>
