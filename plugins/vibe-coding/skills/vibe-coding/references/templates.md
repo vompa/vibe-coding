@@ -100,7 +100,7 @@ Input for `scripts/render_slices.py` (`python3 scripts/render_slices.py work/_sl
     "nr": "07", "slug": "message-bars", "name": "Message bars",
     "goal": "Every message bar shows severity, text and a way to dismiss it the same way.",
     "round": "R01", "source": "R01 – F-03, F-09",
-    "deps": "–",
+    "deps": "–", "model": "sonnet",
     "scope": ["Shared MessageBar component", "Replace the bars on the order and customer screens"],
     "mirror": ["src/components/Dialog.tsx:12 – how shared components take their variants"],
     "not_building": ["Toast notifications"],
@@ -114,13 +114,13 @@ Input for `scripts/render_slices.py` (`python3 scripts/render_slices.py work/_sl
   {
     "nr": "08", "slug": "customer-list", "name": "Customer list",
     "goal": "The list shows the filter state and an empty-state message.",
-    "round": "R01", "deps": "07",
+    "round": "R01", "deps": "07", "model": "haiku",
     "scope": ["Filter chips", "Empty state"],
     "non_goals": "Paging"
   }
 ]
 ```
-Required: `nr`, `slug`, `name`, `goal`, `deps`, `scope`, `non_goals`. Optional text: `round`, `source`. Optional lists: `mirror`, `not_building`, `acceptance` (Given/When/Then, rendered as checkboxes in the Definition of Done), `manual` (rendered as `Manual:` checkboxes). Unknown fields are ignored. `nr` is a string of at least two digits and continues across rounds (after the highest number in `rebuild/_slices.json` when a rebuild repository continues here). `deps` lists slice numbers or `–`. `round` is the id of the round record. Set `round` on every entry in a vibe-coding repository – a slice without it is invisible to `/slice status` and to the round close. Keep `"nr"` and `"deps"` quoted in every entry: the loop reads them as text.
+Required: `nr`, `slug`, `name`, `goal`, `deps`, `scope`, `non_goals`. Optional text: `round`, `source`, `model` (the cheapest model tier that does the slice reliably – `haiku`, `sonnet` or `opus`, see `intake.md`; the loop passes it as `claude --model`, `/slice` starts parallel sessions on it, and a slice without it runs on the caller's default model – so set it on every entry). Optional lists: `mirror`, `not_building`, `acceptance` (Given/When/Then, rendered as checkboxes in the Definition of Done), `manual` (rendered as `Manual:` checkboxes). Unknown fields are ignored. `nr` is a string of at least two digits and continues across rounds (after the highest number in `rebuild/_slices.json` when a rebuild repository continues here). `deps` lists slice numbers or `–`. `round` is the id of the round record. Set `round` on every entry in a vibe-coding repository – a slice without it is invisible to `/slice status` and to the round close. Keep `"nr"` and `"deps"` quoted in every entry: the loop reads them as text.
 
 ## CLAUDE.md (only for a repository without one)
 Lean; an existing `CLAUDE.md` is never replaced, its facts go into `work/conventions.md` by pointer.

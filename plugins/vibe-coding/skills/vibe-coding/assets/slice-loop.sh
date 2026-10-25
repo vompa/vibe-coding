@@ -57,6 +57,14 @@ slice_deps() {
     | while IFS= read -r deps; do { grep -oE '[0-9]{2,}' <<<"$deps" || true; } | tr '\n' ' '; echo; done
 }
 
+# Model of slice $1 – its "model" field, empty when the entry has none. Every turn of the slice runs on it,
+# never on the default of the caller. The entries hold no nested objects, so "}" ends an entry.
+slice_model() {
+  tr '\n}' ' \n' <"$SLICES_FILE" \
+    | grep "\"nr\"[[:space:]]*:[[:space:]]*\"$1\"" \
+    | grep -o '"model"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*:[[:space:]]*"//; s/"$//' || true
+}
+
 # A slice is done when its checklist row has at least one ☑ and no ☐.
 is_done() {
   local row
@@ -113,18 +121,20 @@ new_session_id() {
   printf '%s-%s-4%s-%s%s-%s\n' "${hex:0:8}" "${hex:8:4}" "${hex:13:3}" "$variant" "${hex:17:3}" "${hex:20:12}"
 }
 
-# Runs one claude turn; output goes to the log and is echoed back for marker parsing.
+# Runs one claude turn on model $2 (empty: the CLI default); output goes to the log and is echoed back for marker parsing.
 claude_turn() {
-  local log=$1; shift
-  claude -p --permission-mode "$PERMISSION_MODE" "$@" | tee -a "$log" \
+  local log=$1 model=$2; shift 2
+  local -a on_model=()
+  if [[ -n "$model" ]]; then on_model=(--model "$model"); fi
+  claude -p --permission-mode "$PERMISSION_MODE" ${on_model[@]+"${on_model[@]}"} "$@" | tee -a "$log" \
     || die "claude exited with an error – see $log"
 }
 
-# Plans slice $1 and waits for approval. Prints the message for the build turn.
+# Plans slice $1 on model $4 and waits for approval. Prints the message for the build turn.
 plan_slice() {
-  local nr=$1 session=$2 log=$3 output answer decisions
-  echo "[slice $nr] planning (session $session, log $log)" >&2
-  output=$(claude_turn "$log" --session-id "$session" "/slice $nr plan auto")
+  local nr=$1 session=$2 log=$3 model=$4 output answer decisions
+  echo "[slice $nr] planning (session $session, model ${model:-default}, log $log)" >&2
+  output=$(claude_turn "$log" "$model" --session-id "$session" "/slice $nr plan auto")
   while true; do
     grep -q '^PLAN:' <<<"$output" || die "slice $nr: no PLAN line – see $log"
     decisions=$(grep '^NEEDS-DECISION:' <<<"$output" || true)
@@ -143,18 +153,18 @@ plan_slice() {
       echo "Approved with these answers: $answer. Build slice $nr and close it (auto)."
       return
     fi
-    output=$(claude_turn "$log" --resume "$session" \
+    output=$(claude_turn "$log" "$model" --resume "$session" \
       "Change request: $answer. Revise the plan, save it and end again with the PLAN line (auto).")
   done
 }
 
 build_slice() {
-  local nr=$1 session=$2 log=$3 approval=$4 note="" output
+  local nr=$1 session=$2 log=$3 approval=$4 model=$5 note="" output
   if $parallel; then
     note=" Other slices are built in parallel: if git is locked or the integration branch moved, wait and retry; in conflicts keep every tick in work/checklist.md."
   fi
   echo "[slice $nr] building – this can take a while (log $log)" >&2
-  output=$(claude_turn "$log" --resume "$session" "$approval$note")
+  output=$(claude_turn "$log" "$model" --resume "$session" "$approval$note")
   grep -qE "^SLICE-DONE: $nr([^0-9]|$)" <<<"$output" \
     || die "slice $nr not finished: $(grep '^SLICE-OPEN:' <<<"$output" || echo 'no SLICE-DONE line') – see $log"
   is_done "$nr" || die "slice $nr reported done but is not ticked in $CHECKLIST_FILE – check it before running again"
@@ -162,7 +172,7 @@ build_slice() {
 }
 
 run_round() {
-  local -a ready sessions logs approvals pids
+  local -a ready sessions logs models approvals pids
   local i
   mapfile -t ready < <(ready_slices)
   [[ ${#ready[@]} -gt 0 ]] || die "no slice is ready – check $CHECKLIST_FILE (/slice status)"
@@ -171,14 +181,15 @@ run_round() {
   for i in "${!ready[@]}"; do
     sessions[i]=$(new_session_id)
     logs[i]="$LOG_DIR/slice-${ready[i]}-$(date +%Y%m%d-%H%M%S).log"
-    approvals[i]=$(plan_slice "${ready[i]}" "${sessions[i]}" "${logs[i]}")
+    models[i]=$(slice_model "${ready[i]}")
+    approvals[i]=$(plan_slice "${ready[i]}" "${sessions[i]}" "${logs[i]}" "${models[i]}")
   done
   for i in "${!ready[@]}"; do
     if $parallel; then
-      build_slice "${ready[i]}" "${sessions[i]}" "${logs[i]}" "${approvals[i]}" &
+      build_slice "${ready[i]}" "${sessions[i]}" "${logs[i]}" "${approvals[i]}" "${models[i]}" &
       pids[i]=$!
     else
-      build_slice "${ready[i]}" "${sessions[i]}" "${logs[i]}" "${approvals[i]}"
+      build_slice "${ready[i]}" "${sessions[i]}" "${logs[i]}" "${approvals[i]}" "${models[i]}"
     fi
   done
   for i in "${!pids[@]}"; do wait "${pids[i]}" || die "slice ${ready[i]} failed – see ${logs[i]}"; done
@@ -190,7 +201,7 @@ close_round() {
   local log output
   log="$LOG_DIR/close-$(date +%Y%m%d-%H%M%S).log"
   echo "[round $round] all slices done – closing the round (log $log)" >&2
-  output=$(claude_turn "$log" --session-id "$(new_session_id)" "/slice close auto")
+  output=$(claude_turn "$log" "" --session-id "$(new_session_id)" "/slice close auto")
   grep -q '^ROUND-DONE:' <<<"$output" \
     || die "round $round not closed: $(grep '^ROUND-OPEN:' <<<"$output" || echo 'no ROUND-DONE line') – see $log"
   grep '^ROUND-DONE:' <<<"$output" | tail -1

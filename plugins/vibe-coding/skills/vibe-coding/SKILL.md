@@ -5,7 +5,7 @@ license: MIT
 compatibility: Designed for Claude Code with file access and subagents; render script needs Python 3.10+; the slice-loop needs the claude CLI plus PowerShell 7 or bash; uses the superpowers plugin when installed.
 metadata:
   author: vompa
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Vibe Coding – run everyday coding work in rounds of slices
@@ -104,15 +104,16 @@ python3 scripts/render_slices.py work/_slices.json work/slices --lang <lang>
 
 - **Numbering is continuous across rounds.** New slices continue after the highest `nr` in `work/_slices.json`; in a repository that has `rebuild/_slices.json` (finished with vibe-rebuild), after the highest slice there when that is higher. Numbers have at least two digits; `nr` and `deps` stay quoted. Earlier entries stay untouched; the render rewrites all slice files from the list.
 - **Every entry** sets `round` (the one open round) and `source` (round and ids), `acceptance` as Given/When/Then lines with exact values, `manual` for every UI finding (what to click, what to see), and, where they apply, `not_building` and `mirror`: existing patterns read from the code as `file:line`, checked to exist. Mirror what the repository already does; never duplicate a class or pattern.
+- **Every entry sets `model`:** the cheapest model tier that does the slice reliably, chosen per slice from its work (`references/intake.md`, Model per slice) – never the model of this planning session. The loop passes it as `claude --model`, and `/slice` starts parallel sessions on it, so each slice costs what it needs and no more.
 - **`work/checklist.md`:** round 1 creates it with the header `| Slice | Plan | Tests red | Green | Checks | Commit |`; every round appends one row `| NN name | ☐ | ☐ | ☐ | ☐ | ☐ |` per slice. Only the agent ticks these columns; manual acceptance is not a column – the user ticks `Result:` in the round record's manual test list.
 - Fill `## Slices` in the round record (slice | name | ids).
-- **Check before the handover:** every finding id or AC appears in a slice, except items waiting on a `NEEDS-DECISION:` line; every dependency points to an earlier slice; no slice needs more than one session.
+- **Check before the handover:** every finding id or AC appears in a slice, except items waiting on a `NEEDS-DECISION:` line; every dependency points to an earlier slice; every entry has a `model`; no slice needs more than one session.
 
 ## 5. Handover
 
 Slices run in fresh worktrees cut from the integration branch, so what they need is **tracked** and committed. Nothing is copied or committed before the user has confirmed both `work/conventions.md` (section 2) and the slice map.
 
-1. **Confirm the slice map.** Show the slice map – `## Slices` of the round record with the `deps` of `work/_slices.json` (slice | name | depends on | ids) –, which slices can run in parallel, and the open decisions; wait for the user's confirmation. In a headless or trial run nobody can answer: write `[Assumption] conventions and slice map not yet confirmed by the user` under `## Decisions` in the record and repeat it in the handover message.
+1. **Confirm the slice map.** Show the slice map – `## Slices` of the round record with the `deps` and `model` of `work/_slices.json` (slice | name | depends on | model | ids) –, which slices can run in parallel, and the open decisions; wait for the user's confirmation. In a headless or trial run nobody can answer: write `[Assumption] conventions and slice map not yet confirmed by the user` under `## Decisions` in the record and repeat it in the handover message.
 2. **Identity.** Show `git config user.name` and `git config user.email`. If they look private (a personal mail address, a name the privacy rule does not allow), ask which identity to use and set it with `git config --local`. Never touch the global config.
 3. **Copy, do not rewrite** (`cp` / `Copy-Item`), after `mkdir -p .claude/commands .claude/scripts` (`New-Item -ItemType Directory -Force` in PowerShell): `references/slice-command.md` → `.claude/commands/slice.md`; `assets/slice-loop.ps1` and `assets/slice-loop.sh` → `.claude/scripts/`. A target that exists and differs from the skill's file is a name conflict: report it and stop.
 4. **`.gitignore`** gets `work/_raw/` and `.slice-loop/`; **`.gitattributes`** gets `*.sh text eol=lf` (a CRLF bash script fails with `$'\r'`). Create the files when missing, append missing lines, change no existing line.
@@ -121,9 +122,9 @@ Slices run in fresh worktrees cut from the integration branch, so what they need
 7. **Verify.** `git log -1` shows that commit with the agreed identity, `git status` is clean (apart from the allowed untracked findings file), and `.claude/commands/slice.md` and both `.claude/scripts/slice-loop.*` exist.
 8. **Handover message** in the user's language. Short and concrete; the full local path of the repository appears here in chat, never in a file:
    1. Where: path, branch, commit.
-   2. How to start: "Open a terminal in the repository folder, run `claude`, type `/slice`." One sentence on what happens: it picks the lowest ready slice, shows a plan, builds after approval and lands one squash commit; then a fresh session and `/slice` again for the next one, and `/slice close` after the last. Also `/slice status` for the state, `/slice NN` for a given slice, `/slice NN plan` to stop after the plan.
+   2. How to start: "Open a terminal in the repository folder, run `claude --model <model>` with the model of the slice (slice map, `/slice status`), type `/slice NN`." One sentence on what happens: it runs the baseline check, shows a plan, builds after approval and lands one squash commit; then a fresh session on the next slice's model and `/slice NN` again, and `/slice close` after the last. Also `/slice status` for the state and the model per slice, `/slice` alone for the lowest ready slice, `/slice NN plan` to stop after the plan.
    3. Hands-off: `pwsh .claude/scripts/slice-loop.ps1` (`bash .claude/scripts/slice-loop.sh`) runs the slices one after another in fresh sessions, stops for plan approvals, open decisions and red slices, and closes the round after the last slice. Useful options: `-Yes` / `--yes` approves plans without asking, `-MaxSlices N` / `--max-slices N` stops after N slices; the others are in the script header.
-   4. The slice map: slice | name | depends on | ids, and which slices can run in parallel.
+   4. The slice map: slice | name | depends on | model | ids, and which slices can run in parallel.
    5. Open decisions (or none), the assumption of step 1 if it applies, and prerequisites still missing on the user's side.
    Mention that superpowers is optional and detected automatically; never install it yourself.
 

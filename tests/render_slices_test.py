@@ -2,7 +2,7 @@
 import json, pathlib, subprocess, sys, tempfile
 SCRIPT = pathlib.Path(__file__).resolve().parent.parent / "plugins/vibe-coding/skills/vibe-coding/scripts/render_slices.py"
 FULL = {"nr": "05", "slug": "labels", "name": "Field labels", "goal": "Every field has a label.", "round": "R01",
-        "source": "W-Muster 1, W1, W6", "deps": "–", "scope": ["Login", "Join"],
+        "source": "W-Muster 1, W1, W6", "deps": "–", "model": "haiku", "scope": ["Login", "Join"],
         "mirror": ["Views/CustomerContactForm.axaml:40-58 FormField usage"], "not_building": ["New controls"],
         "acceptance": ["Given the login screen When a screen reader reads field 1 Then it hears the label, not the placeholder"],
         "manual": ["Login: Tab through the form, every field is announced with its label"], "non_goals": "Colours"}
@@ -20,7 +20,7 @@ def test_full_entry_renders_all_sections():
     code, files = render([FULL])
     text = files["05-labels.md"]
     assert code == 0
-    for heading in ("**Round:** R01", "**Source:** W-Muster 1, W1, W6", "## Patterns to mirror", "- Views/CustomerContactForm.axaml:40-58 FormField usage",
+    for heading in ("**Round:** R01", "**Source:** W-Muster 1, W1, W6", "**Model:** haiku", "## Patterns to mirror", "- Views/CustomerContactForm.axaml:40-58 FormField usage",
                     "## NOT building", "- New controls", "- [ ] Given the login screen When", "- [ ] Manual: Login: Tab through", "work/conventions.md", "work/rounds/R01"):
         assert heading in text, heading
 
@@ -28,13 +28,14 @@ def test_optional_fields_default_to_dash():
     code, files = render([MINIMAL])
     text = files["100-sweep.md"]
     assert code == 0 and "{" not in text
-    assert "**Round:** –" in text and "**Source:** –" in text
+    assert "**Round:** –" in text and "**Source:** –" in text and "**Model:** –" in text
     assert "## Patterns to mirror\n–" in text and "## NOT building\n–" in text
 
 def test_german_headings():
     code, files = render([FULL], "de")
     text = files["05-labels.md"]
     assert code == 0 and "## Muster übernehmen" in text and "## NICHT bauen" in text and "**Hängt ab von:** –" in text
+    assert "**Modell:** haiku" in text
 
 def test_missing_required_field_fails():
     code, files = render([{k: v for k, v in MINIMAL.items() if k != "goal"}])

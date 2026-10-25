@@ -36,8 +36,13 @@ function Stop-Loop([string]$Message) {
 
 function Get-Slices {
     Get-Content $SlicesFile -Raw -Encoding utf8 | ConvertFrom-Json | ForEach-Object {
-        [pscustomobject]@{ Nr = $_.nr; Deps = @([regex]::Matches([string]$_.deps, '\d{2,}') | ForEach-Object Value) }
+        [pscustomobject]@{ Nr = $_.nr; Deps = @([regex]::Matches([string]$_.deps, '\d{2,}') | ForEach-Object Value); Model = [string]$_.model }
     }
+}
+
+# Model of a slice – its "model" field, empty when the entry has none. Every turn of the slice runs on it, never on the caller's default.
+function Get-SliceModel([string]$Nr) {
+    return [string](Get-Slices | Where-Object { $_.Nr -eq $Nr } | Select-Object -First 1).Model
 }
 
 # A slice is done when its checklist row has at least one ☑ and no ☐.
@@ -66,9 +71,10 @@ function Get-OpenRound {
     if ($file) { return [regex]::Match($file.Name, '^R\d+').Value }
 }
 
-# Runs one claude turn; output goes to the log and is returned for marker parsing.
-function Invoke-ClaudeTurn([string]$Log, [string[]]$Arguments) {
-    $output = & $script:ClaudeExe -p --permission-mode $PermissionMode @Arguments 2>&1 | Out-String
+# Runs one claude turn on $Model (empty: the CLI default); output goes to the log and is returned for marker parsing.
+function Invoke-ClaudeTurn([string]$Log, [string[]]$Arguments, [string]$Model = '') {
+    $onModel = if ($Model) { @('--model', $Model) } else { @() }
+    $output = & $script:ClaudeExe -p --permission-mode $PermissionMode @onModel @Arguments 2>&1 | Out-String
     Add-Content -Path $Log -Value $output -Encoding utf8
     if ($LASTEXITCODE -ne 0) { Stop-Loop "claude exited with $LASTEXITCODE – see $Log" }
     return $output
@@ -79,10 +85,10 @@ function Get-MarkerLines([string]$Output, [string]$Marker) {
     return , [string[]]@($Output -split "`r?`n" | Where-Object { $_.StartsWith($Marker) })
 }
 
-# Plans one slice and waits for approval. Returns the message for the build turn.
-function Request-Plan([string]$Nr, [string]$Session, [string]$Log) {
-    Write-Host "[slice $Nr] planning (session $Session, log $Log)"
-    $output = Invoke-ClaudeTurn $Log @('--session-id', $Session, "/slice $Nr plan auto")
+# Plans one slice on its model and waits for approval. Returns the message for the build turn.
+function Request-Plan([string]$Nr, [string]$Session, [string]$Log, [string]$Model) {
+    Write-Host "[slice $Nr] planning (session $Session, model $(if ($Model) { $Model } else { 'default' }), log $Log)"
+    $output = Invoke-ClaudeTurn $Log @('--session-id', $Session, "/slice $Nr plan auto") $Model
     $approval = "Approved. Build slice $Nr and close it (auto)."
     while ($true) {
         $plan = Get-MarkerLines $output 'PLAN:'
@@ -97,7 +103,7 @@ function Request-Plan([string]$Nr, [string]$Session, [string]$Log) {
         if (-not $answer) { return $approval }
         if ($decisions) { return "Approved with these answers: $answer. Build slice $Nr and close it (auto)." }
         $output = Invoke-ClaudeTurn $Log @('--resume', $Session,
-            "Change request: $answer. Revise the plan, save it and end again with the PLAN line (auto).")
+            "Change request: $answer. Revise the plan, save it and end again with the PLAN line (auto).") $Model
     }
 }
 
@@ -123,22 +129,24 @@ function Invoke-Round {
     $runs = foreach ($nr in $ready) {
         $session = [guid]::NewGuid().ToString()
         $log = Join-Path $LogDir "slice-$nr-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
-        [pscustomobject]@{ Nr = $nr; Session = $session; Log = $log; Message = Get-BuildMessage (Request-Plan $nr $session $log) }
+        $model = Get-SliceModel $nr
+        [pscustomobject]@{ Nr = $nr; Session = $session; Log = $log; Model = $model; Message = Get-BuildMessage (Request-Plan $nr $session $log $model) }
     }
     if (-not $Parallel) {
         $run = $runs[0]
         Write-Host "[slice $($run.Nr)] building – this can take a while (log $($run.Log))"
-        Assert-SliceDone $run.Nr (Invoke-ClaudeTurn $run.Log @('--resume', $run.Session, $run.Message)) $run.Log
+        Assert-SliceDone $run.Nr (Invoke-ClaudeTurn $run.Log @('--resume', $run.Session, $run.Message) $run.Model) $run.Log
         $script:Built++
         return
     }
     # Thread jobs run in this process; Start-Job's child processes hung on Linux CI runners.
     $jobs = foreach ($run in $runs) {
         Write-Host "[slice $($run.Nr)] building in parallel (log $($run.Log))"
-        Start-ThreadJob -ArgumentList $script:ClaudeExe, (Get-Location).Path, $run.Session, $run.Message, $PermissionMode -ScriptBlock {
-            param($Exe, $Directory, $Session, $Message, $Mode)
+        Start-ThreadJob -ArgumentList $script:ClaudeExe, (Get-Location).Path, $run.Session, $run.Message, $PermissionMode, $run.Model -ScriptBlock {
+            param($Exe, $Directory, $Session, $Message, $Mode, $Model)
             Set-Location $Directory
-            & $Exe -p --permission-mode $Mode --resume $Session $Message 2>&1 | Out-String
+            $onModel = if ($Model) { @('--model', $Model) } else { @() }
+            & $Exe -p --permission-mode $Mode @onModel --resume $Session $Message 2>&1 | Out-String
         }
     }
     for ($i = 0; $i -lt $runs.Count; $i++) {

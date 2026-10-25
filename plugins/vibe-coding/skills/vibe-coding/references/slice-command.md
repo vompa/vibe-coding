@@ -17,8 +17,9 @@ work/_slices.json. A slice is done when its row in work/checklist.md has a ☑ a
   More than one → name them and stop (auto: "SLICE-OPEN: NN more than one round is open – close one
   first"; with "close": "ROUND-OPEN: Rnn more than one round is open").
 - "status" → read work/checklist.md, work/_slices.json and the git branches named slice-*.
-  Show one table for the slices of the open round: slice, name, state (done / in progress /
-  ready / blocked by …; "in progress" = not done, but a branch slice-NN exists or the row has a ☑),
+  Show one table for the slices of the open round: slice, name, model (field "model" in
+  work/_slices.json), state (done / in progress / ready / blocked by …; "in progress" = not done,
+  but a branch slice-NN exists or the row has a ☑),
   then the number of open decisions in the round record and one line "Ready next: …". Two or more
   ready: offer parallel sessions (section 7). Stop there.
 - "close" → section 5.
@@ -36,7 +37,7 @@ work/_slices.json. A slice is done when its row in work/checklist.md has a ☑ a
   slice, full check chain), protocol file, documents that must change with a change, language,
   privacy rule
 - the open round record work/rounds/Rnn-*.md – source, brief, decisions so far, open decisions
-- work/slices/NN-*.md – goal, source, scope, patterns to mirror, NOT building, prompt,
+- work/slices/NN-*.md – goal, source, model, scope, patterns to mirror, NOT building, prompt,
   Definition of Done, non-goals
 - CLAUDE.md (and AGENTS.md when present) – the repository's hard rules
 - what the slice's Source names: the findings file or concept document (the round record only
@@ -75,6 +76,11 @@ and close it"), carries answers to the questions (record each as a Ruling, secti
 request (revise the plan, save it, end again with the PLAN line).
 Without "plan" and with "auto": go on with the plan's assumptions; a point that needs a decision ends
 the run with its NEEDS-DECISION line and nothing built.
+
+The slice's model is the field "model" of its entry in work/_slices.json: the cheapest model that does
+this slice reliably, and the model this session was started on (by the loop or by section 7). Subagents
+of this slice (explorers, implementers) run on that model or a cheaper one; only a reviewing pass may use
+a stronger one, and only when work/conventions.md asks for it.
 
 As each step finishes, tick its column in the slice's row of work/checklist.md on slice-NN: Plan when
 the plan is approved, Tests red when the new tests fail for the right reason, Green when they pass.
@@ -165,10 +171,12 @@ unasked and once per run; never in auto mode (the loop script starts the next ru
   and test suites turn each other red under load), and ask which ones to start.
 - On a yes, start each chosen slice in its own session in this repository's main checkout, with
   your harness's tool for separate sessions if it has one (sharing this checkout, not a worktree of
-  the harness: the slice creates its own worktree in section 3). Without such a tool, print one
-  ready-to-paste prompt per slice instead.
-- Each prompt carries: "/slice NN"; the round, the slice's name, goal, scope, not-building list and
-  acceptance cases from work/_slices.json; that other slices run in parallel sessions, so the merge
+  the harness: the slice creates its own worktree in section 3), on the slice's model: the field
+  "model" of its entry in work/_slices.json goes into that tool's model parameter, never the model of
+  this session. Without such a tool, print one ready-to-paste prompt per slice instead, each headed
+  by the command line that starts it: `claude --model <model of the slice>`.
+- Each prompt carries: "/slice NN"; the round, the slice's name, model, goal, scope, not-building list
+  and acceptance cases from work/_slices.json; that other slices run in parallel sessions, so the merge
   in section 4 may conflict in work/checklist.md, the round record and the documents that change with
   a change, and every tick and entry of both sides stays; that it touches only its own branch and
   worktree, never pushes, and ends with the three lines of section 4.

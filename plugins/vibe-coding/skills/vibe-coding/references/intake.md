@@ -31,4 +31,11 @@ Input: a sentence, a concept document, screenshots, a competitor comparison.
 - **M** – one screen or one component with its tests: fits a slice, alone or with its neighbours.
 - **L** – more than one session: split by screen, layer or acceptance criterion before it is sliced.
 
+## Model per slice
+Every slice names in `model` the cheapest model tier that does it reliably: an alias the `claude` CLI and the harness accept, never a full model id, so each tier's current version is used. The tier follows the slice's own work, never the model of the session that plans the round or starts the slice.
+- `haiku` – mechanical work with a complete recipe: renames, the same edit in many places, a sweep slice, docs or help text from given facts.
+- `sonnet` – normal coding: one screen or component with its tests, a bug with a clear reproduction, a known pattern mirrored. The default when in doubt.
+- `opus` – architecture and new cross-cutting patterns, ambiguous requirements, hard debugging, security-relevant or data-migrating code, and anything a cheaper tier failed at in an earlier round.
+A slice that mixes tiers takes the one its hardest part needs; often it is better to split off the mechanical part into its own cheaper slice.
+
 The examples in the templates are open lists, not checklists: take what fits the repository and the input, leave out the rest.

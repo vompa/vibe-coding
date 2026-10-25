@@ -263,7 +263,8 @@ async function requestStart($: EngineInterface, round: string, rows: SliceRow[])
   const list = rows.map(row => `${row.nr} ${row.name}`).join('; ')
   const text =
     `Start one separate session per slice of round ${round} for: ${list}. ` +
-    `Each in this repository's main checkout without an app worktree, titled "Slice NN – <name> (${round})", ` +
+    `Each in this repository's main checkout without an app worktree, on the slice's "model" from work/_slices.json ` +
+    `(never this session's model), titled "Slice NN – <name> (${round})", ` +
     `briefed with "/slice NN", the slice's goal, scope, not-building list and acceptance cases from work/_slices.json, ` +
     `the parallel rules (own branch and worktree, keep both sides on squash conflicts, never push) and work/session-hints.md.`
   const box = await $.prompt.read()

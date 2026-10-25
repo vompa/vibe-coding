@@ -33,7 +33,7 @@ work/
   _raw/                       working material, git-ignored
 ```
 
-Every slice file holds the goal, its source (round and finding or acceptance-criterion ids), dependencies, scope, **patterns to mirror** (`file:line`, read from your code), **NOT building**, a self-contained prompt, and a Definition of Done with Given/When/Then acceptance cases, manual check items for what the eye must see, and a "no test weakened or skipped" boundary.
+Every slice file holds the goal, its source (round and finding or acceptance-criterion ids), dependencies, the **model** it runs on (the cheapest tier that does the slice reliably – `haiku`, `sonnet` or `opus` – chosen per slice, never inherited from the session that starts it), scope, **patterns to mirror** (`file:line`, read from your code), **NOT building**, a self-contained prompt, and a Definition of Done with Given/When/Then acceptance cases, manual check items for what the eye must see, and a "no test weakened or skipped" boundary.
 
 The names `work/` and `/slice` are fixed. If either already exists for something else, the skill reports it and stops.
 
@@ -60,7 +60,7 @@ Long steps are announced and status lines start with an overall percentage. Agen
 
 ## Running a round
 
-Open a terminal in the repository, run `claude`, type `/slice`:
+Open a terminal in the repository, run `claude --model <model>` with the model of the slice (the slice map and `/slice status` show it), type `/slice`:
 
 | Input | What happens |
 |---|---|
@@ -68,7 +68,7 @@ Open a terminal in the repository, run `claude`, type `/slice`:
 | `/slice 07` | exactly slice 07 |
 | `/slice 07 plan` | stops after the plan; your next message approves it, answers its open questions or asks for changes |
 | `/slice 07 direct` | without superpowers, even if it is installed |
-| `/slice status` | one table: done, in progress, ready, blocked; open decisions; what is ready next |
+| `/slice status` | one table: model, done, in progress, ready, blocked; open decisions; what is ready next |
 | `/slice close` | closes the round (see below) |
 
 If the superpowers plugin is installed, `/slice` uses it (worktree, `writing-plans`, `subagent-driven-development`, `finishing-a-development-branch`); otherwise it follows the slice prompt. Each slice lands as **one squash commit on the integration branch**; task commits stay on the branch `slice-NN` (in auto mode, which the loop uses, the merged branch and its own worktree are removed after the squash). The commit carries the plan, the checklist tick, the round-record entries (decisions, surprises, deferred minors, manual check items), the repository's own protocol entry and the documents your conventions list as "must change with a change". Nothing is pushed. Start a fresh session and type `/slice` again for the next slice; `/slice` proposes `close` after the last one.
@@ -92,6 +92,7 @@ The loop checks that a round is open, then for each ready slice starts a fresh h
 
 Good to know:
 
+- Every turn of a slice runs on the slice's `model` from `work/_slices.json` (`claude --model`), never on your default model; a slice without the field runs on the default.
 - Headless sessions can't answer permission prompts, so they run with `--permission-mode auto`; set `SLICE_PERMISSION_MODE` to choose another mode.
 - Logs go to `.slice-loop/` in the repository, which the script keeps out of git.
 - Approvals need a terminal. Without one (for example in CI) the script stops instead of approving silently.

@@ -6,6 +6,7 @@ Usage: python tests/loop_test.py   (bash and/or pwsh must be on PATH; missing sh
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -82,11 +83,13 @@ PROFILES = [
     {
         "plugin": "vibe-coding", "script": "slice-loop", "folder": "work", "command": "/slice",
         "slices": [
-            {"nr": "05", "deps": "–", "round": "R01"}, {"nr": "06", "deps": "05", "round": "R01"},
-            {"nr": "07", "deps": "06", "round": "R01"}, {"nr": "100", "deps": "07", "round": "R01"},
+            {"nr": "05", "deps": "–", "round": "R01", "model": "sonnet"}, {"nr": "06", "deps": "05", "round": "R01"},
+            {"nr": "07", "deps": "06", "round": "R01", "model": "opus"}, {"nr": "100", "deps": "07", "round": "R01", "model": "haiku"},
             {"nr": "101", "deps": "07", "round": "R01"},
         ],
         "dry_run_ready": ["100", "101"],
+        # Every turn of a slice (plan and build) runs on the slice's "model"; a slice without one gets no --model.
+        "models": {"05": "sonnet", "07": "opus", "100": "haiku"},
         "cases": [
             ("dry run lists ready slices", 3, ["--dry-run"], {}, None, (0, 3, 0, 0)),
             ("auto approve runs all slices then closes the round", 1, ["--yes"], {}, None, (0, 5, 4, 1)),
@@ -185,11 +188,29 @@ def run_case(shell: str, repo: pathlib.Path, bin_dir: pathlib.Path, profile: dic
                           input="", capture_output=True, text=True, encoding="utf-8", timeout=120)
 
 
+def calls_log(repo: pathlib.Path) -> str:
+    log = repo / "stub-calls.log"
+    return log.read_text(encoding="utf-8") if log.exists() else ""
+
+
 def outcome(repo: pathlib.Path, profile: dict, result: subprocess.CompletedProcess) -> tuple[int, int, int, int]:
     ticked = (repo / profile["folder"] / "checklist.md").read_text(encoding="utf-8").count("\u2611") // 2
-    log = repo / "stub-calls.log"
-    calls = log.read_text(encoding="utf-8") if log.exists() else ""
+    calls = calls_log(repo)
     return result.returncode, ticked, calls.count("Build slice"), calls.count("close auto")
+
+
+def wrong_models(repo: pathlib.Path, profile: dict) -> list[str]:
+    """Slice turns (plan and build) whose --model differs from the slice's "model" field; a profile without models expects none."""
+    expected = profile.get("models", {})
+    wrong = []
+    for call in calls_log(repo).splitlines():
+        slice_nr = re.search(r"(?:/\w+ |Build slice )(\d{2,})", call)
+        if not slice_nr:
+            continue
+        passed = re.search(r"--model \| (\S+)", call)
+        if (passed.group(1) if passed else None) != expected.get(slice_nr.group(1)):
+            wrong.append(call)
+    return wrong
 
 
 def main() -> int:
@@ -210,11 +231,12 @@ def main() -> int:
                     repo = make_repo(base, profile, done, rounds)
                     result = run_case(shell, repo, bin_dir, profile, options, env)
                     got = outcome(repo, profile, result)
-                    ok = got == expected and (options != ["--dry-run"] or result.stdout.split() == profile["dry_run_ready"])
+                    models = wrong_models(repo, profile)
+                    ok = got == expected and not models and (options != ["--dry-run"] or result.stdout.split() == profile["dry_run_ready"])
                     failures += not ok
                     print(f"{'ok  ' if ok else 'FAIL'} {shell:4} {profile['plugin']:12} {name}: exit/ticked/builds/closes {got}")
                     if not ok:
-                        print(result.stdout[-1500:], result.stderr[-1500:], sep="\n")
+                        print(result.stdout[-1500:], result.stderr[-1500:], *models[:3], sep="\n")
     return 1 if failures else 0
 
 

@@ -4,9 +4,10 @@
 Usage: python3 render_slices.py <_slices.json> <output_dir> [--lang en|de]
 Entry fields (see references/templates.md, _slices.json):
   required: nr, slug, name, goal, deps, scope (list), non_goals
-  optional text (default: an en dash): round, source
+  optional text (default: an en dash): round, source, model
     (round also names the round record the prompt points to; without it the prompt
-    points to the open round record in work/rounds/)
+    points to the open round record in work/rounds/; model is the cheapest model tier
+    the slice needs – the loop and parallel sessions start the slice on it)
   optional lists (rendered as "- item", an en dash when missing or empty):
     mirror (patterns to copy as file:line), not_building,
     acceptance (Given/When/Then, rendered as checkboxes in the Definition of Done),
@@ -28,6 +29,7 @@ TEMPLATES = {
 **Round:** {round}
 **Source:** {source}
 **Depends on:** {deps}
+**Model:** {model}
 
 ## Scope
 {scope}
@@ -66,6 +68,7 @@ Implement slice {nr} "{name}" (this file).
 **Runde:** {round}
 **Quelle:** {source}
 **Hängt ab von:** {deps}
+**Modell:** {model}
 
 ## Umfang
 {scope}
@@ -117,7 +120,7 @@ PHRASES = {
 }
 
 REQUIRED = ("nr", "slug", "name", "goal", "deps", "scope", "non_goals")
-OPTIONAL_TEXT = ("round", "source")
+OPTIONAL_TEXT = ("round", "source", "model")
 OPTIONAL_LISTS = ("mirror", "not_building")
 EMPTY = "–"
 

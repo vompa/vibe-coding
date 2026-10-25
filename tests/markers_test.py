@@ -23,6 +23,23 @@ def test_loop_scripts_read_the_same_markers():
         for m in ("PLAN:", "NEEDS-DECISION:", "SLICE-DONE:", "SLICE-OPEN:", "ROUND-DONE:", "ROUND-OPEN:"): assert m in text, (name, m)
         assert "/slice" in text and "work/_slices.json" in text and "rebuild" not in text.lower()
 
+def test_every_slice_runs_on_its_own_model():
+    """A slice runs on the model of its "model" field in _slices.json – never on the model of the session that starts it."""
+    command = (SKILL / "references/slice-command.md").read_text(encoding="utf-8")
+    assert '"model"' in command and "work/_slices.json" in command
+    parallel = " ".join(command.split("## 7. Parallel slices", 1)[1].split())  # the command is hard-wrapped
+    assert "never the model of this session" in parallel and "claude --model" in parallel
+    for name in ("slice-loop.sh", "slice-loop.ps1"):
+        assert "--model" in (SKILL / f"assets/{name}").read_text(encoding="utf-8"), name
+    skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
+    assert "`model`" in skill and "cheapest" in skill and "claude --model" in skill
+    intake = (SKILL / "references/intake.md").read_text(encoding="utf-8")
+    assert "## Model per slice" in intake and "`haiku`" in intake and "`sonnet`" in intake and "`opus`" in intake
+    templates = (SKILL / "references/templates.md").read_text(encoding="utf-8")
+    assert '"model"' in templates
+    renderer = (SKILL / "scripts/render_slices.py").read_text(encoding="utf-8")
+    assert '"model"' in renderer
+
 def test_templates_fix_the_formats():
     text = (SKILL / "references/templates.md").read_text(encoding="utf-8")
     assert "Status: open" in text and "| NN " in text and '"round"' in text and "work/conventions.md" in text
