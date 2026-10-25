@@ -178,7 +178,8 @@ async function collect($: EngineInterface, cwd: string): Promise<Board | null> {
     const session = state === 'active' || starting.has(slice.nr) ? (found?.session ?? null) : null
     const startedAt = starting.get(slice.nr)
     if (startedAt !== undefined && (session || state !== 'ready' || now - startedAt > STARTING_MS)) starting.delete(slice.nr)
-    rows.push({ nr: slice.nr, slug: slice.slug, name: slice.name, state, ticks, waitingFor, ahead, hasPlan, session, isStarting: starting.has(slice.nr) })
+    const findings = (slice.source ?? '').replace(/^R\d+\s*[–-]\s*/, '')
+    rows.push({ nr: slice.nr, slug: slice.slug, name: slice.name, goal: slice.goal ?? '', findings, state, ticks, waitingFor, ahead, hasPlan, session, isStarting: starting.has(slice.nr) })
   }
   return { root, round, integration, rows, updatedAt: now, problem: null }
 }
@@ -383,13 +384,30 @@ export const register: Register = on => {
             {'←'} {row.waitingFor.join(', ')}
           </Text>
         ) : null
+      const scope = `slice-${row.nr}`
+      const marks = STEPS.map((name, index) => `${row.ticks[index] ? '✓' : index === row.ticks.findIndex(tick => !tick) ? '▸' : '·'} ${name}`).join('  ')
+      const nameOf = (nr: string) => data.rows.find(one => one.nr === nr)?.name ?? ''
+      const facts =
+        row.state === 'active'
+          ? [marks, now.label, `${row.ahead} commit${row.ahead === 1 ? '' : 's'}`, row.findings]
+          : row.state === 'blocked'
+            ? [`Waits for ${row.waitingFor.map(nr => `${nr} ${nameOf(nr)}`).join(', ')}`, row.findings]
+            : [row.findings]
       return (
-        <Box key={`row-${row.nr}`} justifyContent="space-between" alignItems="center" paddingLeft={4} gap={1}>
+        <Box key={`row-${row.nr}`} flexDirection="column" paddingLeft={4} hover={{ scope, backgroundColor: 'rgba(127,127,127,0.08)' }}>
+          <Box justifyContent="space-between" alignItems="center" gap={1}>
           {/* minWidth 0: without it a flex item never shrinks below its text, the name pushes the buttons out of the pane. */}
           <Box flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
             {left}
           </Box>
           {right}
+          </Box>
+          {/* Details while the pointer is on the row: the whole name, the goal, and what the slice waits for or how far it is. */}
+          <Box display="none" hover={{ scope, display: 'flex' }} flexDirection="column" paddingLeft={3} paddingBottom={air}>
+            {row.state !== 'ready' && <Text>{row.name}</Text>}
+            {row.goal && <Text dimColor>{row.goal}</Text>}
+            <Text color="subtle">{facts.filter(Boolean).join(' · ')}</Text>
+          </Box>
         </Box>
       )
     }

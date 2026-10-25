@@ -11,8 +11,8 @@ const PANE = {
 const slices = [
   { nr: '01', slug: 'web-a', name: 'A', round: 'R01', deps: '–' },
   { nr: '02', slug: 'web-b', name: 'B ready', round: 'R01', deps: '01' },
-  { nr: '03', slug: 'app-c', name: 'C', round: 'R01', deps: '–' },
-  { nr: '04', slug: 'app-d', name: 'D', round: 'R01', deps: '03' },
+  { nr: '03', slug: 'app-c', name: 'C in the app', round: 'R01', deps: '–', goal: 'Messages of C are announced.', source: 'R01 – W5, W9' },
+  { nr: '04', slug: 'app-d', name: 'D', round: 'R01', deps: '03', goal: 'D follows C.', source: 'R01 – W7' },
   { nr: '09', slug: 'old', name: 'other round', round: 'R00', deps: '–' },
 ]
 const files: Record<string, string> = {
@@ -102,7 +102,9 @@ test('the pane shows the round as a legend with groups, opens a session and star
     expect((await ui.find({ type: 'Text', text: /^25 %$/ }))?.text).toBe('25 %')
     // In progress is open by default, with the slice's step and share; the other groups are folded.
     expect((await ui.find({ type: 'Text', text: /app-c/ }))?.text).toBe('● 03 app-c')
-    expect((await ui.find({ type: 'Text', text: /Green/ }))?.text).toBe('Green · 40 %')
+    expect((await ui.find({ type: 'Text', text: /Green ·/ }))?.text).toBe('Green · 40 %')
+    expect((await ui.find({ type: 'Text', text: /^Messages of C/ }))?.text).toBe('Messages of C are announced.')
+    expect((await ui.find({ type: 'Text', text: /^✓ Plan/ }))?.text).toBe('✓ Plan  ✓ Red  ▸ Green  · Checks  · Commit · idle · 2 commits · W5, W9')
     expect(await ui.find({ type: 'Text', text: /B ready/ })).toBeUndefined()
     expect(await ui.find({ type: 'Text', text: /other round/ })).toBeUndefined()
     shown.length = 0
@@ -112,6 +114,9 @@ test('the pane shows the round as a legend with groups, opens a session and star
     await ui.press({ key: 'toggle-blocked' })
     expect((await ui.find({ type: 'Text', text: /app-d/ }))?.text).toBe('04 app-d')
     expect((await ui.find({ type: 'Text', text: /← 03/ }))?.text).toBe('← 03')
+    // Hovering a row reveals its details: name, goal, and what it waits for.
+    expect((await ui.find({ type: 'Text', text: /^D follows C\.$/ }))?.text).toBe('D follows C.')
+    expect((await ui.find({ type: 'Text', text: /^Waits for/ }))?.text).toBe('Waits for 03 C in the app · W7')
     await ui.press({ key: 'toggle-blocked' })
     expect(await ui.find({ type: 'Text', text: /app-d/ })).toBeUndefined()
     await ui.unmount()

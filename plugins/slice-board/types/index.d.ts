@@ -7,6 +7,10 @@ export type SliceRow = {
   nr: string
   slug: string
   name: string
+  /** The slice's goal from work/_slices.json. */
+  goal: string
+  /** Its finding or AC ids, without the round. */
+  findings: string
   state: SliceState
   /** Ticks of the five checklist columns (Plan, Tests red, Green, Checks, Commit), from the slice's worktree when it has one. */
   ticks: boolean[]
