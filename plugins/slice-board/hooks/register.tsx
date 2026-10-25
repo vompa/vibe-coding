@@ -26,6 +26,7 @@ const GROUPS: { state: SliceState; label: string; fill: string; cell: string }[]
 
 const board = atom({ plugin: 'slice-board', key: 'board' } as const, null)
 const expanded = atom({ plugin: 'slice-board', key: 'expanded' } as const, { done: false, active: true, ready: false, blocked: false })
+const opened = atom({ plugin: 'slice-board', key: 'opened' } as const, {})
 
 type Slice = {
   nr: string
@@ -315,6 +316,8 @@ export const register: Register = on => {
     const air = e.surface === 'terminal' ? 0 : 1
     const data = await read($, board)
     const open = await read($, expanded)
+    const details = await read($, opened)
+    const width = Math.max(20, (e.props as { bodyColumns?: number }).bodyColumns ?? e.viewport?.columns ?? 60)
     if (!data) return <Text dimColor>No round here: work/_slices.json not found.</Text>
     if (data.problem) return <Text dimColor>{data.problem}</Text>
 
@@ -326,6 +329,7 @@ export const register: Register = on => {
     const startable = ready.filter(row => !row.isStarting).slice(0, slots)
     const percentOf = (count: number) => `${Math.round((count / total) * 100)} %`
     const toggle = (state: SliceState) => update($, expanded, current => ({ ...current, [state]: !current[state] }))
+    const toggleDetails = (nr: string) => update($, opened, current => ({ ...current, [nr]: !current[nr] }))
     const start = (numbers: string[]) => startSlices($, data.root, data.round, numbers).then(() => refresh($, cwd))
 
     /** Count and share, right-aligned in two fixed columns like the context pane's legend. */
@@ -350,19 +354,6 @@ export const register: Register = on => {
       const step = row.ticks.every(Boolean) ? 'merge' : STEPS[row.ticks.findIndex(tick => !tick)]
       // Every ready slice can be started while a slot is free; the person picks which.
       const canStart = row.state === 'ready' && !row.isStarting && slots > 0
-      const left =
-        row.state === 'active' ? (
-          <Text wrap="truncate-end">
-            <Text color={now.color}>{'●'} </Text>
-            <Text color="subtle">{row.nr} </Text>
-            {row.slug}
-          </Text>
-        ) : (
-          <Text wrap="truncate-end" dimColor={row.state === 'done' || row.state === 'blocked' || (row.state === 'ready' && !canStart && !row.isStarting)}>
-            <Text color="subtle">{row.nr} </Text>
-            {row.state === 'ready' ? row.name : row.slug}
-          </Text>
-        )
       const right =
         row.state === 'active' ? (
           <Box flexShrink={0} alignItems="center" gap={1}>
@@ -384,7 +375,17 @@ export const register: Register = on => {
             {'←'} {row.waitingFor.join(', ')}
           </Text>
         ) : null
-      const scope = `slice-${row.nr}`
+      const isOpen = details[row.nr] === true
+      const isDim = row.state === 'done' || row.state === 'blocked' || (row.state === 'ready' && !canStart && !row.isStarting)
+      const rightRoom = row.state === 'active' ? (step ?? '').length + 12 : row.state === 'ready' ? 10 : row.state === 'blocked' ? row.waitingFor.join(', ').length + 4 : 0
+      // A button draws its label unshortened: clip the name to the room the row leaves it.
+      const label = clip(`${row.nr} ${row.state === 'ready' ? row.name : row.slug}`, Math.max(8, width - 8 - rightRoom))
+      const left = (
+        <Box alignItems="center" gap={1}>
+          {row.state === 'active' && <Text color={now.color}>{'●'}</Text>}
+          <Button key={`name-${row.nr}`} plain dimColor={isDim} label={label} onPress={() => toggleDetails(row.nr)} />
+        </Box>
+      )
       const marks = STEPS.map((name, index) => `${row.ticks[index] ? '✓' : index === row.ticks.findIndex(tick => !tick) ? '▸' : '·'} ${name}`).join('  ')
       const nameOf = (nr: string) => data.rows.find(one => one.nr === nr)?.name ?? ''
       const facts =
@@ -394,7 +395,7 @@ export const register: Register = on => {
             ? [`Waits for ${row.waitingFor.map(nr => `${nr} ${nameOf(nr)}`).join(', ')}`, row.findings]
             : [row.findings]
       return (
-        <Box key={`row-${row.nr}`} flexDirection="column" paddingLeft={4} hover={{ scope, backgroundColor: 'rgba(127,127,127,0.08)' }}>
+        <Box key={`row-${row.nr}`} flexDirection="column" paddingLeft={4} hover={{ backgroundColor: 'rgba(127,127,127,0.08)' }}>
           <Box justifyContent="space-between" alignItems="center" gap={1}>
             {/* minWidth 0: without it a flex item never shrinks below its text, the name pushes the buttons out of the pane. */}
             <Box flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
@@ -402,12 +403,14 @@ export const register: Register = on => {
             </Box>
             {right}
           </Box>
-          {/* Details while the pointer is on the row: the whole name, the goal, and what the slice waits for or how far it is. */}
-          <Box display="none" hover={{ scope, display: 'flex' }} flexDirection="column" paddingLeft={3} paddingBottom={air}>
-            {row.state !== 'ready' && <Text>{row.name}</Text>}
-            {row.goal && <Text dimColor>{row.goal}</Text>}
-            <Text color="subtle">{facts.filter(Boolean).join(' · ')}</Text>
-          </Box>
+          {/* Details after a click on the name: the whole name, the goal, and what the slice waits for or how far it is. */}
+          {isOpen && (
+            <Box flexDirection="column" paddingLeft={3} paddingBottom={air}>
+              {row.state !== 'ready' && <Text>{row.name}</Text>}
+              {row.goal && <Text dimColor>{row.goal}</Text>}
+              <Text color="subtle">{facts.filter(Boolean).join(' · ')}</Text>
+            </Box>
+          )}
         </Box>
       )
     }

@@ -39,6 +39,8 @@ declare module 'claude-code' {
       board: Board | null
       /** Which groups of the pane are unfolded. */
       expanded: Record<SliceState, boolean>
+      /** Slices whose details are open, by number. */
+      opened: Record<string, boolean>
     }
   }
 }
