@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { ClientProps, ElementConstructor, EngineInterface, Register } from 'claude-code'
 
 import type { Board, SliceRow, SliceSession, SliceState } from '../types'
 
@@ -313,7 +313,7 @@ export const register: Register = on => {
     const elements = $.ui.resolve(e)
     const { Box, Text, Button } = elements
     // A Client draws the name with a delayed reveal of the details; VS Code and the phone have none and fall back to a click.
-    const Client = 'Client' in elements ? elements.Client : undefined
+    const Client = e.surface === 'desktop' || e.surface === 'terminal' ? (elements as { Client?: ElementConstructor<ClientProps> }).Client : undefined
     // Air between rows and groups on surfaces that draw in pixels; the terminal keeps one line per row.
     const air = e.surface === 'terminal' ? 0 : 1
     const data = await read($, board)
