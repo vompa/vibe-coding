@@ -385,7 +385,8 @@ export const register: Register = on => {
         ) : null
       return (
         <Box key={`row-${row.nr}`} justifyContent="space-between" alignItems="center" paddingLeft={4} gap={1}>
-          <Box flexGrow={1} flexShrink={1}>
+          {/* minWidth 0: without it a flex item never shrinks below its text, the name pushes the buttons out of the pane. */}
+          <Box flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
             {left}
           </Box>
           {right}
