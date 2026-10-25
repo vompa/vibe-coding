@@ -16,7 +16,7 @@ It reads `work/_slices.json`, `work/checklist.md`, `work/rounds/`, `work/convent
 claude plugin install slice-board@vompa
 ```
 
-Open the pane with `/slices`; it also opens by itself in a session whose repository has an open round.
+The pane opens only in the chat that runs the round: with `/slices`, `/slice` alone, `/slice status`, `/slice close` or `/vibe-coding`. A slice session works on `/slice NN` and gets no pane, and a session without the pane runs no git. After `/reload-plugins` a session that had the pane opens it again.
 
 ## Develop
 

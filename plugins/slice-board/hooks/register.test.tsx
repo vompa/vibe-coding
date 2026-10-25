@@ -39,10 +39,18 @@ type BoardBody = Extract<Parameters<typeof test>[1], (...args: never[]) => unkno
 type Board$ = Parameters<BoardBody>[0]
 type BoardOn = Parameters<BoardBody>[1]
 
+/** Submits a prompt as the person typing it does; the kit's event type also lists fields only the engine sets. */
+const submit = ($: Board$, text: string) => $.prompt.submit({ text } as Parameters<Board$['prompt']['submit']>[0])
+
 /** Stands for the engine: the repository above on disk and in git, the app's sessions as given. */
-async function startBoard($: Board$, on: BoardOn, appSessions: typeof sessions, now = Date.UTC(2026, 9, 25, 10, 0, 0)) {
+async function startBoard($: Board$, on: BoardOn, appSessions: typeof sessions, now = Date.UTC(2026, 9, 25, 10, 0, 0), show = true) {
   on('command.register', () => ({ value: { command: 'slices' } }))
-  on('ui.open', () => ({ value: { isPlaced: true } }))
+  const opened: string[] = []
+  on('ui.open', (_, e) => {
+    opened.push((e as { id: string }).id)
+    return { value: { isPlaced: true } }
+  })
+  on('prompt.submit', (_, e) => ({ text: e.text }))
   on('clock.now', () => ({ value: now }))
   on('clock.every', () => ({ value: undefined }))
   on('ui.log', () => ({ value: undefined }))
@@ -90,7 +98,8 @@ async function startBoard($: Board$, on: BoardOn, appSessions: typeof sessions, 
   on('session.start', (_, e) => ({ cwd: e.cwd }))
 
   await $.session.start({ cwd: ROOT, surface: 'desktop', isInteractive: true })
-  return { gitCalls, shown, filled, box }
+  if (show) await submit($, '/slices')
+  return { gitCalls, shown, filled, box, opened }
 }
 
 test('the pane shows the round as a legend with groups, opens a session and starts the ready slices', async ($, on) => {
@@ -184,4 +193,17 @@ test('without a Client (VS Code) a click on the name opens and closes the detail
   await ui.press({ key: 'name-03' })
   expect(await ui.find({ type: 'Text', text: /^Messages of C/ })).toBeUndefined()
   await ui.unmount()
+})
+
+test('the pane opens only in the chat that runs the round: /slice, /slice status, /slice close, /vibe-coding, /slices', async ($, on) => {
+  const { opened, gitCalls } = await startBoard($, on, sessions, Date.UTC(2026, 9, 25, 15, 0, 0), false)
+  // A session in the repository, a slice session among them, gets no pane and runs no git until asked.
+  expect(opened).toEqual([])
+  expect(gitCalls).toEqual([])
+  await submit($, '/slice 12')
+  await submit($, 'fix the tests')
+  expect(opened).toEqual([])
+  await submit($, '/slice status')
+  expect(opened).toEqual(['slice-board'])
+  expect(gitCalls.some(args => args.startsWith('worktree list'))).toBe(true)
 })

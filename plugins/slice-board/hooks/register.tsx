@@ -24,6 +24,20 @@ const GROUPS: { state: SliceState; label: string; fill: string; cell: string }[]
 const board = atom({ plugin: 'slice-board', key: 'board' } as const, null)
 const expanded = atom({ plugin: 'slice-board', key: 'expanded' } as const, { done: false, active: true, ready: false, blocked: false })
 const opened = atom({ plugin: 'slice-board', key: 'opened' } as const, {})
+/** Whether this session asked for the pane; a reload of the plugin opens it again. */
+const isWanted = atom({ plugin: 'slice-board', key: 'isWanted' } as const, false)
+
+/**
+ * The commands of the chat that runs a round: `/slice` alone, `/slice status`, `/slice close`, `/vibe-coding`. A slice
+ * session works on `/slice NN` and gets no pane.
+ */
+function asksForPane(text: string, command?: { name: string; args: string }): boolean {
+  const typed = /^\/([\w:-]+)\s*(.*)$/s.exec(text.trim())
+  const name = command?.name ?? typed?.[1] ?? ''
+  const args = (command?.args ?? typed?.[2] ?? '').trim()
+  if (name === 'slices' || name === 'vibe-coding' || name.endsWith(':vibe-coding')) return true
+  return name === 'slice' && /^(status|close)?(\s|$)/.test(args)
+}
 
 type Slice = {
   nr: string
@@ -246,23 +260,40 @@ async function requestStart($: EngineInterface, round: string, rows: SliceRow[])
   $.ui.toast(isFilled ? 'Start request is in the prompt box: Enter sends it.' : 'The prompt box is busy: close the dialog and press Start again.')
 }
 
-export const register: Register = on => {
-  let cwd = ''
+/** The session's folder, and whether its refresh runs: only after the pane was asked for. */
+let paneCwd = ''
+let isTicking = false
 
+/** Opens the pane in this session and starts its refresh; sessions that never ask run no git at all. */
+async function showPane($: EngineInterface) {
+  paneCwd ||= await $.session.cwd()
+  await update($, isWanted, () => true)
+  sessionCache = { at: 0, entries: sessionCache.entries }
+  await refresh($, paneCwd)
+  if (!isTicking) {
+    isTicking = true
+    $.clock.every(REFRESH_MS, () => void refresh($, paneCwd))
+  }
+  await $.ui.open({ id: PANE, title: TITLE })
+}
+
+export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
-    cwd = e.cwd
+    paneCwd = e.cwd
     await $.command.register({ name: 'slices', description: 'Show the slices of the open round in a pane' })
-    await refresh($, cwd)
-    if (await read($, board)) void $.ui.open({ id: PANE, title: TITLE })
-    $.clock.every(REFRESH_MS, () => void refresh($, cwd))
+    if (await read($, isWanted)) await showPane($)
     return started
   })
 
+  // The pane belongs to the chat that runs the round, not to every session in the repository.
+  on('prompt.submit', async ($, e, next) => {
+    if (asksForPane(e.text, e.command)) await showPane($)
+    return next(e)
+  })
+
   on('command.run', { command: 'slices' }, async $ => {
-    sessionCache = { at: 0, entries: sessionCache.entries }
-    await refresh($, cwd || (await $.session.cwd()))
-    await $.ui.open({ id: PANE, title: TITLE })
+    await showPane($)
     return { text: 'Slice pane opened.' }
   })
 
