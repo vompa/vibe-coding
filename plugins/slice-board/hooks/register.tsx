@@ -396,11 +396,11 @@ export const register: Register = on => {
       return (
         <Box key={`row-${row.nr}`} flexDirection="column" paddingLeft={4} hover={{ scope, backgroundColor: 'rgba(127,127,127,0.08)' }}>
           <Box justifyContent="space-between" alignItems="center" gap={1}>
-          {/* minWidth 0: without it a flex item never shrinks below its text, the name pushes the buttons out of the pane. */}
-          <Box flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
-            {left}
-          </Box>
-          {right}
+            {/* minWidth 0: without it a flex item never shrinks below its text, the name pushes the buttons out of the pane. */}
+            <Box flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
+              {left}
+            </Box>
+            {right}
           </Box>
           {/* Details while the pointer is on the row: the whole name, the goal, and what the slice waits for or how far it is. */}
           <Box display="none" hover={{ scope, display: 'flex' }} flexDirection="column" paddingLeft={3} paddingBottom={air}>
