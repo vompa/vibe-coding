@@ -2,6 +2,8 @@
 <#
 .SYNOPSIS
 Builds the open round slice by slice, each slice in a fresh headless Claude session, then closes the round.
+A slice that ends with SLICE-READY is squashed by the merge queue: one slice-NN branch after another, in this
+checkout, with the message from .slice-loop/slice-NN.msg; any merge conflict stops the loop and names the files.
 Stops for plan approval unless -Yes; stops on NEEDS-DECISION, red tests or a blocked slice.
 
 .EXAMPLE
@@ -10,12 +12,14 @@ pwsh .claude/scripts/slice-loop.ps1 -Yes             # approve plans without ask
 pwsh .claude/scripts/slice-loop.ps1 -Parallel        # build ready slices side by side (experimental)
 pwsh .claude/scripts/slice-loop.ps1 -DryRun          # only print the slices that are ready now
 pwsh .claude/scripts/slice-loop.ps1 -MaxSlices 3     # stop after 3 built slices if slices are left (exit 0; run again to continue)
+pwsh .claude/scripts/slice-loop.ps1 -Merge           # only run the merge queue: squash every slice-NN branch ticked through Checks, then exit (starts no session, needs no open round)
 Env: SLICE_PERMISSION_MODE (default: auto) – passed to claude --permission-mode.
 #>
 param(
     [switch]$Yes,
     [switch]$Parallel,
     [switch]$DryRun,
+    [switch]$Merge,
     [string]$MaxSlices
 )
 $ErrorActionPreference = 'Stop'
@@ -25,7 +29,7 @@ $ChecklistFile = 'work/checklist.md'
 $RoundsDir = 'work/rounds'
 $LogDir = '.slice-loop'
 $PermissionMode = if ($env:SLICE_PERMISSION_MODE) { $env:SLICE_PERMISSION_MODE } else { 'auto' }
-$Usage = 'use -Yes, -Parallel, -DryRun, -MaxSlices N'
+$Usage = 'use -Yes, -Parallel, -DryRun, -MaxSlices N, -Merge'
 $SliceCap = 0   # 0 = no cap
 $Built = 0
 
@@ -36,7 +40,10 @@ function Stop-Loop([string]$Message) {
 
 function Get-Slices {
     Get-Content $SlicesFile -Raw -Encoding utf8 | ConvertFrom-Json | ForEach-Object {
-        [pscustomobject]@{ Nr = $_.nr; Deps = @([regex]::Matches([string]$_.deps, '\d{2,}') | ForEach-Object Value); Model = [string]$_.model }
+        [pscustomobject]@{
+            Nr = $_.nr; Deps = @([regex]::Matches([string]$_.deps, '\d{2,}') | ForEach-Object Value)
+            Model = [string]$_.model; Name = [string]$_.name; Source = [string]$_.source
+        }
     }
 }
 
@@ -49,6 +56,110 @@ function Get-SliceModel([string]$Nr) {
 function Test-Done([string]$Nr) {
     $row = Get-Content $ChecklistFile -Encoding utf8 | Where-Object { $_ -match "^\|\s*$Nr(\D|$)" } | Select-Object -First 1
     return [bool]$row -and $row.Contains('☑') -and -not $row.Contains('☐')
+}
+
+# Git's output as lines, decoded as UTF-8: the console's code page would garble ☑ and ☐.
+function Get-GitLines([string[]]$Arguments) {
+    $previous = [Console]::OutputEncoding
+    [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+    try { return @(& git @Arguments 2>$null) } finally { [Console]::OutputEncoding = $previous }
+}
+
+# Ready for the merge queue: the slice's row on branch slice-NN has a ☑ and no ☐ outside its last cell (Commit).
+function Test-BranchReady([string]$Nr) {
+    $row = Get-GitLines @('show', "slice-${Nr}:$ChecklistFile") | Where-Object { $_ -match "^\|\s*$Nr(\D|$)" } | Select-Object -First 1
+    if (-not $row) { return $false }
+    $body = $row.Substring(0, $row.LastIndexOf('|'))   # without the closing pipe
+    if ($body.LastIndexOf('|') -lt 0) { return $false }
+    $body = $body.Substring(0, $body.LastIndexOf('|'))  # without the last cell
+    return $body.Contains('☑') -and -not $body.Contains('☐')
+}
+
+# Writes text as UTF-8 without a byte order mark; .NET resolves relative paths against the process, not this location.
+function Write-Utf8File([string]$Path, [string]$Text) {
+    [IO.File]::WriteAllText((Join-Path (Get-Location).Path $Path), $Text, [Text.UTF8Encoding]::new($false))
+}
+
+# Ticks the last open box of the slice's row – its Commit column – keeping the file's line endings.
+function Set-CommitTick([string]$Nr) {
+    $text = [IO.File]::ReadAllText((Join-Path (Get-Location).Path $ChecklistFile))
+    Write-Utf8File $ChecklistFile ([regex]::Replace($text, "(?m)^(\|\s*$Nr(?!\d)[^\r\n]*)☐", '$1☑'))
+}
+
+# Path of the squash message: the file /slice wrote, else one written from the slice's name and source.
+function Get-SquashMessageFile([string]$Nr) {
+    $file = Join-Path $LogDir "slice-$Nr.msg"
+    if (Test-Path $file) { return $file }
+    $slice = Get-Slices | Where-Object { $_.Nr -eq $Nr } | Select-Object -First 1
+    $file = Join-Path $LogDir "slice-$Nr.fallback.msg"
+    $text = if ($slice.Source) { "Slice ${Nr}: $($slice.Name) ($($slice.Source))" } else { "Slice ${Nr}: $($slice.Name)" }
+    Write-Utf8File $file "$text`n"
+    return $file
+}
+
+# Path of the worktree that has the branch checked out; nothing when none has.
+function Get-WorktreeOf([string]$Branch) {
+    $path = ''
+    foreach ($line in Get-GitLines @('worktree', 'list', '--porcelain')) {
+        if ($line.StartsWith('worktree ')) { $path = $line.Substring(9) }
+        elseif ($line -eq "branch refs/heads/$Branch") { return $path }
+    }
+}
+
+# Removes the squashed branch slice-NN and its worktree; a worktree git will not remove is reported and kept with its branch.
+function Remove-SliceBranch([string]$Nr) {
+    $branch = "slice-$Nr"
+    $path = Get-WorktreeOf $branch
+    if ($path) {
+        git worktree remove $path *> $null
+        if ($LASTEXITCODE -ne 0) { Write-Host "[slice $Nr] worktree $path could not be removed – it and $branch are left"; return }
+    }
+    # -D: a squash merge leaves the branch unmerged in git's eyes; the squash commit made just now is the proof.
+    git branch -D $branch *> $null
+    if ($LASTEXITCODE -ne 0) { Write-Host "[slice $Nr] branch $branch could not be removed" }
+}
+
+# Squashes branch slice-NN onto the branch checked out here; a conflict resets the merge and stops the loop.
+function Merge-Slice([string]$Nr) {
+    $branch = "slice-$Nr"
+    if (Get-GitLines @('status', '--porcelain')) { Stop-Loop "slice ${Nr}: this checkout has uncommitted changes – commit or remove them, then run -Merge" }
+    git merge --squash $branch *> $null
+    if ($LASTEXITCODE -ne 0) {
+        $conflicts = Get-GitLines @('diff', '--name-only', '--diff-filter=U')
+        git reset --merge *> $null
+        $what = if ($conflicts) { "merge conflict in $($conflicts -join ' ')" } else { 'git merge --squash failed' }
+        Stop-Loop "slice ${Nr}: $what – merge reset, $branch kept"
+    }
+    Set-CommitTick $Nr
+    git add $ChecklistFile
+    git commit -q -F (Get-SquashMessageFile $Nr)
+    if ($LASTEXITCODE -ne 0) { Stop-Loop "slice ${Nr}: the squash commit failed – see git status" }
+    Write-Host "[slice $Nr] squashed onto $(git branch --show-current) ($(git rev-parse --short HEAD))"
+    if (-not (Test-Done $Nr)) { Stop-Loop "slice $Nr was squashed but is not ticked in $ChecklistFile – check it before running again" }
+    Remove-SliceBranch $Nr
+}
+
+# After a build turn: a slice the session squashed itself is done; one that waits on its branch goes through the queue.
+function Complete-Slice([string]$Nr) {
+    if (-not (Test-Done $Nr)) {
+        if (-not (Test-BranchReady $Nr)) {
+            Stop-Loop "slice $Nr reported done or ready but is not ticked in $ChecklistFile or on slice-$Nr – check it before running again"
+        }
+        Merge-Slice $Nr
+    }
+    Write-Host "[slice $Nr] done"
+}
+
+# The merge queue alone (-Merge): every slice-NN branch, lowest number first; one not ticked through Checks is left.
+function Invoke-MergeQueue {
+    $branches = Get-GitLines @('for-each-ref', '--format=%(refname:short)', 'refs/heads/slice-*') |
+        Where-Object { $_ -match '^slice-\d{2,}$' } | Sort-Object { [int]($_ -replace '^slice-', '') }
+    foreach ($branch in $branches) {
+        $nr = $branch -replace '^slice-', ''
+        if (Test-Done $nr) { continue }
+        if (Test-BranchReady $nr) { Merge-Slice $nr }
+        else { Write-Host "[slice $nr] not ready to merge: its row on $branch is not ticked through Checks – left as it is" }
+    }
 }
 
 function Get-ReadySlices {
@@ -112,13 +223,12 @@ function Get-BuildMessage([string]$Approval) {
     return "$Approval Other slices are built in parallel: if git is locked or the integration branch moved, wait and retry; in conflicts keep every tick in work/checklist.md."
 }
 
-function Assert-SliceDone([string]$Nr, [string]$Output, [string]$Log) {
-    if (-not ((Get-MarkerLines $Output 'SLICE-DONE:') -cmatch "^SLICE-DONE: $Nr(\D|$)")) {
+function Assert-SliceFinished([string]$Nr, [string]$Output, [string]$Log) {
+    $finished = @(Get-MarkerLines $Output 'SLICE-DONE:') + @(Get-MarkerLines $Output 'SLICE-READY:')
+    if (-not ($finished -cmatch "^SLICE-(DONE|READY): $Nr(\D|$)")) {
         $open = Get-MarkerLines $Output 'SLICE-OPEN:'
-        Stop-Loop "slice $Nr not finished: $(if ($open) { $open[-1] } else { 'no SLICE-DONE line' }) – see $Log"
+        Stop-Loop "slice $Nr not finished: $(if ($open) { $open[-1] } else { 'no SLICE-DONE or SLICE-READY line' }) – see $Log"
     }
-    if (-not (Test-Done $Nr)) { Stop-Loop "slice $Nr reported done but is not ticked in $ChecklistFile – check it before running again" }
-    Write-Host "[slice $Nr] done"
 }
 
 function Invoke-Round {
@@ -135,7 +245,8 @@ function Invoke-Round {
     if (-not $Parallel) {
         $run = $runs[0]
         Write-Host "[slice $($run.Nr)] building – this can take a while (log $($run.Log))"
-        Assert-SliceDone $run.Nr (Invoke-ClaudeTurn $run.Log @('--resume', $run.Session, $run.Message) $run.Model) $run.Log
+        Assert-SliceFinished $run.Nr (Invoke-ClaudeTurn $run.Log @('--resume', $run.Session, $run.Message) $run.Model) $run.Log
+        Complete-Slice $run.Nr
         $script:Built++
         return
     }
@@ -149,10 +260,12 @@ function Invoke-Round {
             & $Exe -p --permission-mode $Mode @onModel --resume $Session $Message 2>&1 | Out-String
         }
     }
+    # Parallel builds are squashed one after another in list order, each as soon as it and the ones before it are built.
     for ($i = 0; $i -lt $runs.Count; $i++) {
         $output = Receive-Job -Job $jobs[$i] -Wait -AutoRemoveJob
         Add-Content -Path $runs[$i].Log -Value $output -Encoding utf8
-        Assert-SliceDone $runs[$i].Nr $output $runs[$i].Log
+        Assert-SliceFinished $runs[$i].Nr $output $runs[$i].Log
+        Complete-Slice $runs[$i].Nr
     }
     $script:Built += $runs.Count
 }
@@ -178,6 +291,12 @@ if (-not ((Test-Path $SlicesFile) -and (Test-Path $ChecklistFile))) {
     Stop-Loop "run from the repo root (needs $SlicesFile and $ChecklistFile)"
 }
 if ($DryRun) { Get-ReadySlices; exit 0 }
+New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+$exclude = '.git/info/exclude'
+if ((Test-Path $exclude) -and -not (Select-String -Path $exclude -Pattern "^$LogDir/$" -Quiet)) {
+    Add-Content -Path $exclude -Value "$LogDir/"
+}
+if ($Merge) { Invoke-MergeQueue; exit 0 }
 $OpenRound = Get-OpenRound
 if (-not $OpenRound) {
     Write-Host "slice-loop: no open round in $RoundsDir – start a round with the vibe-coding skill first"
@@ -185,11 +304,6 @@ if (-not $OpenRound) {
 }
 $ClaudeExe = (Get-Command claude -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
 if (-not $ClaudeExe) { Stop-Loop 'claude CLI not found' }
-New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
-$exclude = '.git/info/exclude'
-if ((Test-Path $exclude) -and -not (Select-String -Path $exclude -Pattern "^$LogDir/$" -Quiet)) {
-    Add-Content -Path $exclude -Value "$LogDir/"
-}
 while (-not (Test-AllDone)) {
     Invoke-Round
     if ($SliceCap -gt 0 -and $Built -ge $SliceCap -and -not (Test-AllDone)) {

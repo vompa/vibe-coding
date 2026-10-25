@@ -44,6 +44,7 @@ Ruling: slice 02 plan approved with its nine assumptions as recommended (hints t
 Ruling: slice 03 plan approved with all nine assumptions (hint `[auto | parallel]`, step 5 stops with the message file and SLICE-READY, loop scripts untouched until slice 05, section 6 meaning, parallel prompts, "ready to merge" in status, budget, phrase tests) – User, 2026-10-25 (via the orchestrating session)
 Ruling: slice 04 plan approved with all ten assumptions (lock paragraph at the end of step 1 with a clause in section 2, `mkdir` / `New-Item` without `-Force` plus an `owner` file, wait 30 minutes for a live slice under 60 minutes old and report anything else, `status` line, template and SKILL.md pointers, line limit 230, slice 08 untouched and merged in before the squash, phrase tests) – User, 2026-10-25 (via the orchestrating session)
 Ruling: Slice 08 – plan approved with all six assumptions (merge queue named as `slice-loop --merge` or the running loop, rules sentence without the conflict clause, three new assertions in the existing Start test, README Ready paragraph and request sentence, command/loop scripts/tests untouched, slice-board and baseline checks) – User, 2026-10-25 (via the orchestrating session)
+Ruling: Slice 05 – plan approved with all eleven assumptions, including the -D cleanup, list order and the temporary parallel stop – User, 2026-10-25 (via the orchestrating session)
 
 ## Surprises
 - `CLAUDE.md` does not exist at the repository root, although the slice command names it. The rules came from `work/conventions.md` and the workspace note; nothing changed for that.
@@ -58,6 +59,10 @@ Ruling: Slice 08 – plan approved with all six assumptions (merge queue named a
 - Slice 04: the command grew by 8 lines (220 → 228) and the guard moved from 220 to 230 lines as planned; "never" count unchanged (16). The four new tests were red first for the intended reasons. The numbers of the lock (60 minutes age, 30 minutes wait) are this slice's choice, documented in the command and in the plan.
 - Slice 04: `claude plugin validate --strict .` fails for the known slice-board warning only (see slice 02); the plugin-level validation is green.
 - Slice 08: the Start test was red for the intended reason (the request said `"/slice NN"` and the old conflict clause). The request text is generic (`NN`), not per slice, so the test asserts `"/slice NN parallel"`; it went green with the one edit of `requestStart`. `claude plugin test plugins/slice-board`: 5 of 5 pass. The slice-board plugin-level validation keeps its warning about the missing `version`.
+- Slice 05: a probe in a throw-away repository decided three points before the plan: two branches that tick adjacent checklist rows conflict on the second `git merge --squash`; `git reset --merge` cleans a conflicted squash; `git branch -d` always refuses a squashed branch (hence `-D`, assumption 5).
+- Slice 05: the first red run of the new loop test overlapped with the script edits, so some cases saw half-edited scripts. The red proof was repeated on an export of the unchanged tree (`git archive`) with the new tests: all eleven queue cases red in bash and pwsh, the vibe-rebuild profile 16 of 16 green. The green run: 52 of 52.
+- Slice 05: PowerShell decodes git's output with the console code page (here ibm850), which garbles ☑ and ☐; git output that carries checklist rows is read through `Get-GitLines` with UTF-8. The bash script had to keep `SLICE-DONE:` and `SLICE-READY:` as literal text for the marker contract, so the marker regex names both in full.
+- Slice 05: the loop-test runs did not take the full-suite lock of slice 04 by hand; no other slice session was running at the time.
 
 ## Deferred minors
 - Slice 04: the lock is a protocol in prose; nothing executes it in the loop scripts (slice 05 decides whether the queue uses it for its own checks). A lock left by a crashed session is only reported, never removed: the user removes the directory by hand.
@@ -66,6 +71,10 @@ Ruling: Slice 08 – plan approved with all six assumptions (merge queue named a
 - Slice 03: the loop scripts do not read `SLICE-READY` yet (slice 05); until then a loop run with `auto` ends at the new marker and is reported as stopped. `SLICE-DONE:` stays defined for runs without `auto` and `parallel`.
 - A scan test over `work/` in `tests/markers_test.py` (conventions: extend when round files change) is a follow-up; this slice's acceptance cases name phrase tests only, and the scan ran by hand.
 - The privacy regex line of `tests/markers_test.py` (line 51) matches its own pattern in a manual scan of `tests/`; expected, not a leak.
+- Slice 05 → slice 06: the loop-test case "parallel: first squash lands, second stops on the checklist conflict" expects a stop until rule-based resolution exists; slice 06 turns it back into "both land, the round closes" as its first acceptance case.
+- Slice 05: two merge-queue runners at once (a loop and a `--merge` from another session) are guarded only by git's own `index.lock`; a merge-queue lock is left out.
+- Slice 05: the bash reader of text fields (`slice_field`) cuts a name or source with an escaped quote at that quote; the fallback message would then be shortened.
+- Slice 05: the queue keeps `.slice-loop/slice-NN.msg` and the fallback file as part of the log; nothing removes them.
 
 ## Open decisions
 
@@ -110,4 +119,12 @@ Start: `claude plugin test plugins/slice-board`, then open the pane in a reposit
 1. Press Start in the pane.
 Expected: the prompt box holds a request that briefs each session with `/slice NN parallel`, says it ends with `SLICE-READY: NN` and names the merge queue (`slice-loop --merge`, or the running loop).
 Closes: F-01 (parallel sessions from the pane)
+Result: ☐
+
+### Slice 05 – Merge queue in both loop scripts
+Start: a scratch repository with an open round of two slices, the command copied to `.claude/commands/slice.md` and both loop scripts to `.claude/scripts/`
+1. Run `pwsh .claude/scripts/slice-loop.ps1 -Yes` (or `bash .claude/scripts/slice-loop.sh --yes`) until the round closes.
+2. Run `git log --oneline` and `git worktree list`.
+Expected: each slice landed as one squash commit whose subject is the session's squash message, both checklist rows are fully ticked, and `git worktree list` shows only the main checkout; no branch `slice-NN` is left.
+Closes: F-01 (queue), F-08 (loop)
 Result: ☐

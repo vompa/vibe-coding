@@ -18,10 +18,12 @@ def test_command_offers_parallel_sessions_outside_auto():
     assert "Never two sessions on one slice" in section and "ready-to-paste prompt" in section
 
 def test_loop_scripts_read_the_same_markers():
-    for name in ("slice-loop.sh", "slice-loop.ps1"):
+    for name, merge_option in (("slice-loop.sh", "--merge"), ("slice-loop.ps1", "-Merge")):
         text = (SKILL / f"assets/{name}").read_text(encoding="utf-8")
-        for m in ("PLAN:", "NEEDS-DECISION:", "SLICE-DONE:", "SLICE-OPEN:", "ROUND-DONE:", "ROUND-OPEN:"): assert m in text, (name, m)
+        for m in ("PLAN:", "NEEDS-DECISION:", "SLICE-DONE:", "SLICE-READY:", "SLICE-OPEN:", "ROUND-DONE:", "ROUND-OPEN:"): assert m in text, (name, m)
         assert "/slice" in text and "work/_slices.json" in text and "rebuild" not in text.lower()
+        # The merge queue squashes in this checkout and passes the message from a file (F-08).
+        assert merge_option in text and "merge --squash" in text and "commit -q -F" in text, name
 
 def test_every_slice_runs_on_its_own_model():
     """A slice runs on the model of its "model" field in _slices.json – never on the model of the session that starts it."""
