@@ -14,7 +14,6 @@ export type SliceRow = {
   waitingFor: string[]
   /** Commits on slice-NN ahead of the integration branch. */
   ahead: number
-  lastCommit: string
   hasPlan: boolean
   session: SliceSession | null
   /** Started from the pane, its session not found yet. */
@@ -32,6 +31,10 @@ export type Board = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'slice-board': { board: Board | null }
+    'slice-board': {
+      board: Board | null
+      /** Which groups of the pane are unfolded. */
+      expanded: Record<SliceState, boolean>
+    }
   }
 }
