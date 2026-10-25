@@ -1,0 +1,21 @@
+{
+  "name": "slice-board",
+  "displayName": "Slice Board",
+  "version": "0.1.0",
+  "description": "A compact pane beside the chat for the open vibe-coding round: progress of the round and of every slice in progress, a link to each slice's session, and one button that starts the ready slices in parallel sessions.",
+  "author": {
+    "name": "vompa",
+    "url": "https://vompa.dev"
+  },
+  "homepage": "https://github.com/vompa/vibe-coding",
+  "repository": "https://github.com/vompa/vibe-coding",
+  "license": "MIT",
+  "keywords": [
+    "vibe-coding",
+    "slices",
+    "mod",
+    "pane",
+    "dashboard"
+  ],
+  "types": "./types/index.d.ts"
+}

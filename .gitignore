@@ -5,3 +5,7 @@ vibe-plan/
 result*.json
 *.skill
 *.stackdump
+
+# slice-board: files the engine writes beside a loaded mod
+plugins/slice-board/.claude-plugin/types/
+plugins/slice-board/tsconfig.json

@@ -15,6 +15,11 @@
       "name": "vibe-coding",
       "source": "./plugins/vibe-coding",
       "description": "Everyday coding in rounds of vertical slices – findings or ideas in, one squash commit per slice out, fresh session each, your repo's rules honoured."
+    },
+    {
+      "name": "slice-board",
+      "source": "./plugins/slice-board",
+      "description": "Compact pane for the open vibe-coding round: progress, a link to each slice's session, and a button that starts the ready slices in parallel."
     }
   ]
 }
