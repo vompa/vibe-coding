@@ -24,6 +24,7 @@ Input: a sentence, a concept document, screenshots, a competitor comparison.
 ## Both
 - Slice numbers continue across rounds (`07`, `08`, …); slices carry the round id in the field `round`.
 - A repository without a build or test command gets a harness slice first (test project, check chain, CI hook); when it changes the stack, propose it as a `NEEDS-DECISION:` line.
+- A slice that produces pictures or summaries of other screens (help images, a manual, a status page, a design-token overview) depends on every slice of the round that changes those screens – otherwise its output is stale before the round ends and has to be made twice. Slices that share one folder (for example all help slices) form a chain, not a fan-out, so no two of them run in parallel.
 - Open decisions of the previous round are copied into the new record's `## Open decisions` (see `round-close.md`).
 
 ## Size classes

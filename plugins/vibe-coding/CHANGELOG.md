@@ -3,6 +3,7 @@
 ## 1.1.0 – 2026-10-25
 - **Every slice runs on its own model.** `work/_slices.json` entries carry `model`: the cheapest model tier that does the slice reliably (`haiku`, `sonnet`, `opus`; tiers in `references/intake.md`), chosen per slice when the round is sliced, never inherited from the session that plans the round or starts the slice. The renderer prints it in the slice file, the loop scripts pass it as `claude --model` on every turn of the slice (a slice without the field runs on the CLI default), `/slice status` shows it, and `/slice` starts parallel sessions on it or heads each ready-to-paste prompt with `claude --model <model>`. Inside a slice, subagents run on that model or a cheaper one; only a reviewing pass may be stronger, and only when `work/conventions.md` asks for it. Tests: renderer, loop (`--model` per turn in both shells) and marker contract.
 - **At most three parallel slices.** `/slice` suggests at most three sessions at once (was four: parallel builds and test suites turned each other red under load).
+- **Ordering rule in `intake.md`.** A slice that produces pictures or summaries of other screens depends on every slice that changes those screens; slices sharing one folder form a chain, not a fan-out.
 
 ## 1.0.0 – 2026-10-24
 First version: turns findings lists and feature ideas into rounds of vertical slices and runs them one per fresh Claude session, in the way of [vibe-rebuild](../vibe-rebuild/README.md) but for everyday coding in any repository.
