@@ -5,11 +5,7 @@ import type { Board, SliceRow, SliceSession, SliceState } from '../types'
 
 const PANE = 'slice-board'
 const TITLE = 'Slices'
-/** The refresh adapts to load: every 10 s, doubled up to 60 s while reading the round is slow, back again once it is fast. */
 const REFRESH_MS = 10_000
-const MAX_REFRESH_MS = 60_000
-const SLOW_MS = 1_500
-const FAST_MS = 500
 const SESSIONS_MS = 30_000
 const STEPS = ['Plan', 'Red', 'Green', 'Checks', 'Commit']
 const LIST_SESSIONS = 'mcp__ccd_session_mgmt__list_sessions'
@@ -215,28 +211,18 @@ function announce($: EngineInterface, data: Board | null) {
   announced = { ready, approval }
 }
 
-/** Time between refreshes now, and whether one runs or waits: never two at once, none while the pane is closed. */
-let refreshMs = REFRESH_MS
+/** Whether a refresh runs or waits: never two at once, none while the pane is closed. */
 let isRefreshing = false
 let isPaneOpen = false
 let pending: ReturnType<EngineInterface['clock']['after']> | undefined
 
-/** The next pause from how long the last refresh took: a busy machine reads git and files slowly. */
-function nextRefreshMs(current: number, tookMs: number): number {
-  if (tookMs > SLOW_MS) return Math.min(MAX_REFRESH_MS, current * 2)
-  if (tookMs < FAST_MS) return Math.max(REFRESH_MS, current / 2)
-  return current
-}
-
 async function refresh($: EngineInterface, cwd: string) {
   if (isRefreshing) return
   isRefreshing = true
-  const startedAt = await $.clock.now()
   try {
     const next = await collect($, cwd)
-    refreshMs = nextRefreshMs(refreshMs, (await $.clock.now()) - startedAt)
     announce($, next)
-    await update($, board, () => (next ? { ...next, refreshMs } : next))
+    await update($, board, () => next)
   } catch (error) {
     $.ui.log(`slice-board: ${String(error)}`, { to: 'debug' })
   } finally {
@@ -244,10 +230,10 @@ async function refresh($: EngineInterface, cwd: string) {
   }
 }
 
-/** Waits the current pause, refreshes, and waits again, while the pane is open; closing the pane cancels the wait. */
+/** Waits 10 s, refreshes, and waits again, while the pane is open; closing the pane cancels the wait. */
 function scheduleRefresh($: EngineInterface) {
   if (pending || !isPaneOpen) return
-  pending = $.clock.after(refreshMs, () => {
+  pending = $.clock.after(REFRESH_MS, () => {
     pending = undefined
     if (isPaneOpen) void refresh($, paneCwd).then(() => scheduleRefresh($))
   })
@@ -415,7 +401,6 @@ export const register: Register = on => {
           <Text>Round {data.round}</Text>
           <Text color="subtle">
             {done.length} / {data.rows.length} done
-            {(data.refreshMs ?? REFRESH_MS) > REFRESH_MS ? ` · busy, every ${Math.round((data.refreshMs ?? REFRESH_MS) / 1000)} s` : ''}
           </Text>
         </Box>
         <Box marginTop={1} marginBottom={1}>

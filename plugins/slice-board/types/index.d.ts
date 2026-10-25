@@ -24,8 +24,6 @@ export type Board = {
   integration: string
   rows: SliceRow[]
   updatedAt: number
-  /** The pause before the next refresh, longer while the machine is busy. */
-  refreshMs?: number
   problem: string | null
 }
 

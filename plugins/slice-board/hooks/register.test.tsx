@@ -43,7 +43,7 @@ type BoardOn = Parameters<BoardBody>[1]
 const submit = ($: Board$, text: string) => $.prompt.submit({ text } as Parameters<Board$['prompt']['submit']>[0])
 
 /** Stands for the engine: the repository above on disk and in git, the app's sessions as given. */
-async function startBoard($: Board$, on: BoardOn, appSessions: typeof sessions, now = Date.UTC(2026, 9, 25, 10, 0, 0), show = true, msPerClockRead = 0) {
+async function startBoard($: Board$, on: BoardOn, appSessions: typeof sessions, now = Date.UTC(2026, 9, 25, 10, 0, 0), show = true) {
   on('command.register', () => ({ value: { command: 'slices' } }))
   const opened: string[] = []
   on('ui.open', (_, e) => {
@@ -51,9 +51,8 @@ async function startBoard($: Board$, on: BoardOn, appSessions: typeof sessions, 
     return { value: { isPlaced: true } }
   })
   on('prompt.submit', (_, e) => ({ text: e.text }))
-  // Each read of the clock can move it on, to play a machine that reads the round slowly; the pauses are held and recorded.
-  let clockReads = 0
-  on('clock.now', () => ({ value: now + msPerClockRead * clockReads++ }))
+  on('clock.now', () => ({ value: now }))
+  // The pauses are held and recorded: an answer at once would run the next refresh at once, and so on.
   const pauses: number[] = []
   on('clock.after', (_, e) => {
     pauses.push(e.ms)
@@ -156,15 +155,6 @@ test('Start writes a request into the prompt box, after any draft the person typ
   await ui.unmount()
 })
 
-test('the refresh waits longer while reading the round is slow, and the header says so', async ($, on) => {
-  // Each clock read 1 s later: a refresh reads it three times and takes 2 s, as on a busy machine.
-  const { pauses } = await startBoard($, on, sessions, Date.UTC(2026, 9, 25, 13, 0, 0), true, 1000)
-  expect(pauses).toEqual([20_000])
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect((await ui.find({ type: 'Text', text: /done/ }))?.text).toBe('1 / 4 done · busy, every 20 s')
-  await ui.unmount()
-})
-
 test('a slice whose session runs in this repository takes a slot in every pane, before its branch exists', async ($, on) => {
   const started = { sessionId: 'local_b', title: 'Slice 02 – B ready (R01)', cwd: ROOT, link: 'claude://claude.ai/epitaxy/local_b', isRunning: true, isArchived: false }
   // A later time: the plugin keeps its listing of the app's sessions for 30 s, also across tests.
@@ -176,7 +166,7 @@ test('a slice whose session runs in this repository takes a slot in every pane, 
   await ui.unmount()
 })
 
-test('a quick refresh keeps the pause at 10 s and the header plain, also in VS Code', async ($, on) => {
+test('the next refresh comes after 10 s, and VS Code shows the rows as text', async ($, on) => {
   const { pauses } = await startBoard($, on, sessions, Date.UTC(2026, 9, 25, 12, 0, 0))
   expect(pauses).toEqual([10_000])
   const ui = await $.ui.mount({ ...PANE, surface: 'vscode' })

@@ -2,7 +2,7 @@
 
 A compact pane beside the chat for the open round of [vibe-coding](../vibe-coding/README.md). It is a Claude Code mod: it runs in the CLI, the Code tab of the Desktop app and the VS Code extension.
 
-It is laid out like the app's context pane and refreshed every ten seconds while it is open. On a busy machine the refresh backs off: when reading the round takes longer than 1.5 s, the pause doubles up to 60 s, and the header says `busy, every 20 s`. Once a refresh is quick again (under 0.5 s), the pause halves back to 10 s. Two refreshes never run at once, and none runs while the pane is closed. Every row is plain text, with no timers of its own, so nothing on the pane goes blank under load.
+It is laid out like the app's context pane and refreshed every ten seconds while it is open. Two refreshes never run at once, and none runs while the pane is closed. Every row is plain text, with no timers of its own, so nothing on the pane goes blank under load.
 
 - **The round:** the share of done slices, a thin bar with one segment per group, and a legend with count and share per group: Done, In progress, Ready, Blocked. Each legend row unfolds its slices.
 - **In progress** (unfolded by default): one row per slice with a dot for its state (working, awaiting plan approval, idle), the next checklist step with the slice's share (Plan, Red, Green, Checks, Commit), and `↗`, which brings the slice's session to the front.
