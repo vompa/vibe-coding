@@ -39,13 +39,17 @@ Ruling: conventions and slice map taken as proposed; slice 08 (slice-board start
 [Assumption] `work/session-hints.md` is written in this round already (F-04 anticipates it) so the slice sessions of this round get the repository's own hints.
 [Assumption] The round's source stays in chat; the intake table summarises it without naming the target repository (this repository is public).
 Ruling: slice 01 plan approved with its six assumptions as recommended (recipe by hand, both section 3 branches, privacy scan by hand, CHANGELOG 1.2.0 started, no README change, loop test as a check) – User, 2026-10-25
+Ruling: slice 09 plan approved with its six assumptions as recommended (rule block in section 3, review axes and ADR filter in section 4, step 6a gains the re-check after the merge without naming SLICE-READY, budget pinned as at most 220 lines and at most 16 "never", privacy scan by hand, CHANGELOG bullet, no README change) – User, 2026-10-25
 
 ## Surprises
 - `CLAUDE.md` does not exist at the repository root, although the slice command names it. The rules came from `work/conventions.md` and the workspace note; nothing changed for that.
 - The first run of the tests after the command edits failed on one case mismatch: the test looked for "the squash always runs" while the command says "The squash always runs". The test was corrected to the command's wording; it had been red before the edit and was not weakened.
 - The Bash tool turns a doubled backslash in an inline Python command into one; the privacy scan was written with `chr(92)` instead (already in the pitfall list).
+- Slice 09: the command grew by 16 lines (195 → 211) and the word "never" still occurs 16 times, as before: no new prohibition. The gate `test_command_stays_short_and_positive` was green before the edit by design; the other seven new tests were red first and went green with the edit.
+- Slice 09: the ADR clause of step 3 replaced "ADR when a principle changed" instead of adding a second sentence, so the rule has one voice. This repository has no ADR folder (CHANGELOG is its decision record); the clause is for the target repositories.
 
 ## Deferred minors
+- Slice 03 adds `SLICE-READY` to step 6a ("run the checks again after the merge, before the squash or SLICE-READY"); slice 09 leaves the marker out because it does not exist yet.
 - A scan test over `work/` in `tests/markers_test.py` (conventions: extend when round files change) is a follow-up; this slice's acceptance cases name phrase tests only, and the scan ran by hand.
 - The privacy regex line of `tests/markers_test.py` (line 51) matches its own pattern in a manual scan of `tests/`; expected, not a leak.
 
@@ -57,4 +61,11 @@ Start: `python tests/markers_test.py`
 1. Read sections 3 and 4 of `plugins/vibe-coding/skills/vibe-coding/references/slice-command.md` in one pass.
 Expected: the new paragraphs (worktree recipe, squash checklist, load and pipe rules, `git commit -F`) each fit their section, and none contradicts section 7 or the auto-mode rules.
 Closes: F-02, F-03, F-06, F-08
+Result: ☐
+
+### Slice 09 – Command rules: assumptions, seams, tests, stop criteria, review axes, ADR, debugging
+Start: `python tests/markers_test.py`
+1. Read sections 3 and 4 of `plugins/vibe-coding/skills/vibe-coding/references/slice-command.md` in one pass.
+Expected: the nine rules read in one voice, none repeats what slice 01 wrote, and the Debugging paragraph in section 3 is easy to find.
+Closes: F-09
 Result: ☐

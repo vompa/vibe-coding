@@ -80,6 +80,56 @@ def test_commit_messages_are_passed_with_commit_f():
     section = _section("## 4. Close the slice", "## 5. Close the round")
     assert "git commit -F <file>" in section and "never inline" in section
 
+SECTION_3 = ("## 3. Plan and build the slice", "## 4. Close the slice")
+SECTION_4 = ("## 4. Close the slice", "## 5. Close the round")
+
+def test_command_names_the_rule_terms():
+    text = " ".join((SKILL / "references/slice-command.md").read_text(encoding="utf-8").split())
+    assert "assumptions" in text.lower() and "recommend" in text
+    for term in ("seam", "tautolog", "stop only", "two axes", "ADR"): assert term in text.lower() or term in text, term
+
+def test_plan_rules_ask_assumptions_in_one_round_and_name_seams():
+    section = _section(*SECTION_3)
+    for phrase in ("one numbered round", "a recommendation", '"yes" takes', "Facts come from code and docs",
+                   "only decisions are asked", "skips the round", "names the seams", "what it misses"):
+        assert phrase in section, phrase
+
+def test_test_rules_take_expected_values_from_an_independent_source():
+    section = _section(*SECTION_3)
+    for phrase in ("independent source", "tautolog", "checks exactly the fault or requirement", "type check",
+                   "single test file", "full suite once at the end", "refactor after green"):
+        assert phrase in section, phrase
+
+def test_build_stops_only_for_a_real_blocker():
+    section = _section(*SECTION_3)
+    for phrase in ("Stop only for a real blocker", "missing dependency", "contradiction to the plan", "wrong assumption",
+                   "style questions", "a test can settle", "subagent or inline"):
+        assert phrase in section, phrase
+
+def test_debugging_starts_from_a_red_command():
+    section = _section(*SECTION_3)
+    paragraph = section.split("Debugging", 1)[1]
+    for phrase in ("fault red", "before any hypothesis", "three to five ranked hypotheses", "fitting seam", "missing seam is itself a finding"):
+        assert phrase in paragraph, phrase
+
+def test_review_has_two_axes_and_recheck_after_merge():
+    section = _section(*SECTION_4)
+    for phrase in ("two axes", "cites the plan line", "unrequested scope", "repository rule beats the general rule",
+                   "run the checks again after the merge"):
+        assert phrase in section, phrase
+    assert section.index("merge the integration branch into slice-NN") < section.index("run the checks again after the merge") < section.index("git merge --squash slice-NN")
+
+def test_adr_only_under_three_conditions():
+    section = _section(*SECTION_4)
+    for phrase in ("ADR only when", "hard to reverse", "surprise without context", "conflict of goals", "Ruling in the round record"):
+        assert phrase in section, phrase
+
+def test_command_stays_short_and_positive():
+    """Slice 09 allowed 25 new lines on top of 195 and no new "never" beyond the 16 the command had."""
+    text = (SKILL / "references/slice-command.md").read_text(encoding="utf-8")
+    assert len(text.splitlines()) <= 220, len(text.splitlines())
+    assert text.lower().count("never") <= 16, text.lower().count("never")
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"): fn(); print("ok  ", name)

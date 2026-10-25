@@ -70,6 +70,19 @@ Otherwise (no superpowers, or "direct"):
    focus), save it as work/plans/<YYYY-MM-DD>-slice-NN.md and wait for my approval
 3. failing tests first, then the minimum to get green, then refactor
 
+Rules for plan and build (both paths):
+- Assumptions: one numbered round, a recommendation per point, worded so that "yes" takes them all. Facts come
+  from code and docs; only decisions are asked. An unambiguous task skips the round.
+- Seams: the plan names the seams the tests hit; the review focus says per seam what the test catches and what it misses.
+- Tests: expected values come from an independent source, not computed like the code (that is tautological).
+  Red counts when the test checks exactly the fault or requirement. Run the type check and the single test file
+  often, the full suite once at the end; refactor after green.
+- Stop only for a real blocker: a missing dependency, a contradiction to the plan, or an ambiguity that would
+  produce wrong code under a wrong assumption. Trivia the code answers, style questions (follow existing patterns)
+  and anything a test can settle go on; no "subagent or inline?" question after the plan.
+Debugging (a slice that fixes a fault): start with a command that shows the fault red, before any hypothesis; list
+three to five ranked hypotheses before testing one; put the regression test at a fitting seam – a missing seam is itself a finding.
+
 "plan" in the arguments → stop right after the plan is saved and shown. End with the line
 "PLAN: <path of the plan file>", plus one line "NEEDS-DECISION: <question>" for each point that
 changes architecture, scope, cost or licences, or adds a package the repository does not use yet,
@@ -99,6 +112,8 @@ Do 1–4 on slice-NN, so they land in the same commit as the code.
    A red test that is green when run alone or in a second unchanged run is load, not a regression: note it
    under Surprises and go on. Check commands never end in `| tail` or another pipe inside an `&&` chain:
    the pipe hides the exit code, so write the output to a file and read its exit code.
+   Review on two axes, kept apart: specification (every finding cites the plan line; ask about unrequested
+   scope) and standards (the repository rule beats the general rule; what tools enforce stays out).
 2. Append to the round record: under Decisions the "Ruling: <decision> – User, <date>" lines (my
    answers and changes), under Surprises what the plan did not foresee, under Deferred minors what
    you left out on purpose; under Manual test list a draft of the slice's manual check items.
@@ -107,7 +122,8 @@ Do 1–4 on slice-NN, so they land in the same commit as the code.
 3. Write the entry that work/conventions.md names for the decision protocol, if it names one, in
    that file's own format and with its fields; leave out fields that exist only for pull requests
    (number, URL): the slice lands as a local squash commit. Update the documents that work/conventions.md lists as
-   "must change with a change" (status page, help, ADR when a principle changed).
+   "must change with a change" (status page, help). Write an ADR only when the decision is hard to reverse,
+   would surprise without context or settled a real conflict of goals; everything else is a Ruling in the round record.
 4. Tick Checks in the slice's row of work/checklist.md (replace ☐ by ☑), and Commit last, right
    before the squash commit, so the finished row lands in it. No ☐ may be left in the row: a column
    that does not apply is ticked too, with the reason under Decisions (see section 3).
@@ -116,7 +132,7 @@ Do 1–4 on slice-NN, so they land in the same commit as the code.
    a heredoc), never inline: Git Bash rewrites a leading `/` into a path.
 6. Integrate: superpowers:finishing-a-development-branch (or by hand) – ONE squash commit on the
    integration branch named in work/conventions.md. Before the squash, in this order:
-   a. merge the integration branch into slice-NN;
+   a. merge the integration branch into slice-NN and run the checks again after the merge;
    b. in the main checkout, `git merge --squash slice-NN`;
    c. check the resolved files before committing: `grep '^<<<<<<<'` finds nothing, every line of both sides
       (`git show HEAD:<file>` and `git show slice-NN:<file>`) is still present, and the number of `Result:`
