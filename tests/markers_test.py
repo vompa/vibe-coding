@@ -125,9 +125,10 @@ def test_adr_only_under_three_conditions():
         assert phrase in section, phrase
 
 def test_command_stays_short_and_positive():
-    """Slice 09 allowed 25 new lines on top of 195 and no new "never" beyond the 16 the command had."""
+    """Slice 09 allowed 25 new lines on top of 195 and no new "never" beyond the 16 the command had.
+    Slice 04 moves the line limit from 220 to 230: the full-suite lock protocol needs its own paragraph and a status line."""
     text = (SKILL / "references/slice-command.md").read_text(encoding="utf-8")
-    assert len(text.splitlines()) <= 220, len(text.splitlines())
+    assert len(text.splitlines()) <= 230, len(text.splitlines())
     assert text.lower().count("never") <= 16, text.lower().count("never")
 
 def _skill_part(name, start, end=None):
@@ -195,6 +196,29 @@ def test_status_shows_ready_to_merge():
 def test_step_6a_names_slice_ready():
     section = _section(*SECTION_4)
     assert "before the squash or SLICE-READY" in section
+
+def test_full_suite_takes_and_releases_the_lock_in_section_4():
+    section = _section(*SECTION_4)
+    for phrase in ("Full-suite lock", ".slice-loop/full-suite.lock", "mkdir", "New-Item -ItemType Directory", "without `-Force`",
+                   "`owner`", "ISO-8601", "right after the suite", "red or green"):
+        assert phrase in section, phrase
+    assert "full suite" in _section("## 2. Read first", "## 3. Plan and build") and "lock" in _section("## 2. Read first", "## 3. Plan and build")
+
+def test_held_lock_waits_and_orphaned_lock_is_reported():
+    section = _section(*SECTION_4)
+    for phrase in ("retry every minute", "slice-MM exists", "60 minutes", "30 minutes",
+                   "SLICE-OPEN: NN lock held by slice MM since <time>", "leave it untouched"):
+        assert phrase in section, phrase
+
+def test_status_shows_the_held_lock():
+    section = _section(*SECTION_1)
+    assert "full-suite.lock" in section and "owner" in section
+
+def test_conventions_template_and_skill_point_to_the_lock():
+    line = _skill_part("references/templates.md", "- Checks for a slice:", "\n- Full check chain")
+    assert "never two full suites at once" in line and ".slice-loop/full-suite.lock/" in line
+    local = _skill_part("SKILL.md", "**Git-ignored", "- **`/slice`, later:**")
+    assert ".slice-loop/full-suite.lock/" in local
 
 if __name__ == "__main__":
     for name, fn in list(globals().items()):

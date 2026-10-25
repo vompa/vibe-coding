@@ -16,7 +16,7 @@ A pointer file: one line per fact, the document it comes from after it (`← sou
 - Test: `<command per project>` ← <source>
 - Lint / format check: `<command>` ← <source>
 - Baseline check (before every slice): `<command>` ← <source>
-- Checks for a slice: one screen touched: `<its test classes plus the cross-page scan tests>`; shared code touched: `<full suite>`; never two full suites at once ← <source>
+- Checks for a slice: one screen touched: `<its test classes plus the cross-page scan tests>`; shared code touched: `<full suite>`; never two full suites at once (the lock `.slice-loop/full-suite.lock/`, see /slice) ← <source>
 - Full check chain (round close): `<commands in order>` ← <source>
 - Decisions are recorded in: <file, section title format, fields it uses; fields that exist only for
   pull requests (number, URL) are left out because a slice lands as a local squash commit> ← <source>

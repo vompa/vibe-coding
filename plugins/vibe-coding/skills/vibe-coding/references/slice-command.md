@@ -21,7 +21,8 @@ work/_slices.json. A slice is done when its row in work/checklist.md has a ☑ a
   work/_slices.json), state (done / in progress / ready to merge / ready / blocked by …; "in progress" = not done,
   but a branch slice-NN exists or the row has a ☑; "ready to merge" = a branch slice-NN whose row is ticked
   through Checks),
-  then the number of open decisions in the round record and one line "Ready next: …". Two or more
+  then the number of open decisions in the round record, one line for a held .slice-loop/full-suite.lock
+  (owner, since when) and one line "Ready next: …". Two or more
   ready: offer parallel sessions (section 7). Stop there.
 - "close" → section 5.
 - a number NN (two or more digits) → work on slice NN. Already done: say so and stop. A slice it
@@ -46,7 +47,7 @@ work/_slices.json. A slice is done when its row in work/checklist.md has a ☑ a
   references it), work/research.md when the slice cites it
 Before you change anything the working tree must be clean and the integration branch checked out;
 otherwise say what to do (auto: "SLICE-OPEN: NN <reason>"). Then run the baseline check from
-work/conventions.md. Red → change nothing and ask whether to fix that first
+work/conventions.md (a full suite takes the lock of section 4). Red → change nothing and ask whether to fix that first
 (auto: "SLICE-OPEN: NN baseline red: <check>" and stop). No baseline check listed: only a slice
 that creates the checks itself may go on; otherwise stop ("SLICE-OPEN: NN no baseline check").
 
@@ -116,6 +117,13 @@ Do 1–4 on slice-NN, so they land in the same commit as the code.
    the pipe hides the exit code, so write the output to a file and read its exit code.
    Review on two axes, kept apart: specification (every finding cites the plan line; ask about unrequested
    scope) and standards (the repository rule beats the general rule; what tools enforce stays out).
+   Full-suite lock (also for the baseline check of section 2): before a command that work/conventions.md names a full
+   suite, take .slice-loop/full-suite.lock in the main checkout (the parent of `git rev-parse --git-common-dir`) with
+   `mkdir` (PowerShell: `New-Item -ItemType Directory` without `-Force`), which fails when it exists, and write `owner`
+   inside: `slice NN` and an ISO-8601 time. Remove it right after the suite, red or green. A lock held by a slice whose
+   branch slice-MM exists and whose time is under 60 minutes old: retry every minute for at most 30 minutes. Any other
+   lock (branch gone, older, or the wait ran out) is reported with owner and time (auto: `SLICE-OPEN: NN lock held by
+   slice MM since <time>`); leave it untouched.
 2. Append to the round record: under Decisions the "Ruling: <decision> – User, <date>" lines (my
    answers and changes), under Surprises what the plan did not foresee, under Deferred minors what
    you left out on purpose; under Manual test list a draft of the slice's manual check items.

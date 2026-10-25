@@ -137,7 +137,7 @@ Slices run in fresh worktrees cut from the integration branch, so what they need
 
 Every write of this skill and its command, so nothing surprises the user:
 - **Committed** in the one round-start commit of section 5: `work/` (without `_raw/`; it holds `work/session-hints.md`), `.claude/commands/slice.md`, `.claude/scripts/slice-loop.ps1` and `slice-loop.sh`, `.gitignore`, `.gitattributes`, and `CLAUDE.md` only where none exists.
-- **Git-ignored or local, never committed:** `work/_raw/` (working material); `.slice-loop/` (loop logs – both loop scripts also append it to `.git/info/exclude` when it is missing there); the repository-local git identity (`git config --local user.name` / `user.email`), set only with the user's approval.
+- **Git-ignored or local, never committed:** `work/_raw/` (working material); `.slice-loop/` (loop logs and the full-suite lock `.slice-loop/full-suite.lock/` – both loop scripts also append it to `.git/info/exclude` when it is missing there); the repository-local git identity (`git config --local user.name` / `user.email`), set only with the user's approval.
 - **`/slice`, later:** a branch and worktree `slice-NN` while it works, then one squash commit per slice on the integration branch – with the plan in `work/plans/`, the checklist tick, the round record entries, the repository's own protocol entry and the documents `conventions.md` lists as "must change with a change".
 - **`/slice close`:** the round-close commit above. The loop writes nothing besides its logs and what `/slice` writes.
 
