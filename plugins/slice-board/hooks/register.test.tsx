@@ -101,15 +101,8 @@ test('the pane shows the round as a legend with groups, opens a session and star
     // The bar is one line high and carries each group's share inside its segment.
     expect((await ui.find({ type: 'Text', text: /^25 %$/ }))?.text).toBe('25 %')
     // In progress is open by default, with the slice's step and share; the other groups are folded.
-    expect((await ui.find({ type: 'Button', text: /app-c/ }))?.text).toBe('03 app-c')
+    expect((await ui.find({ type: 'Text', text: /app-c/, in: 'name-03' }))?.text).toBe('03 app-c')
     expect((await ui.find({ type: 'Text', text: /Green ·/ }))?.text).toBe('Green · 40 %')
-    // Details open on a click on the name, not on hover, and close on a second click.
-    expect(await ui.find({ type: 'Text', text: /^Messages of C/ })).toBeUndefined()
-    await ui.press({ key: 'name-03' })
-    expect((await ui.find({ type: 'Text', text: /^Messages of C/ }))?.text).toBe('Messages of C are announced.')
-    expect((await ui.find({ type: 'Text', text: /^✓ Plan/ }))?.text).toBe('✓ Plan  ✓ Red  ▸ Green  · Checks  · Commit · idle · 2 commits · W5, W9')
-    await ui.press({ key: 'name-03' })
-    expect(await ui.find({ type: 'Text', text: /^Messages of C/ })).toBeUndefined()
     expect(await ui.find({ type: 'Text', text: /B ready/ })).toBeUndefined()
     expect(await ui.find({ type: 'Text', text: /other round/ })).toBeUndefined()
     shown.length = 0
@@ -117,14 +110,15 @@ test('the pane shows the round as a legend with groups, opens a session and star
     expect(shown).toEqual(['local_c'])
     // Unfolding a group lists its slices.
     await ui.press({ key: 'toggle-blocked' })
-    expect((await ui.find({ type: 'Button', text: /app-d/ }))?.text).toBe('04 app-d')
+    expect((await ui.find({ type: 'Text', text: /app-d/, in: 'name-04' }))?.text).toBe('04 app-d')
     expect((await ui.find({ type: 'Text', text: /← 03/ }))?.text).toBe('← 03')
-    await ui.press({ key: 'name-04' })
-    expect((await ui.find({ type: 'Text', text: /^D follows C\.$/ }))?.text).toBe('D follows C.')
-    expect((await ui.find({ type: 'Text', text: /^Waits for/ }))?.text).toBe('Waits for 03 C in the app · W7')
-    await ui.press({ key: 'name-04' })
+    await ui.pointer({ type: 'enter', x: 1, y: 0, in: 'name-04' })
+    await ui.advance(700)
+    expect((await ui.find({ type: 'Text', text: /^D follows C\.$/, in: 'name-04' }))?.text).toBe('D follows C.')
+    expect((await ui.find({ type: 'Text', text: /^Waits for/, in: 'name-04' }))?.text).toBe('Waits for 03 C in the app · W7')
+    await ui.pointer({ type: 'leave', x: 1, y: 0, in: 'name-04' })
     await ui.press({ key: 'toggle-blocked' })
-    expect(await ui.find({ type: 'Button', text: /app-d/ })).toBeUndefined()
+    expect(await ui.find({ key: 'name-04' })).toBeUndefined()
     await ui.unmount()
   }
 
@@ -140,13 +134,46 @@ test('the pane shows the round as a legend with groups, opens a session and star
   await ui.unmount()
 })
 
+test('details appear after the pointer rests on a name, go when it leaves, and stay after a click', async ($, on) => {
+  await startBoard($, on, sessions, Date.UTC(2026, 9, 25, 13, 0, 0))
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+    // Details appear after the pointer rests on the name for a moment, not at once, and go when it leaves.
+    await ui.pointer({ type: 'enter', x: 1, y: 0, in: 'name-03' })
+    await ui.advance(300)
+    expect(await ui.find({ type: 'Text', text: /^Messages of C/, in: 'name-03' })).toBeUndefined()
+    await ui.advance(400)
+    expect((await ui.find({ type: 'Text', text: /^Messages of C/, in: 'name-03' }))?.text).toBe('Messages of C are announced.')
+    expect((await ui.find({ type: 'Text', text: /^✓ Plan/, in: 'name-03' }))?.text).toBe('✓ Plan  ✓ Red  ▸ Green  · Checks  · Commit · idle · 2 commits · W5, W9')
+    await ui.pointer({ type: 'leave', x: 1, y: 0, in: 'name-03' })
+    expect(await ui.find({ type: 'Text', text: /^Messages of C/, in: 'name-03' })).toBeUndefined()
+    // A click keeps them open after the pointer leaves; a second click closes them.
+    await ui.pointer({ type: 'down', x: 1, y: 0, button: 'left', in: 'name-03' })
+    await ui.pointer({ type: 'leave', x: 1, y: 0, in: 'name-03' })
+    expect((await ui.find({ type: 'Text', text: /^Messages of C/, in: 'name-03' }))?.text).toBe('Messages of C are announced.')
+    await ui.pointer({ type: 'down', x: 1, y: 0, button: 'left', in: 'name-03' })
+    expect(await ui.find({ type: 'Text', text: /^Messages of C/, in: 'name-03' })).toBeUndefined()
+  await ui.unmount()
+})
+
 test('a slice whose session runs in this repository takes a slot in every pane, before its branch exists', async ($, on) => {
   const started = { sessionId: 'local_b', title: 'Slice 02 – B ready (R01)', cwd: ROOT, link: 'claude://claude.ai/epitaxy/local_b', isRunning: true, isArchived: false }
   // A later time: the plugin keeps its listing of the app's sessions for 30 s, also across tests.
   await startBoard($, on, [...sessions, started], Date.UTC(2026, 9, 25, 11, 0, 0))
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect((await ui.find({ type: 'Button', text: /web-b/ }))?.text).toBe('02 web-b')
+  expect((await ui.find({ type: 'Text', text: /web-b/, in: 'name-02' }))?.text).toBe('02 web-b')
   expect(await ui.find({ type: 'Text', text: /slots free/ })).toBeUndefined()
   expect(await ui.find({ type: 'Button', text: /Start/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('without a Client (VS Code) a click on the name opens and closes the details', async ($, on) => {
+  await startBoard($, on, sessions, Date.UTC(2026, 9, 25, 12, 0, 0))
+  const ui = await $.ui.mount({ ...PANE, surface: 'vscode' })
+  expect((await ui.find({ type: 'Button', text: /app-c/ }))?.text).toBe('03 app-c')
+  expect(await ui.find({ type: 'Text', text: /^Messages of C/ })).toBeUndefined()
+  await ui.press({ key: 'name-03' })
+  expect((await ui.find({ type: 'Text', text: /^Messages of C/ }))?.text).toBe('Messages of C are announced.')
+  await ui.press({ key: 'name-03' })
+  expect(await ui.find({ type: 'Text', text: /^Messages of C/ })).toBeUndefined()
   await ui.unmount()
 })

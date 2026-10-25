@@ -312,6 +312,8 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const elements = $.ui.resolve(e)
     const { Box, Text, Button } = elements
+    // A Client draws the name with a delayed reveal of the details; VS Code and the phone have none and fall back to a click.
+    const Client = 'Client' in elements ? elements.Client : undefined
     // Air between rows and groups on surfaces that draw in pixels; the terminal keeps one line per row.
     const air = e.surface === 'terminal' ? 0 : 1
     const data = await read($, board)
@@ -380,12 +382,6 @@ export const register: Register = on => {
       const rightRoom = row.state === 'active' ? (step ?? '').length + 12 : row.state === 'ready' ? 10 : row.state === 'blocked' ? row.waitingFor.join(', ').length + 4 : 0
       // A button draws its label unshortened: clip the name to the room the row leaves it.
       const label = clip(`${row.nr} ${row.state === 'ready' ? row.name : row.slug}`, Math.max(8, width - 8 - rightRoom))
-      const left = (
-        <Box alignItems="center" gap={1}>
-          {row.state === 'active' && <Text color={now.color}>{'●'}</Text>}
-          <Button key={`name-${row.nr}`} plain dimColor={isDim} label={label} onPress={() => toggleDetails(row.nr)} />
-        </Box>
-      )
       const marks = STEPS.map((name, index) => `${row.ticks[index] ? '✓' : index === row.ticks.findIndex(tick => !tick) ? '▸' : '·'} ${name}`).join('  ')
       const nameOf = (nr: string) => data.rows.find(one => one.nr === nr)?.name ?? ''
       const facts =
@@ -394,6 +390,21 @@ export const register: Register = on => {
           : row.state === 'blocked'
             ? [`Waits for ${row.waitingFor.map(nr => `${nr} ${nameOf(nr)}`).join(', ')}`, row.findings]
             : [row.findings]
+      const lines = [
+        ...(row.state !== 'ready' ? [{ text: row.name, tone: 'strong' as const }] : []),
+        ...(row.goal ? [{ text: row.goal, tone: 'dim' as const }] : []),
+        { text: facts.filter(Boolean).join(' · '), tone: 'subtle' as const },
+      ]
+      const left = (
+        <Box alignItems="flex-start" gap={1}>
+          {row.state === 'active' && <Text color={now.color}>{'●'}</Text>}
+          {Client ? (
+            <Client key={`name-${row.nr}`} module="./name.tsx" props={{ label, isDim, lines }} flexGrow={1} />
+          ) : (
+            <Button key={`name-${row.nr}`} plain dimColor={isDim} label={label} onPress={() => toggleDetails(row.nr)} />
+          )}
+        </Box>
+      )
       return (
         <Box key={`row-${row.nr}`} flexDirection="column" paddingLeft={4} hover={{ backgroundColor: 'rgba(127,127,127,0.08)' }}>
           <Box justifyContent="space-between" alignItems="center" gap={1}>
@@ -403,12 +414,14 @@ export const register: Register = on => {
             </Box>
             {right}
           </Box>
-          {/* Details after a click on the name: the whole name, the goal, and what the slice waits for or how far it is. */}
-          {isOpen && (
+          {/* Without a Client the details open with a click on the name: the whole name, the goal, and what the slice waits for or how far it is. */}
+          {!Client && isOpen && (
             <Box flexDirection="column" paddingLeft={3} paddingBottom={air}>
-              {row.state !== 'ready' && <Text>{row.name}</Text>}
-              {row.goal && <Text dimColor>{row.goal}</Text>}
-              <Text color="subtle">{facts.filter(Boolean).join(' · ')}</Text>
+              {lines.map(line => (
+                <Text dimColor={line.tone === 'dim'} color={line.tone === 'subtle' ? 'subtle' : undefined}>
+                  {line.text}
+                </Text>
+              ))}
             </Box>
           )}
         </Box>
