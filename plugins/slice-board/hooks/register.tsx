@@ -415,6 +415,14 @@ export const register: Register = on => {
           })}
         </Box>
 
+        {/* Start above the groups, so it stays in view however long the lists get. */}
+        {ready.length > 0 && (
+          <Box justifyContent="space-between" alignItems="center" marginBottom={1}>
+            <Text color="subtle">{slots > 0 ? `${slots} of ${MAX_PARALLEL} slots free` : `All ${MAX_PARALLEL} slots in use`}</Text>
+            {startable.length > 0 && <Button key="start-ready" label={`Start ${startable.length}`} onPress={() => start(startable.map(row => row.nr))} />}
+          </Box>
+        )}
+
         {GROUPS.map(group => {
           const rows = rowsOf(group.state)
           const isOpen = open[group.state] && rows.length > 0
@@ -432,12 +440,6 @@ export const register: Register = on => {
           )
         })}
 
-        {ready.length > 0 && (
-          <Box justifyContent="space-between" alignItems="center" marginTop={1}>
-            <Text color="subtle">{slots > 0 ? `${slots} of ${MAX_PARALLEL} slots free` : `All ${MAX_PARALLEL} slots in use`}</Text>
-            {startable.length > 0 && <Button key="start-ready" label={`Start ${startable.length}`} onPress={() => start(startable.map(row => row.nr))} />}
-          </Box>
-        )}
       </Box>
     )
   })
