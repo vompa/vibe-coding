@@ -3,7 +3,7 @@
 **Goal:** The skill, the templates and the command treat work/session-hints.md, the check scope per slice and the marking of a tracked findings list as part of every round.
 **Round:** R01
 **Source:** R01 – F-04, F-05, F-07
-**Depends on:** 01
+**Depends on:** 09
 **Model:** sonnet
 
 ## Scope

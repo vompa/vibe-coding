@@ -9,3 +9,4 @@
 | 06 merge-rules | ☐ | ☐ | ☐ | ☐ | ☐ |
 | 07 release-1-2-0 | ☐ | ☐ | ☐ | ☐ | ☐ |
 | 08 slice-board-parallel | ☐ | ☐ | ☐ | ☐ | ☐ |
+| 09 command-rules | ☐ | ☐ | ☐ | ☐ | ☐ |
