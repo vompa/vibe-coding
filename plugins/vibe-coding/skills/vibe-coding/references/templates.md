@@ -16,7 +16,7 @@ A pointer file: one line per fact, the document it comes from after it (`← sou
 - Test: `<command per project>` ← <source>
 - Lint / format check: `<command>` ← <source>
 - Baseline check (before every slice): `<command>` ← <source>
-- Checks for a slice: `<commands>` ← <source>
+- Checks for a slice: one screen touched: `<its test classes plus the cross-page scan tests>`; shared code touched: `<full suite>`; never two full suites at once ← <source>
 - Full check chain (round close): `<commands in order>` ← <source>
 - Decisions are recorded in: <file, section title format, fields it uses; fields that exist only for
   pull requests (number, URL) are left out because a slice lands as a local squash commit> ← <source>
@@ -33,6 +33,18 @@ A pointer file: one line per fact, the document it comes from after it (`← sou
 ```
 In a repository without rules the lines say `default` as their source: `main`, squash, `"User, <date>"`. Extend the repository's rules, never replace them.
 
+## work/session-hints.md
+Repository-specific hints for slice sessions, grown round by round: the first round writes what the repository's rules and tooling already teach, later rounds append what the previous round learned and change no existing bullet. `/slice` reads it in section 2 and the parallel prompts name it. The bullets below are an open list of examples, not a checklist: keep what applies, add what the repository needs.
+```
+# Hints for slice sessions
+Repository-specific experience for the sessions that work a slice. They add to `.claude/commands/slice.md` and `work/conventions.md`; every round appends what it learned.
+
+- <tool or hook that blocks a command until facts are stated, and how to satisfy it once>
+- <shell quirk: path rewriting, line endings, quoting of commit messages>
+- <the command that needs a long timeout or a background run, and where its log goes>
+- <files that must change together, or must never be touched by a slice>
+```
+
 ## work/rounds/Rnn-<slug>.md
 The round record. Round ids are fixed-width (`R01`, `R02`, … `R99`), so the glob `work/rounds/R01-*.md` in the slice prompt is unambiguous. The first line is `Status: open`, set to `Status: closed` at round close; the loop reads only that line. Keep the section that fits the intake (Intake table for findings, Brief for ideas) and drop the other.
 ```
@@ -41,7 +53,7 @@ Status: open
 # Round Rnn – <slug>
 
 ## Source
-<tracked findings file (path), notes from <date>, or the idea in one sentence;
+<tracked findings file (path) and its marking format ("done in slice NN" in the file's own style), notes from <date>, or the idea in one sentence;
 concept documents by path – referenced, not copied>
 
 ## Brief          (ideas only, ≤ 1 page)

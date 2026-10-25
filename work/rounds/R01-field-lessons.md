@@ -40,6 +40,7 @@ Ruling: conventions and slice map taken as proposed; slice 08 (slice-board start
 [Assumption] The round's source stays in chat; the intake table summarises it without naming the target repository (this repository is public).
 Ruling: slice 01 plan approved with its six assumptions as recommended (recipe by hand, both section 3 branches, privacy scan by hand, CHANGELOG 1.2.0 started, no README change, loop test as a check) – User, 2026-10-25
 Ruling: slice 09 plan approved with its six assumptions as recommended (rule block in section 3, review axes and ADR filter in section 4, step 6a gains the re-check after the merge without naming SLICE-READY, budget pinned as at most 220 lines and at most 16 "never", privacy scan by hand, CHANGELOG bullet, no README change) – User, 2026-10-25
+Ruling: slice 02 plan approved with its nine assumptions as recommended (hints template after the conventions template, creation and appending in SKILL.md section 2, read line and parallel-prompt clause in the command, check scope split on the `Checks for a slice` line, findings marking in SKILL.md section 3 plus the command, command budget kept at 220 lines and 16 "never", phrase tests, README tree line, CHANGELOG bullet with a manual privacy scan) – User, 2026-10-25
 
 ## Surprises
 - `CLAUDE.md` does not exist at the repository root, although the slice command names it. The rules came from `work/conventions.md` and the workspace note; nothing changed for that.
@@ -47,8 +48,12 @@ Ruling: slice 09 plan approved with its six assumptions as recommended (rule blo
 - The Bash tool turns a doubled backslash in an inline Python command into one; the privacy scan was written with `chr(92)` instead (already in the pitfall list).
 - Slice 09: the command grew by 16 lines (195 → 211) and the word "never" still occurs 16 times, as before: no new prohibition. The gate `test_command_stays_short_and_positive` was green before the edit by design; the other seven new tests were red first and went green with the edit.
 - Slice 09: the ADR clause of step 3 replaced "ADR when a principle changed" instead of adding a second sentence, so the rule has one voice. This repository has no ADR folder (CHANGELOG is its decision record); the clause is for the target repositories.
+- Slice 02: `claude plugin validate --strict .` (marketplace) fails on the integration branch already, before any edit: `plugins[2]` (slice-board) has no `version` in its `plugin.json`, and `--strict` treats the warning as an error. Not caused by this slice (it touches no manifest); the conventions list this command among the checks when `SKILL.md` changes, so the failure is recorded here. Plugin-level `claude plugin validate --strict plugins/vibe-coding` is green.
+- Slice 02: the command grew by 3 lines (211 → 214), "never" count unchanged; no limit had to move. The five new tests were red first for the intended reasons (missing sections and phrases) and green after the edits.
+- Slice 02: the repository's own `work/session-hints.md` was written in this round before the template existed (F-04 anticipated it); the template now matches its shape (title, purpose paragraph, bullets), the file itself is unchanged.
 
 ## Deferred minors
+- Slice 02: the marketplace validation warning (slice-board without `version`) is not fixed here; slice 07 (release) is the natural place, or a separate fix to the slice-board manifest.
 - Slice 03 adds `SLICE-READY` to step 6a ("run the checks again after the merge, before the squash or SLICE-READY"); slice 09 leaves the marker out because it does not exist yet.
 - A scan test over `work/` in `tests/markers_test.py` (conventions: extend when round files change) is a follow-up; this slice's acceptance cases name phrase tests only, and the scan ran by hand.
 - The privacy regex line of `tests/markers_test.py` (line 51) matches its own pattern in a manual scan of `tests/`; expected, not a leak.
@@ -68,4 +73,11 @@ Start: `python tests/markers_test.py`
 1. Read sections 3 and 4 of `plugins/vibe-coding/skills/vibe-coding/references/slice-command.md` in one pass.
 Expected: the nine rules read in one voice, none repeats what slice 01 wrote, and the Debugging paragraph in section 3 is easy to find.
 Closes: F-09
+Result: ☐
+
+### Slice 02 – Skill and templates: session hints, check scope, findings marking
+Start: `python tests/markers_test.py`
+1. Read sections 2, 3 and 6 of `plugins/vibe-coding/skills/vibe-coding/SKILL.md` in one pass.
+Expected: the session-hints, check-scope and findings-marking sentences fit the phase table and the write list, and nothing is said twice.
+Closes: F-04, F-05, F-07
 Result: ☐

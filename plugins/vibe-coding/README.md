@@ -24,6 +24,7 @@ CLAUDE.md                     only if the repository has none
 .claude/scripts/slice-loop.*  runs the slices one after another in fresh sessions
 work/
   conventions.md              how this repository works – branch, commands, rules – each fact with the document it comes from
+  session-hints.md            hints for slice sessions, grown round by round
   checklist.md                progress per slice, ticked by the agent
   _slices.json                the slice list, input for the renderer
   rounds/R01-<slug>.md        one record per round: intake or brief, slice map, decisions, surprises, open decisions, manual test list

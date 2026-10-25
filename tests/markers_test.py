@@ -130,6 +130,44 @@ def test_command_stays_short_and_positive():
     assert len(text.splitlines()) <= 220, len(text.splitlines())
     assert text.lower().count("never") <= 16, text.lower().count("never")
 
+def _skill_part(name, start, end=None):
+    """A part of a skill file between two headings, whitespace normalised."""
+    body = (SKILL / name).read_text(encoding="utf-8").split(start, 1)[1]
+    if end: body = body.split(end, 1)[0]
+    return " ".join(body.split())
+
+def test_templates_hold_session_hints_section():
+    section = _skill_part("references/templates.md", "## work/session-hints.md", "\n## ")
+    assert "slice sessions" in section and "round by round" in section
+    assert "open list" in section and "```" in section
+
+def test_skill_creates_and_lists_session_hints():
+    conventions = _skill_part("SKILL.md", "## 2. Conventions", "## 3. Intake")
+    assert "work/session-hints.md" in conventions and "references/templates.md" in conventions and "later rounds append" in conventions
+    after = _skill_part("SKILL.md", "## 6. After the round", "## Rules")
+    assert "work/session-hints.md" in after.split("**Git-ignored", 1)[0], "the committed-files list names the hints"
+    assert "session-hints.md" in _skill_part("SKILL.md", "## Output structure")
+
+def test_command_reads_session_hints_and_names_it_in_parallel_prompts():
+    assert "work/session-hints.md" in _section("## 2. Read first", "## 3. Plan and build")
+    assert "when it exists" in _section("## 2. Read first", "## 3. Plan and build")
+    assert "work/session-hints.md" in _section("## 7. Parallel slices")
+
+def test_conventions_template_splits_the_check_scope():
+    line = _skill_part("references/templates.md", "- Checks for a slice:", "\n- Full check chain")
+    for phrase in ("one screen touched", "cross-page scan tests", "shared code touched", "full suite", "never two full suites at once"):
+        assert phrase in line, phrase
+    conventions = _skill_part("SKILL.md", "## 2. Conventions", "## 3. Intake")
+    assert "one screen" in conventions and "shared code" in conventions
+
+def test_tracked_findings_file_is_marked_by_each_slice():
+    intake = _skill_part("SKILL.md", "## 3. Intake", "## 4. Slicing")
+    for phrase in ("tracked findings file", "marking format", "done in slice NN", "marks nothing"):
+        assert phrase in intake, phrase
+    assert "marking format" in _skill_part("references/templates.md", "## Source", "## Brief")
+    close = _section(*SECTION_4)
+    assert "tracked findings file" in close and "done in slice NN" in close and "before the squash" in close
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"): fn(); print("ok  ", name)

@@ -78,6 +78,8 @@ Discovered in the first round of a repository only. Later rounds read the file, 
 Read what the repository already defines. Sources are examples, not a checklist – for instance `CLAUDE.md`, `AGENTS.md`, README, the working-method or contribution documents that `CLAUDE.md` links, protocol or changelog files, the CI workflow, `.editorconfig` and formatter configuration, and `git log` (branch names, commit style and language) – plus anything else that defines how this repository works. In a large repository let an `Explore` subagent read, and save its report to `work/_raw/`.
 Write `work/conventions.md` from `references/templates.md`: one line per fact with the document it comes from. The facts are examples too: branches and merge style, commit language, the commands (build, test, lint/format, baseline check, checks for a slice, full check chain), where decisions are recorded and which documents must change with a change, languages, the privacy rule for names, how to start the app for manual testing, the finding-id scheme – and any other fact slices will need.
 
+- **Check scope per slice.** Ask the user for the split and record it on the `Checks for a slice` line: one screen touched → its test classes plus the cross-page scan tests; shared code touched → the full suite; never two full suites at once.
+- **Session hints.** The first round also creates `work/session-hints.md` from `references/templates.md` (what the repository's rules and tooling already teach slice sessions); later rounds append what the previous round learned and change no existing bullet.
 - **Extend, never replace.** Pointers, not copies: long rules stay in their document, `conventions.md` names the owner of each fact. Conflicts between documents are listed under `## Conflicts between documents`, never resolved silently.
 - **Privacy rule for names.** When the repository does not say, ask once whether files may name people (a private repository may); otherwise decisions are "User, <date>". Record the answer.
 - **No `CLAUDE.md`?** Create the lean one from `references/templates.md` plus `conventions.md` with defaults (`main`, squash, "User, <date>", source `default`). An existing `CLAUDE.md` is never replaced or reformatted.
@@ -90,6 +92,7 @@ Read `references/intake.md` and follow its path: **A** findings list, **B** idea
 Write `work/rounds/Rnn-<slug>.md` from `references/templates.md`, first line `Status: open`.
 
 - **The record carries everything the slices need.** Every slice runs in a fresh worktree cut from the integration branch, and `work/_raw/` is git-ignored, so it is not there. Three cases: notes in chat, an untracked file and a file outside the repository → the intake table (id, where, observed → expected, size, source) goes into the record, summarised when the repository is public; a tracked structured file → referenced by path in `## Source`, only its ids in the record; an idea → the brief goes into the record. A copy in `work/_raw/` is only your working copy and never reaches a slice.
+- **A tracked findings file is marked by the slices.** When the round's source is a tracked findings file, the record names the file and its marking format under `## Source`, and each slice marks its ids there as "done in slice NN" in that format before the squash. A round whose source is the intake table marks nothing.
 - **Ids** continue the repository's scheme (`Finding ids` in `conventions.md`), otherwise `F-NN`. A finding that shows an earlier fix did not hold is marked `reopens <id>`.
 - **Open decisions.** What the user must decide becomes a `NEEDS-DECISION:` line under `## Open decisions`, together with those inherited from the previous round (`(from Rnn)`). Put them to the user in one message with your recommendation. An answer becomes `Ruling: <decision> – User, <date>` under `## Decisions`. Only answered items are sliced; if the user is away they stay open.
 
@@ -133,7 +136,7 @@ Slices run in fresh worktrees cut from the integration branch, so what they need
 `/slice close` (`/slice` proposes it when the last slice is done; the loop runs it) runs the full check chain, writes the **manual test list** into the round record – per slice the start command, the steps, the expected result, the finding ids it closes and `Result: ☐` – sets `Status: closed` and commits the record as `Round Rnn closed: <slug>` on the integration branch, never pushed. Steps and formats: `references/round-close.md`.
 
 Every write of this skill and its command, so nothing surprises the user:
-- **Committed** in the one round-start commit of section 5: `work/` (without `_raw/`), `.claude/commands/slice.md`, `.claude/scripts/slice-loop.ps1` and `slice-loop.sh`, `.gitignore`, `.gitattributes`, and `CLAUDE.md` only where none exists.
+- **Committed** in the one round-start commit of section 5: `work/` (without `_raw/`; it holds `work/session-hints.md`), `.claude/commands/slice.md`, `.claude/scripts/slice-loop.ps1` and `slice-loop.sh`, `.gitignore`, `.gitattributes`, and `CLAUDE.md` only where none exists.
 - **Git-ignored or local, never committed:** `work/_raw/` (working material); `.slice-loop/` (loop logs – both loop scripts also append it to `.git/info/exclude` when it is missing there); the repository-local git identity (`git config --local user.name` / `user.email`), set only with the user's approval.
 - **`/slice`, later:** a branch and worktree `slice-NN` while it works, then one squash commit per slice on the integration branch – with the plan in `work/plans/`, the checklist tick, the round record entries, the repository's own protocol entry and the documents `conventions.md` lists as "must change with a change".
 - **`/slice close`:** the round-close commit above. The loop writes nothing besides its logs and what `/slice` writes.
@@ -161,6 +164,7 @@ CLAUDE.md (only if none)  .gitignore  .gitattributes
 .claude/scripts/slice-loop.ps1  slice-loop.sh
 work/
   conventions.md            how this repository works (first round)
+  session-hints.md          hints for slice sessions, grown round by round
   checklist.md              | NN | name | Plan | Tests red | Green | Checks | Commit |  (agent-ticked)
   _slices.json              input for render_slices.py
   rounds/R01-<slug>.md      Status: open|closed; intake or brief, slice map, decisions, open decisions, manual test list

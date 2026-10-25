@@ -40,6 +40,7 @@ work/_slices.json. A slice is done when its row in work/checklist.md has a ☑ a
 - work/slices/NN-*.md – goal, source, model, scope, patterns to mirror, NOT building, prompt,
   Definition of Done, non-goals
 - CLAUDE.md (and AGENTS.md when present) – the repository's hard rules
+- work/session-hints.md – the repository's hints for slice sessions, when it exists
 - what the slice's Source names: the findings file or concept document (the round record only
   references it), work/research.md when the slice cites it
 Before you change anything the working tree must be clean and the integration branch checked out;
@@ -117,6 +118,8 @@ Do 1–4 on slice-NN, so they land in the same commit as the code.
 2. Append to the round record: under Decisions the "Ruling: <decision> – User, <date>" lines (my
    answers and changes), under Surprises what the plan did not foresee, under Deferred minors what
    you left out on purpose; under Manual test list a draft of the slice's manual check items.
+   When "## Source" names a tracked findings file, mark the slice's ids there as "done in slice NN" in the
+   marking format the record names, before the squash.
    Decisions are recorded as "User, <date>" unless work/conventions.md allows names. No absolute
    paths, user or machine names in any file; personal names only where work/conventions.md allows.
 3. Write the entry that work/conventions.md names for the decision protocol, if it names one, in
@@ -206,6 +209,6 @@ unasked and once per run; never in auto mode (the loop script starts the next ru
 - Each prompt carries: "/slice NN"; the round, the slice's name, model, goal, scope, not-building list
   and acceptance cases from work/_slices.json; that other slices run in parallel sessions, so the merge
   in section 4 may conflict in work/checklist.md, the round record and the documents that change with
-  a change, and every tick and entry of both sides stays; that it touches only its own branch and
+  a change, and every tick and entry of both sides stays; that it reads work/session-hints.md when it exists; that it touches only its own branch and
   worktree, never pushes, and ends with the three lines of section 4.
 - Never two sessions on one slice: a slice with a branch slice-NN is in progress, not ready.
