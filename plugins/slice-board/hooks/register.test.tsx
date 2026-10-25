@@ -30,14 +30,20 @@ const files: Record<string, string> = {
 }
 const porcelain = `worktree ${ROOT}\nHEAD 1\nbranch refs/heads/dev\n\nworktree ${ROOT}/wt/slice-03\nHEAD 2\nbranch refs/heads/slice-03\n`
 const sessions = [
-  { sessionId: 'local_c', title: 'Slice 03 – C (R01)', cwd: 'C:\\repo', link: 'claude://claude.ai/epitaxy/local_c', isRunning: false, isArchived: false },
+  // A session elsewhere first: the one working in this repository wins.
   { sessionId: 'local_old', title: 'Slice 03', cwd: 'C:\\elsewhere', link: 'claude://claude.ai/epitaxy/local_old', isRunning: true, isArchived: false },
+  { sessionId: 'local_c', title: 'Slice 03 – C (R01)', cwd: ROOT, link: 'claude://claude.ai/epitaxy/local_c', isRunning: false, isArchived: false },
 ]
 
-test('the pane shows the round as a legend with groups, opens a session and starts the ready slices', async ($, on) => {
+type BoardBody = Extract<Parameters<typeof test>[1], (...args: never[]) => unknown>
+type Board$ = Parameters<BoardBody>[0]
+type BoardOn = Parameters<BoardBody>[1]
+
+/** Stands for the engine: the repository above on disk and in git, the app's sessions as given. */
+async function startBoard($: Board$, on: BoardOn, appSessions: typeof sessions, now = Date.UTC(2026, 9, 25, 10, 0, 0)) {
   on('command.register', () => ({ value: { command: 'slices' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
-  on('clock.now', () => ({ value: Date.UTC(2026, 9, 25, 10, 0, 0) }))
+  on('clock.now', () => ({ value: now }))
   on('clock.every', () => ({ value: undefined }))
   on('ui.log', () => ({ value: undefined }))
   on('ui.toast', () => ({ value: undefined }))
@@ -69,8 +75,8 @@ test('the pane shows the round as a legend with groups, opens a session and star
     return { result: [{ type: 'text', text: 'Focused.' }], text: 'Focused.' }
   })
   on('tool.call', { tool: 'mcp__ccd_session_mgmt__list_sessions' }, () => ({
-    result: [{ type: 'text', text: JSON.stringify(sessions) }],
-    text: JSON.stringify(sessions),
+    result: [{ type: 'text', text: JSON.stringify(appSessions) }],
+    text: JSON.stringify(appSessions),
   }))
   const startedSessions: { title?: string; prompt?: string; use_worktree?: boolean }[] = []
   on('tool.call', { tool: 'mcp__ccd_session__start_session' }, (_, e) => {
@@ -80,6 +86,11 @@ test('the pane shows the round as a legend with groups, opens a session and star
   on('session.start', (_, e) => ({ cwd: e.cwd }))
 
   await $.session.start({ cwd: ROOT, surface: 'desktop', isInteractive: true })
+  return { gitCalls, shown, startedSessions }
+}
+
+test('the pane shows the round as a legend with groups, opens a session and starts the ready slices', async ($, on) => {
+  const { gitCalls, shown, startedSessions } = await startBoard($, on, sessions)
   // One listing of the slice branches per refresh, not one call per slice.
   expect(gitCalls.filter(args => args.startsWith('branch --list')).length).toBe(1)
 
@@ -112,6 +123,17 @@ test('the pane shows the round as a legend with groups, opens a session and star
   expect(startedSessions[0]).toMatchObject({ use_worktree: false })
   await ui.press({ key: 'toggle-ready' })
   expect((await ui.find({ type: 'Text', text: /^starting$/ }))?.text).toBe('starting')
+  expect(await ui.find({ type: 'Button', text: /Start/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a slice whose session runs in this repository takes a slot in every pane, before its branch exists', async ($, on) => {
+  const started = { sessionId: 'local_b', title: 'Slice 02 – B ready (R01)', cwd: ROOT, link: 'claude://claude.ai/epitaxy/local_b', isRunning: true, isArchived: false }
+  // A later time: the plugin keeps its listing of the app's sessions for 30 s, also across tests.
+  await startBoard($, on, [...sessions, started], Date.UTC(2026, 9, 25, 11, 0, 0))
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect((await ui.find({ type: 'Text', text: /web-b/ }))?.text).toBe('● 02 web-b')
+  expect(await ui.find({ type: 'Text', text: /slots free/ })).toBeUndefined()
   expect(await ui.find({ type: 'Button', text: /Start/ })).toBeUndefined()
   await ui.unmount()
 })

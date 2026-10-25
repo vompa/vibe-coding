@@ -104,8 +104,8 @@ async function openRound($: EngineInterface, root: string): Promise<string | nul
   return null
 }
 
-/** The desktop app's sessions titled "Slice NN …", those working in this repository before the others. */
-function sessionsBySlice(entries: SessionEntry[], root: string): Map<string, SliceSession> {
+/** The desktop app's sessions titled "Slice NN …", those working in this repository before the others; `isHere` says one works here. */
+function sessionsBySlice(entries: SessionEntry[], root: string): Map<string, { session: SliceSession; isHere: boolean }> {
   const found = new Map<string, { session: SliceSession; isHere: boolean }>()
   for (const entry of entries) {
     const nr = /^Slice (\d{2,})\b/.exec(entry.title ?? '')?.[1]
@@ -117,7 +117,7 @@ function sessionsBySlice(entries: SessionEntry[], root: string): Map<string, Sli
       found.set(nr, { session, isHere })
     }
   }
-  return new Map([...found].map(([nr, { session }]) => [nr, session]))
+  return found
 }
 
 /** Lists the app's sessions at most every 30 s (every refresh while a start is pending), and only where the permission check allows it without asking. */
@@ -171,8 +171,11 @@ async function collect($: EngineInterface, cwd: string): Promise<Board | null> {
       hasPlan = plans.some(entry => entry.name.endsWith(`-slice-${slice.nr}.md`))
     }
     const waitingFor = depsOf(slice).filter(dep => !isDone(dep))
-    const state: SliceState = done ? 'done' : hasBranch || ticks.some(Boolean) ? 'active' : waitingFor.length ? 'blocked' : 'ready'
-    const session = state === 'active' || starting.has(slice.nr) ? (sessions.get(slice.nr) ?? null) : null
+    // A session of this repository titled for the slice takes its slot in every pane, also before it has created its branch.
+    const found = sessions.get(slice.nr)
+    const isClaimed = !done && found?.isHere === true
+    const state: SliceState = done ? 'done' : hasBranch || isClaimed || ticks.some(Boolean) ? 'active' : waitingFor.length ? 'blocked' : 'ready'
+    const session = state === 'active' || starting.has(slice.nr) ? (found?.session ?? null) : null
     const startedAt = starting.get(slice.nr)
     if (startedAt !== undefined && (session || state !== 'ready' || now - startedAt > STARTING_MS)) starting.delete(slice.nr)
     rows.push({ nr: slice.nr, slug: slice.slug, name: slice.name, state, ticks, waitingFor, ahead, hasPlan, session, isStarting: starting.has(slice.nr) })
