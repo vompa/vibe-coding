@@ -7,10 +7,6 @@ export type SliceRow = {
   nr: string
   slug: string
   name: string
-  /** The slice's goal from work/_slices.json. */
-  goal: string
-  /** Its finding or AC ids, without the round. */
-  findings: string
   state: SliceState
   /** Ticks of the five checklist columns (Plan, Tests red, Green, Checks, Commit), from the slice's worktree when it has one. */
   ticks: boolean[]
@@ -28,6 +24,8 @@ export type Board = {
   integration: string
   rows: SliceRow[]
   updatedAt: number
+  /** The pause before the next refresh, longer while the machine is busy. */
+  refreshMs?: number
   problem: string | null
 }
 
@@ -37,8 +35,6 @@ declare module 'claude-code' {
       board: Board | null
       /** Which groups of the pane are unfolded. */
       expanded: Record<SliceState, boolean>
-      /** Slices whose details are open, by number. */
-      opened: Record<string, boolean>
       /** Whether this session asked for the pane. */
       isWanted: boolean
     }

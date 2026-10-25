@@ -1,11 +1,15 @@
 import { atom, read, update } from 'claude-code'
-import type { ClientProps, ElementConstructor, EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register } from 'claude-code'
 
 import type { Board, SliceRow, SliceSession, SliceState } from '../types'
 
 const PANE = 'slice-board'
 const TITLE = 'Slices'
+/** The refresh adapts to load: every 10 s, doubled up to 60 s while reading the round is slow, back again once it is fast. */
 const REFRESH_MS = 10_000
+const MAX_REFRESH_MS = 60_000
+const SLOW_MS = 1_500
+const FAST_MS = 500
 const SESSIONS_MS = 30_000
 const STEPS = ['Plan', 'Red', 'Green', 'Checks', 'Commit']
 const LIST_SESSIONS = 'mcp__ccd_session_mgmt__list_sessions'
@@ -23,7 +27,6 @@ const GROUPS: { state: SliceState; label: string; fill: string; cell: string }[]
 
 const board = atom({ plugin: 'slice-board', key: 'board' } as const, null)
 const expanded = atom({ plugin: 'slice-board', key: 'expanded' } as const, { done: false, active: true, ready: false, blocked: false })
-const opened = atom({ plugin: 'slice-board', key: 'opened' } as const, {})
 /** Whether this session asked for the pane; a reload of the plugin opens it again. */
 const isWanted = atom({ plugin: 'slice-board', key: 'isWanted' } as const, false)
 
@@ -45,11 +48,6 @@ type Slice = {
   name: string
   round: string
   deps: string
-  goal?: string
-  source?: string
-  scope?: string[]
-  not_building?: string[]
-  acceptance?: string[]
 }
 type SessionEntry = { sessionId?: string; title?: string; cwd?: string; link?: string; isRunning?: boolean; isArchived?: boolean }
 
@@ -185,8 +183,7 @@ async function collect($: EngineInterface, cwd: string): Promise<Board | null> {
     const isClaimed = !done && found?.isHere === true
     const state: SliceState = done ? 'done' : hasBranch || isClaimed || ticks.some(Boolean) ? 'active' : waitingFor.length ? 'blocked' : 'ready'
     const session = state === 'active' ? (found?.session ?? null) : null
-    const findings = (slice.source ?? '').replace(/^R\d+\s*[–-]\s*/, '')
-    rows.push({ nr: slice.nr, slug: slice.slug, name: slice.name, goal: slice.goal ?? '', findings, state, ticks, waitingFor, ahead, hasPlan, session })
+    rows.push({ nr: slice.nr, slug: slice.slug, name: slice.name, state, ticks, waitingFor, ahead, hasPlan, session })
   }
   return { root, round, integration, rows, updatedAt: now, problem: null }
 }
@@ -218,14 +215,42 @@ function announce($: EngineInterface, data: Board | null) {
   announced = { ready, approval }
 }
 
+/** Time between refreshes now, and whether one runs or waits: never two at once, none while the pane is closed. */
+let refreshMs = REFRESH_MS
+let isRefreshing = false
+let isPaneOpen = false
+let pending: ReturnType<EngineInterface['clock']['after']> | undefined
+
+/** The next pause from how long the last refresh took: a busy machine reads git and files slowly. */
+function nextRefreshMs(current: number, tookMs: number): number {
+  if (tookMs > SLOW_MS) return Math.min(MAX_REFRESH_MS, current * 2)
+  if (tookMs < FAST_MS) return Math.max(REFRESH_MS, current / 2)
+  return current
+}
+
 async function refresh($: EngineInterface, cwd: string) {
+  if (isRefreshing) return
+  isRefreshing = true
+  const startedAt = await $.clock.now()
   try {
     const next = await collect($, cwd)
+    refreshMs = nextRefreshMs(refreshMs, (await $.clock.now()) - startedAt)
     announce($, next)
-    await update($, board, () => next)
+    await update($, board, () => (next ? { ...next, refreshMs } : next))
   } catch (error) {
     $.ui.log(`slice-board: ${String(error)}`, { to: 'debug' })
+  } finally {
+    isRefreshing = false
   }
+}
+
+/** Waits the current pause, refreshes, and waits again, while the pane is open; closing the pane cancels the wait. */
+function scheduleRefresh($: EngineInterface) {
+  if (pending || !isPaneOpen) return
+  pending = $.clock.after(refreshMs, () => {
+    pending = undefined
+    if (isPaneOpen) void refresh($, paneCwd).then(() => scheduleRefresh($))
+  })
 }
 
 /** Brings a session to the front: the app's window tool where it answers, else the session's `claude://` link through the system. */
@@ -260,20 +285,17 @@ async function requestStart($: EngineInterface, round: string, rows: SliceRow[])
   $.ui.toast(isFilled ? 'Start request is in the prompt box: Enter sends it.' : 'The prompt box is busy: close the dialog and press Start again.')
 }
 
-/** The session's folder, and whether its refresh runs: only after the pane was asked for. */
+/** The session's folder; its refresh runs only after the pane was asked for. */
 let paneCwd = ''
-let isTicking = false
 
 /** Opens the pane in this session and starts its refresh; sessions that never ask run no git at all. */
 async function showPane($: EngineInterface) {
   paneCwd ||= await $.session.cwd()
   await update($, isWanted, () => true)
   sessionCache = { at: 0, entries: sessionCache.entries }
+  isPaneOpen = true
   await refresh($, paneCwd)
-  if (!isTicking) {
-    isTicking = true
-    $.clock.every(REFRESH_MS, () => void refresh($, paneCwd))
-  }
+  scheduleRefresh($)
   await $.ui.open({ id: PANE, title: TITLE })
 }
 
@@ -292,6 +314,16 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // A closed pane stops the refresh; /slices or a round command opens it again.
+  on('ui.close', async ($, e, next) => {
+    if (e.id === PANE) {
+      isPaneOpen = false
+      pending?.cancel()
+      pending = undefined
+    }
+    return next(e)
+  })
+
   on('command.run', { command: 'slices' }, async $ => {
     await showPane($)
     return { text: 'Slice pane opened.' }
@@ -300,14 +332,10 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const elements = $.ui.resolve(e)
     const { Box, Text, Button } = elements
-    // A Client draws the name with a delayed reveal of the details; VS Code and the phone have none and fall back to a click.
-    const Client = e.surface === 'desktop' || e.surface === 'terminal' ? (elements as { Client?: ElementConstructor<ClientProps> }).Client : undefined
     // Air between rows and groups on surfaces that draw in pixels; the terminal keeps one line per row.
     const air = e.surface === 'terminal' ? 0 : 1
     const data = await read($, board)
     const open = await read($, expanded)
-    const details = await read($, opened)
-    const width = Math.max(20, (e.props as { bodyColumns?: number }).bodyColumns ?? e.viewport?.columns ?? 60)
     if (!data) return <Text dimColor>No round here: work/_slices.json not found.</Text>
     if (data.problem) return <Text dimColor>{data.problem}</Text>
 
@@ -319,7 +347,6 @@ export const register: Register = on => {
     const startable = ready.slice(0, slots)
     const percentOf = (count: number) => `${Math.round((count / total) * 100)} %`
     const toggle = (state: SliceState) => update($, expanded, current => ({ ...current, [state]: !current[state] }))
-    const toggleDetails = (nr: string) => update($, opened, current => ({ ...current, [nr]: !current[nr] }))
     const start = (rows: SliceRow[]) => requestStart($, data.round, rows)
 
     /** Count and share, right-aligned in two fixed columns like the context pane's legend. */
@@ -361,33 +388,13 @@ export const register: Register = on => {
             {'←'} {row.waitingFor.join(', ')}
           </Text>
         ) : null
-      const isOpen = details[row.nr] === true
       const isDim = row.state === 'done' || row.state === 'blocked' || (row.state === 'ready' && !canStart)
-      const rightRoom = row.state === 'active' ? (step ?? '').length + 12 : row.state === 'ready' ? 10 : row.state === 'blocked' ? row.waitingFor.join(', ').length + 4 : 0
-      // A button draws its label unshortened: clip the name to the room the row leaves it.
-      const label = clip(`${row.nr} ${row.state === 'ready' ? row.name : row.slug}`, Math.max(8, width - 8 - rightRoom))
-      const marks = STEPS.map((name, index) => `${row.ticks[index] ? '✓' : index === row.ticks.findIndex(tick => !tick) ? '▸' : '·'} ${name}`).join('  ')
-      const nameOf = (nr: string) => data.rows.find(one => one.nr === nr)?.name ?? ''
-      const facts =
-        row.state === 'active'
-          ? [marks, now.label, `${row.ahead} commit${row.ahead === 1 ? '' : 's'}`, row.findings]
-          : row.state === 'blocked'
-            ? [`Waits for ${row.waitingFor.map(nr => `${nr} ${nameOf(nr)}`).join(', ')}`, row.findings]
-            : [row.findings]
-      const lines = [
-        ...(row.state !== 'ready' ? [{ text: row.name, tone: 'strong' as const }] : []),
-        ...(row.goal ? [{ text: row.goal, tone: 'dim' as const }] : []),
-        { text: facts.filter(Boolean).join(' · '), tone: 'subtle' as const },
-      ]
       const left = (
-        <Box alignItems="flex-start" gap={1}>
-          {row.state === 'active' && <Text color={now.color}>{'●'}</Text>}
-          {Client ? (
-            <Client key={`name-${row.nr}`} module="./name.tsx" props={{ label, isDim, lines }} flexGrow={1} />
-          ) : (
-            <Button key={`name-${row.nr}`} plain dimColor={isDim} label={label} onPress={() => toggleDetails(row.nr)} />
-          )}
-        </Box>
+        <Text wrap="truncate-end" dimColor={isDim}>
+          {row.state === 'active' && <Text color={now.color}>{'\u25cf'} </Text>}
+          <Text color="subtle">{row.nr} </Text>
+          {row.state === 'ready' ? row.name : row.slug}
+        </Text>
       )
       return (
         <Box key={`row-${row.nr}`} flexDirection="column" paddingLeft={4} hover={{ backgroundColor: 'rgba(127,127,127,0.08)' }}>
@@ -398,16 +405,6 @@ export const register: Register = on => {
             </Box>
             {right}
           </Box>
-          {/* Without a Client the details open with a click on the name: the whole name, the goal, and what the slice waits for or how far it is. */}
-          {!Client && isOpen && (
-            <Box flexDirection="column" paddingLeft={3} paddingBottom={air}>
-              {lines.map(line => (
-                <Text dimColor={line.tone === 'dim'} color={line.tone === 'subtle' ? 'subtle' : undefined}>
-                  {line.text}
-                </Text>
-              ))}
-            </Box>
-          )}
         </Box>
       )
     }
@@ -418,6 +415,7 @@ export const register: Register = on => {
           <Text>Round {data.round}</Text>
           <Text color="subtle">
             {done.length} / {data.rows.length} done
+            {(data.refreshMs ?? REFRESH_MS) > REFRESH_MS ? ` · busy, every ${Math.round((data.refreshMs ?? REFRESH_MS) / 1000)} s` : ''}
           </Text>
         </Box>
         <Box marginTop={1} marginBottom={1}>
