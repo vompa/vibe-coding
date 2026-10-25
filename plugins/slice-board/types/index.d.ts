@@ -20,8 +20,6 @@ export type SliceRow = {
   ahead: number
   hasPlan: boolean
   session: SliceSession | null
-  /** Started from the pane, its session not found yet. */
-  isStarting: boolean
 }
 
 export type Board = {

@@ -10,11 +10,8 @@ const SESSIONS_MS = 30_000
 const STEPS = ['Plan', 'Red', 'Green', 'Checks', 'Commit']
 const LIST_SESSIONS = 'mcp__ccd_session_mgmt__list_sessions'
 const OPEN_SESSION = 'mcp__ccd_window__open_session_in'
-const START_SESSION = 'mcp__ccd_session__start_session'
 /** Parallel builds and test suites turn each other red under load: at most this many slices in progress at once. */
 const MAX_PARALLEL = 4
-/** How long a slice started from the pane shows "starting" while its session is not listed yet. */
-const STARTING_MS = 5 * 60_000
 
 /** The groups of the pane in the order of the bar and the legend, with a fill for the desktop and a theme color for the terminal. */
 const GROUPS: { state: SliceState; label: string; fill: string; cell: string }[] = [
@@ -42,14 +39,11 @@ type Slice = {
 }
 type SessionEntry = { sessionId?: string; title?: string; cwd?: string; link?: string; isRunning?: boolean; isArchived?: boolean }
 
-/** Slices started from the pane, by number, with the time of the press. */
-const starting = new Map<string, number>()
 /** Ready slices and slices awaiting approval at the last refresh; a change is announced once. */
 let announced: { ready: Set<string>; approval: Set<string> } | null = null
 let sessionCache: { at: number; entries: SessionEntry[] } = { at: 0, entries: [] }
 
 const clip = (text: string, width: number) => (text.length > width ? `${text.slice(0, Math.max(1, width - 1))}…` : text)
-const numbered = (items: string[] | undefined) => (items ?? []).map((item, index) => `(${index + 1}) ${item}`).join(' ') || '–'
 const samePath = (a: string, b: string) => a.replace(/\\/g, '/').replace(/\/$/, '').toLowerCase() === b.replace(/\\/g, '/').replace(/\/$/, '').toLowerCase()
 
 async function git($: EngineInterface, cwd: string, args: string[]): Promise<string> {
@@ -123,7 +117,7 @@ function sessionsBySlice(entries: SessionEntry[], root: string): Map<string, { s
 
 /** Lists the app's sessions at most every 30 s (every refresh while a start is pending), and only where the permission check allows it without asking. */
 async function appSessions($: EngineInterface, now: number): Promise<SessionEntry[]> {
-  if (now - sessionCache.at < (starting.size ? REFRESH_MS : SESSIONS_MS)) return sessionCache.entries
+  if (now - sessionCache.at < SESSIONS_MS) return sessionCache.entries
   sessionCache = { at: now, entries: sessionCache.entries }
   try {
     const input = { limit: 50 }
@@ -176,11 +170,9 @@ async function collect($: EngineInterface, cwd: string): Promise<Board | null> {
     const found = sessions.get(slice.nr)
     const isClaimed = !done && found?.isHere === true
     const state: SliceState = done ? 'done' : hasBranch || isClaimed || ticks.some(Boolean) ? 'active' : waitingFor.length ? 'blocked' : 'ready'
-    const session = state === 'active' || starting.has(slice.nr) ? (found?.session ?? null) : null
-    const startedAt = starting.get(slice.nr)
-    if (startedAt !== undefined && (session || state !== 'ready' || now - startedAt > STARTING_MS)) starting.delete(slice.nr)
+    const session = state === 'active' ? (found?.session ?? null) : null
     const findings = (slice.source ?? '').replace(/^R\d+\s*[–-]\s*/, '')
-    rows.push({ nr: slice.nr, slug: slice.slug, name: slice.name, goal: slice.goal ?? '', findings, state, ticks, waitingFor, ahead, hasPlan, session, isStarting: starting.has(slice.nr) })
+    rows.push({ nr: slice.nr, slug: slice.slug, name: slice.name, goal: slice.goal ?? '', findings, state, ticks, waitingFor, ahead, hasPlan, session })
   }
   return { root, round, integration, rows, updatedAt: now, problem: null }
 }
@@ -237,56 +229,21 @@ async function openSession($: EngineInterface, session: SliceSession) {
   $.ui.toast(`Open "${session.title}" from the sidebar.`)
 }
 
-/** The start prompt of a slice session: the slice from work/_slices.json, the parallel rules, and work/session-hints.md when the repository has one. */
-function startPrompt(slice: Slice, round: string, hints: string | null): { prompt: string; background: string } {
-  const background =
-    `Round ${round} of this repository runs slice by slice (work/_slices.json, work/checklist.md, work/rounds/). ` +
-    `This session takes slice ${slice.nr} "${slice.name}" (${slice.source ?? slice.nr}); other slices run in parallel sessions, each in its own worktree.`
-  const prompt = [
-    `/slice ${slice.nr}`,
-    '',
-    `Slice ${slice.nr} "${slice.slug}": ${slice.goal ?? slice.name}`,
-    `Scope: ${numbered(slice.scope)}`,
-    `Not building: ${numbered(slice.not_building)}`,
-    `Acceptance: ${numbered(slice.acceptance)}`,
-    '',
-    'Work it exactly as .claude/commands/slice.md says, plan approval first. Other slices run in parallel sessions: touch only your own branch',
-    `slice-${slice.nr} and its worktree, never push; when you squash onto the integration branch, conflicts in work/checklist.md, the round record`,
-    'and the documents that change with a change are expected, and every tick and entry of both sides stays. End with the three lines of section 4.',
-    ...(hints ? ['', hints.trim()] : []),
-  ].join('\n')
-  return { prompt, background }
-}
-
-/** Starts one session per slice in the repository's main checkout; the press on the pane's button is the person's request. */
-async function startSlices($: EngineInterface, root: string, round: string, numbers: string[]) {
-  const slices = JSON.parse((await readText($, `${root}/work/_slices.json`)) ?? '[]') as Slice[]
-  const hints = await readText($, `${root}/work/session-hints.md`)
-  for (const nr of numbers) {
-    const slice = slices.find(one => one.nr === nr && one.round === round)
-    if (!slice || starting.has(nr)) continue
-    const { prompt, background } = startPrompt(slice, round, hints)
-    try {
-      const started = (await $.tool.call({
-        tool: START_SESSION,
-        initiation: 'user_asked',
-        title: clip(`Slice ${nr} – ${slice.name} (${round})`, 59),
-        name: `slice-${nr}`,
-        context: 'fresh',
-        use_worktree: false,
-        cwd: root,
-        prompt,
-        background,
-      })) as { deny?: string; isError?: boolean; text?: string }
-      if (started.deny || started.isError) {
-        $.ui.toast(`Slice ${nr} not started: ${clip(started.deny ?? started.text ?? 'refused', 80)}`)
-        continue
-      }
-      starting.set(nr, await $.clock.now())
-    } catch (error) {
-      $.ui.toast(`Slice ${nr} not started: ${clip(String(error), 80)}`)
-    }
-  }
+/**
+ * Puts a request into the person's prompt box to start one session per slice; Enter makes it their message and Claude
+ * starts the sessions with the session's own permission check. A start straight from the pane has no conversation
+ * behind it, and the auto mode classifier refuses it.
+ */
+async function requestStart($: EngineInterface, round: string, rows: SliceRow[]) {
+  const list = rows.map(row => `${row.nr} ${row.name}`).join('; ')
+  const text =
+    `Start one separate session per slice of round ${round} for: ${list}. ` +
+    `Each in this repository's main checkout without an app worktree, titled "Slice NN – <name> (${round})", ` +
+    `briefed with "/slice NN", the slice's goal, scope, not-building list and acceptance cases from work/_slices.json, ` +
+    `the parallel rules (own branch and worktree, keep both sides on squash conflicts, never push) and work/session-hints.md.`
+  const box = await $.prompt.read()
+  const { isFilled } = await $.prompt.fill(box.text.trim() ? { text: `\n${text}`, mode: 'append' } : { text })
+  $.ui.toast(isFilled ? 'Start request is in the prompt box: Enter sends it.' : 'The prompt box is busy: close the dialog and press Start again.')
 }
 
 export const register: Register = on => {
@@ -327,12 +284,12 @@ export const register: Register = on => {
     const rowsOf = (state: SliceState) => data.rows.filter(row => row.state === state)
     const done = rowsOf('done')
     const ready = rowsOf('ready')
-    const slots = Math.max(0, MAX_PARALLEL - rowsOf('active').length - ready.filter(row => row.isStarting).length)
-    const startable = ready.filter(row => !row.isStarting).slice(0, slots)
+    const slots = Math.max(0, MAX_PARALLEL - rowsOf('active').length)
+    const startable = ready.slice(0, slots)
     const percentOf = (count: number) => `${Math.round((count / total) * 100)} %`
     const toggle = (state: SliceState) => update($, expanded, current => ({ ...current, [state]: !current[state] }))
     const toggleDetails = (nr: string) => update($, opened, current => ({ ...current, [nr]: !current[nr] }))
-    const start = (numbers: string[]) => startSlices($, data.root, data.round, numbers).then(() => refresh($, cwd))
+    const start = (rows: SliceRow[]) => requestStart($, data.round, rows)
 
     /** Count and share, right-aligned in two fixed columns like the context pane's legend. */
     const columns = (count: number) => (
@@ -355,7 +312,7 @@ export const register: Register = on => {
       const now = phase(row)
       const step = row.ticks.every(Boolean) ? 'merge' : STEPS[row.ticks.findIndex(tick => !tick)]
       // Every ready slice can be started while a slot is free; the person picks which.
-      const canStart = row.state === 'ready' && !row.isStarting && slots > 0
+      const canStart = row.state === 'ready' && slots > 0
       const right =
         row.state === 'active' ? (
           <Box flexShrink={0} alignItems="center" gap={1}>
@@ -366,11 +323,7 @@ export const register: Register = on => {
           </Box>
         ) : row.state === 'ready' ? (
           <Box flexShrink={0}>
-            {row.isStarting ? (
-              <Text color="claude">starting</Text>
-            ) : canStart ? (
-              <Button key={`start-${row.nr}`} plain label={'▶'} onPress={() => start([row.nr])} />
-            ) : null}
+            {canStart && <Button key={`start-${row.nr}`} plain label={'▶'} onPress={() => start([row])} />}
           </Box>
         ) : row.state === 'blocked' ? (
           <Text color="subtle">
@@ -378,7 +331,7 @@ export const register: Register = on => {
           </Text>
         ) : null
       const isOpen = details[row.nr] === true
-      const isDim = row.state === 'done' || row.state === 'blocked' || (row.state === 'ready' && !canStart && !row.isStarting)
+      const isDim = row.state === 'done' || row.state === 'blocked' || (row.state === 'ready' && !canStart)
       const rightRoom = row.state === 'active' ? (step ?? '').length + 12 : row.state === 'ready' ? 10 : row.state === 'blocked' ? row.waitingFor.join(', ').length + 4 : 0
       // A button draws its label unshortened: clip the name to the room the row leaves it.
       const label = clip(`${row.nr} ${row.state === 'ready' ? row.name : row.slug}`, Math.max(8, width - 8 - rightRoom))
@@ -453,7 +406,7 @@ export const register: Register = on => {
         {ready.length > 0 && (
           <Box justifyContent="space-between" alignItems="center" marginBottom={1}>
             <Text color="subtle">{slots > 0 ? `${slots} of ${MAX_PARALLEL} slots free` : `All ${MAX_PARALLEL} slots in use`}</Text>
-            {startable.length > 0 && <Button key="start-ready" label={`Start ${startable.length}`} onPress={() => start(startable.map(row => row.nr))} />}
+            {startable.length > 0 && <Button key="start-ready" label={`Start ${startable.length}`} onPress={() => start(startable)} />}
           </Box>
         )}
 

@@ -78,19 +78,23 @@ async function startBoard($: Board$, on: BoardOn, appSessions: typeof sessions, 
     result: [{ type: 'text', text: JSON.stringify(appSessions) }],
     text: JSON.stringify(appSessions),
   }))
-  const startedSessions: { title?: string; prompt?: string; use_worktree?: boolean }[] = []
-  on('tool.call', { tool: 'mcp__ccd_session__start_session' }, (_, e) => {
-    startedSessions.push(e as (typeof startedSessions)[number])
-    return { result: [{ type: 'text', text: 'Started.' }], text: 'Started.' }
+  // The prompt box: what the person has typed, and what the pane writes into it.
+  const box = { text: '' }
+  on('prompt.read', () => ({ value: { text: box.text, cursor: box.text.length } }))
+  const filled: { text: string; mode?: string }[] = []
+  on('prompt.fill', (_, e) => {
+    filled.push({ text: e.text, mode: e.mode })
+    box.text = e.mode === 'append' ? box.text + e.text : e.text
+    return { isFilled: true }
   })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
 
   await $.session.start({ cwd: ROOT, surface: 'desktop', isInteractive: true })
-  return { gitCalls, shown, startedSessions }
+  return { gitCalls, shown, filled, box }
 }
 
 test('the pane shows the round as a legend with groups, opens a session and starts the ready slices', async ($, on) => {
-  const { gitCalls, shown, startedSessions } = await startBoard($, on, sessions)
+  const { gitCalls, shown, filled, box } = await startBoard($, on, sessions)
   // One listing of the slice branches per refresh, not one call per slice.
   expect(gitCalls.filter(args => args.startsWith('branch --list')).length).toBe(1)
 
@@ -124,13 +128,17 @@ test('the pane shows the round as a legend with groups, opens a session and star
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect((await ui.find({ type: 'Text', text: /slots free/ }))?.text).toBe('3 of 4 slots free')
+  // Start writes a request into the prompt box instead of starting sessions itself; Enter makes it the person's message.
   await ui.press({ key: 'start-ready' })
-  expect(startedSessions.map(one => one.title)).toEqual(['Slice 02 – B ready (R01)'])
-  expect(startedSessions[0]?.prompt?.startsWith('/slice 02\n')).toBe(true)
-  expect(startedSessions[0]).toMatchObject({ use_worktree: false })
+  expect(filled).toHaveLength(1)
+  expect(box.text).toMatch(/^Start one separate session per slice of round R01 for: 02 B ready\. /)
+  expect(box.text).toContain('work/session-hints.md')
+  // A draft the person typed stays; the request comes after it.
+  box.text = 'my draft'
   await ui.press({ key: 'toggle-ready' })
-  expect((await ui.find({ type: 'Text', text: /^starting$/ }))?.text).toBe('starting')
-  expect(await ui.find({ type: 'Button', text: /Start/ })).toBeUndefined()
+  await ui.press({ key: 'start-02' })
+  expect(filled[1]?.mode).toBe('append')
+  expect(box.text.startsWith('my draft\nStart one separate session')).toBe(true)
   await ui.unmount()
 })
 
