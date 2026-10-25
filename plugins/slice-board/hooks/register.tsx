@@ -347,7 +347,8 @@ export const register: Register = on => {
     const sliceRow = (row: SliceRow) => {
       const now = phase(row)
       const step = row.ticks.every(Boolean) ? 'merge' : STEPS[row.ticks.findIndex(tick => !tick)]
-      const canStart = startable.some(one => one.nr === row.nr)
+      // Every ready slice can be started while a slot is free; the person picks which.
+      const canStart = row.state === 'ready' && !row.isStarting && slots > 0
       const left =
         row.state === 'active' ? (
           <Text wrap="truncate-end">
@@ -420,7 +421,7 @@ export const register: Register = on => {
             <Box key={`group-${group.state}`} flexDirection="column" marginTop={air} gap={air}>
               <Box justifyContent="space-between" alignItems="center">
                 <Box alignItems="center" gap={1}>
-                  <Text color={group.cell}>{'■'}</Text>
+                  <Text color={e.surface === 'terminal' ? group.cell : group.fill}>{'■'}</Text>
                   <Button key={`toggle-${group.state}`} plain label={`${isOpen ? '▾' : '›'} ${group.label}`} onPress={() => toggle(group.state)} />
                 </Box>
                 {columns(rows.length)}
