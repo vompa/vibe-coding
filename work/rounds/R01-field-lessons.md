@@ -38,11 +38,23 @@ Ruling: conventions and slice map taken as proposed; slice 08 (slice-board start
 [Assumption] The merge queue and its resolution rules live in each loop script (bash and PowerShell, functionally identical); no third runtime or helper file is copied into target repositories.
 [Assumption] `work/session-hints.md` is written in this round already (F-04 anticipates it) so the slice sessions of this round get the repository's own hints.
 [Assumption] The round's source stays in chat; the intake table summarises it without naming the target repository (this repository is public).
+Ruling: slice 01 plan approved with its six assumptions as recommended (recipe by hand, both section 3 branches, privacy scan by hand, CHANGELOG 1.2.0 started, no README change, loop test as a check) – User, 2026-10-25
 
 ## Surprises
+- `CLAUDE.md` does not exist at the repository root, although the slice command names it. The rules came from `work/conventions.md` and the workspace note; nothing changed for that.
+- The first run of the tests after the command edits failed on one case mismatch: the test looked for "the squash always runs" while the command says "The squash always runs". The test was corrected to the command's wording; it had been red before the edit and was not weakened.
+- The Bash tool turns a doubled backslash in an inline Python command into one; the privacy scan was written with `chr(92)` instead (already in the pitfall list).
 
 ## Deferred minors
+- A scan test over `work/` in `tests/markers_test.py` (conventions: extend when round files change) is a follow-up; this slice's acceptance cases name phrase tests only, and the scan ran by hand.
+- The privacy regex line of `tests/markers_test.py` (line 51) matches its own pattern in a manual scan of `tests/`; expected, not a leak.
 
 ## Open decisions
 
 ## Manual test list    (drafted per slice, completed at round close; format: round-close.md)
+### Slice 01 – Command sweep: worktree recipe, conflict checklist, red under load, commit -F
+Start: `python tests/markers_test.py`
+1. Read sections 3 and 4 of `plugins/vibe-coding/skills/vibe-coding/references/slice-command.md` in one pass.
+Expected: the new paragraphs (worktree recipe, squash checklist, load and pipe rules, `git commit -F`) each fit their section, and none contradicts section 7 or the auto-mode rules.
+Closes: F-02, F-03, F-06, F-08
+Result: ☐

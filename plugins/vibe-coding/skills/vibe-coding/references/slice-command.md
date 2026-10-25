@@ -53,17 +53,19 @@ A branch slice-NN or a worktree for it may exist already (normal after a red sli
 continue on it, never create a second one and never delete or reset it silently. Re-read its plan in
 work/plans/ (and the superpowers ledger, if there is one) and the round record, and resume where they say.
 If the superpowers skills are available and "direct" is not in the arguments:
-1. superpowers:using-git-worktrees – worktree on a new branch "slice-NN" cut from the integration branch
+1. worktree recipe: `git worktree add .claude/worktrees/slice-NN -b slice-NN <integration branch>`, then enter
+   that folder; `.claude/worktrees/` goes into `.git/info/exclude` once. Use superpowers:using-git-worktrees
+   only where it follows this recipe. The squash always runs in the main checkout.
 2. superpowers:writing-plans – save the plan as work/plans/<YYYY-MM-DD>-slice-NN.md with a section
    "Assumptions (confirm on approval)" and a "Review focus"; mirror the slice's patterns, leave out
    its NOT-building list, and name the failing test for every acceptance case (the test name
    carries the Given/When/Then). Review the plan and show it to me before writing any code.
 3. after my approval: superpowers:subagent-driven-development (superpowers:executing-plans without
    subagents) – tests first (red), then the minimum to get green, every rule in CLAUDE.md and
-   work/conventions.md; task commits on slice-NN are fine
+   work/conventions.md; task commits on slice-NN are fine, each passed with `git commit -F <file>` (section 4)
 
 Otherwise (no superpowers, or "direct"):
-1. new branch "slice-NN" cut from the integration branch
+1. the worktree recipe above (new branch "slice-NN" in its own worktree)
 2. follow the prompt in the slice file: present the plan (files, classes, tests, assumptions, review
    focus), save it as work/plans/<YYYY-MM-DD>-slice-NN.md and wait for my approval
 3. failing tests first, then the minimum to get green, then refactor
@@ -94,6 +96,9 @@ Long reports of subagents go to work/_raw/ (git-ignored), not into the chat.
 Do 1–4 on slice-NN, so they land in the same commit as the code.
 1. Run the checks that work/conventions.md names for a slice; check the Definition of Done in the
    slice file, including "no test weakened or skipped" and "no new package without approval".
+   A red test that is green when run alone or in a second unchanged run is load, not a regression: note it
+   under Surprises and go on. Check commands never end in `| tail` or another pipe inside an `&&` chain:
+   the pipe hides the exit code, so write the output to a file and read its exit code.
 2. Append to the round record: under Decisions the "Ruling: <decision> – User, <date>" lines (my
    answers and changes), under Surprises what the plan did not foresee, under Deferred minors what
    you left out on purpose; under Manual test list a draft of the slice's manual check items.
@@ -107,12 +112,19 @@ Do 1–4 on slice-NN, so they land in the same commit as the code.
    before the squash commit, so the finished row lands in it. No ☐ may be left in the row: a column
    that does not apply is ticked too, with the reason under Decisions (see section 3).
 5. Commit these edits on slice-NN (task commit) before merging; uncommitted edits are lost and the
-   loop stops with "reported done but not ticked".
+   loop stops with "reported done but not ticked". Pass the message with `git commit -F <file>` (a file or
+   a heredoc), never inline: Git Bash rewrites a leading `/` into a path.
 6. Integrate: superpowers:finishing-a-development-branch (or by hand) – ONE squash commit on the
-   integration branch named in work/conventions.md (`git merge --squash slice-NN`), message in the
-   commit language and style of work/conventions.md naming the slice and its finding or AC ids;
-   never push. Run the merge in the checkout of the integration branch so its work/checklist.md shows
-   the tick. If the branch moved or the merge conflicts in work/checklist.md or the round record,
+   integration branch named in work/conventions.md. Before the squash, in this order:
+   a. merge the integration branch into slice-NN;
+   b. in the main checkout, `git merge --squash slice-NN`;
+   c. check the resolved files before committing: `grep '^<<<<<<<'` finds nothing, every line of both sides
+      (`git show HEAD:<file>` and `git show slice-NN:<file>`) is still present, and the number of `Result:`
+      lines equals ours plus theirs minus the merge base;
+   d. commit in a separate command with `git commit -F <file>`, the message in the commit language and style
+      of work/conventions.md, naming the slice and its finding or AC ids; resolving and committing never run
+      in one command. Never push. Run the merge in the checkout of the integration branch so its
+      work/checklist.md shows the tick. If the branch moved or the merge conflicts in work/checklist.md or the round record,
    keep every tick and entry from both sides. In auto mode take this option without asking, then
    remove the merged slice-NN branch and its own worktree, nothing else.
 7. Two or more slices are ready now: offer parallel sessions for them (section 7) before the lines below.

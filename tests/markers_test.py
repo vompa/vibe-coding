@@ -50,6 +50,36 @@ def test_no_personal_or_absolute_paths():
             t = p.read_text(encoding="utf-8", errors="ignore")
             assert not re.search(r"[A-Za-z]:\\Users|/home/|/Users/|@gmail", t), p
 
+def _section(start, end=None):
+    """The command text between two headings, whitespace normalised (the command is hard-wrapped)."""
+    text = (SKILL / "references/slice-command.md").read_text(encoding="utf-8")
+    body = text.split(start, 1)[1]
+    if end: body = body.split(end, 1)[0]
+    return " ".join(body.split())
+
+def test_worktree_recipe_is_prescribed_in_section_3():
+    section = _section("## 3. Plan and build the slice", "## 4. Close the slice")
+    assert "git worktree add .claude/worktrees/slice-NN -b slice-NN <integration branch>" in section
+    assert ".git/info/exclude" in section and "only where it follows this recipe" in section
+    assert "The squash always runs in the main checkout" in section
+
+def test_squash_checklist_runs_in_order_in_section_4():
+    section = _section("## 4. Close the slice", "## 5. Close the round")
+    steps = ["merge the integration branch into slice-NN", "git merge --squash slice-NN", "<<<<<<<", "every line of both sides", "Result:", "never run in one command"]
+    for step in steps: assert step in section, step
+    positions = [section.index(step) for step in steps]
+    assert positions == sorted(positions), "the squash checklist runs out of order"
+
+def test_red_under_load_is_load_and_pipes_hide_exit_codes():
+    section = _section("## 4. Close the slice", "## 5. Close the round")
+    assert "green when run alone" in section and "is load, not a regression" in section and "Surprises" in section
+    assert "`| tail`" in section and "&&" in section and "exit code" in section
+
+def test_commit_messages_are_passed_with_commit_f():
+    assert "git commit -F <file>" in _section("## 3. Plan and build the slice", "## 4. Close the slice")
+    section = _section("## 4. Close the slice", "## 5. Close the round")
+    assert "git commit -F <file>" in section and "never inline" in section
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"): fn(); print("ok  ", name)
