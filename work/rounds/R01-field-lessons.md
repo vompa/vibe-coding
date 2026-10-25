@@ -41,6 +41,7 @@ Ruling: conventions and slice map taken as proposed; slice 08 (slice-board start
 Ruling: slice 01 plan approved with its six assumptions as recommended (recipe by hand, both section 3 branches, privacy scan by hand, CHANGELOG 1.2.0 started, no README change, loop test as a check) – User, 2026-10-25
 Ruling: slice 09 plan approved with its six assumptions as recommended (rule block in section 3, review axes and ADR filter in section 4, step 6a gains the re-check after the merge without naming SLICE-READY, budget pinned as at most 220 lines and at most 16 "never", privacy scan by hand, CHANGELOG bullet, no README change) – User, 2026-10-25
 Ruling: slice 02 plan approved with its nine assumptions as recommended (hints template after the conventions template, creation and appending in SKILL.md section 2, read line and parallel-prompt clause in the command, check scope split on the `Checks for a slice` line, findings marking in SKILL.md section 3 plus the command, command budget kept at 220 lines and 16 "never", phrase tests, README tree line, CHANGELOG bullet with a manual privacy scan) – User, 2026-10-25
+Ruling: slice 03 plan approved with all nine assumptions (hint `[auto | parallel]`, step 5 stops with the message file and SLICE-READY, loop scripts untouched until slice 05, section 6 meaning, parallel prompts, "ready to merge" in status, budget, phrase tests) – User, 2026-10-25 (via the orchestrating session)
 
 ## Surprises
 - `CLAUDE.md` does not exist at the repository root, although the slice command names it. The rules came from `work/conventions.md` and the workspace note; nothing changed for that.
@@ -51,10 +52,11 @@ Ruling: slice 02 plan approved with its nine assumptions as recommended (hints t
 - Slice 02: `claude plugin validate --strict .` (marketplace) fails on the integration branch already, before any edit: `plugins[2]` (slice-board) has no `version` in its `plugin.json`, and `--strict` treats the warning as an error. Not caused by this slice (it touches no manifest); the conventions list this command among the checks when `SKILL.md` changes, so the failure is recorded here. Plugin-level `claude plugin validate --strict plugins/vibe-coding` is green.
 - Slice 02: the command grew by 3 lines (211 → 214), "never" count unchanged; no limit had to move. The five new tests were red first for the intended reasons (missing sections and phrases) and green after the edits.
 - Slice 02: the repository's own `work/session-hints.md` was written in this round before the template existed (F-04 anticipated it); the template now matches its shape (title, purpose paragraph, bullets), the file itself is unchanged.
+- Slice 03: the command grew by 6 lines (214 → 220), not the 8 the plan estimated, so assumption 8 (raise the size limit to 230) was not needed: the guard stays at 220 lines and 16 "never". The six new tests were red first for the intended reasons; the two changed assertions (`MARKERS`, the argument hint) follow the contract. The step for the squash message sits at the end of step 5 (as a paragraph, not a new numbered step) so the numbering of 6a to 6d stays as other documents cite it.
 
 ## Deferred minors
 - Slice 02: the marketplace validation warning (slice-board without `version`) is not fixed here; slice 07 (release) is the natural place, or a separate fix to the slice-board manifest.
-- Slice 03 adds `SLICE-READY` to step 6a ("run the checks again after the merge, before the squash or SLICE-READY"); slice 09 leaves the marker out because it does not exist yet.
+- Slice 03: the loop scripts do not read `SLICE-READY` yet (slice 05); until then a loop run with `auto` ends at the new marker and is reported as stopped. `SLICE-DONE:` stays defined for runs without `auto` and `parallel`.
 - A scan test over `work/` in `tests/markers_test.py` (conventions: extend when round files change) is a follow-up; this slice's acceptance cases name phrase tests only, and the scan ran by hand.
 - The privacy regex line of `tests/markers_test.py` (line 51) matches its own pattern in a manual scan of `tests/`; expected, not a leak.
 
@@ -80,4 +82,11 @@ Start: `python tests/markers_test.py`
 1. Read sections 2, 3 and 6 of `plugins/vibe-coding/skills/vibe-coding/SKILL.md` in one pass.
 Expected: the session-hints, check-scope and findings-marking sentences fit the phase table and the write list, and nothing is said twice.
 Closes: F-04, F-05, F-07
+Result: ☐
+
+### Slice 03 – SLICE-READY marker and the parallel argument
+Start: `claude --plugin-dir plugins/vibe-coding` in a scratch repository with the command copied to `.claude/commands/slice.md`
+1. Run `/slice NN parallel` for a ready slice and approve its plan.
+Expected: the session ends with the line `SLICE-READY: NN`; the branch `slice-NN` is committed, `.slice-loop/slice-NN.msg` exists in the main checkout, the Commit column stays ☐ and the integration branch did not move.
+Closes: F-01 (marker), F-08
 Result: ☐

@@ -1,6 +1,6 @@
 ---
 description: Work the current round slice by slice – next slice, a given slice, status, or close the round
-argument-hint: "[status | NN | close] [plan] [auto] [direct]"
+argument-hint: "[status | NN | close] [plan] [auto | parallel] [direct]"
 ---
 You work the open round of this repository slice by slice. Arguments: "$ARGUMENTS".
 Answer me in the language of CLAUDE.md or README.md.
@@ -18,8 +18,9 @@ work/_slices.json. A slice is done when its row in work/checklist.md has a ☑ a
   first"; with "close": "ROUND-OPEN: Rnn more than one round is open").
 - "status" → read work/checklist.md, work/_slices.json and the git branches named slice-*.
   Show one table for the slices of the open round: slice, name, model (field "model" in
-  work/_slices.json), state (done / in progress / ready / blocked by …; "in progress" = not done,
-  but a branch slice-NN exists or the row has a ☑),
+  work/_slices.json), state (done / in progress / ready to merge / ready / blocked by …; "in progress" = not done,
+  but a branch slice-NN exists or the row has a ☑; "ready to merge" = a branch slice-NN whose row is ticked
+  through Checks),
   then the number of open decisions in the round record and one line "Ready next: …". Two or more
   ready: offer parallel sessions (section 7). Stop there.
 - "close" → section 5.
@@ -133,9 +134,13 @@ Do 1–4 on slice-NN, so they land in the same commit as the code.
 5. Commit these edits on slice-NN (task commit) before merging; uncommitted edits are lost and the
    loop stops with "reported done but not ticked". Pass the message with `git commit -F <file>` (a file or
    a heredoc), never inline: Git Bash rewrites a leading `/` into a path.
+   With `auto` or `parallel`, do 6a, then stop here: write the squash message (commit language and style of
+   work/conventions.md, naming the slice and its ids) to .slice-loop/slice-NN.msg in the main checkout (the parent
+   of `git rev-parse --git-common-dir`), do not merge, leave Commit at ☐ and end with the last line
+   SLICE-READY: NN; the merge queue does the squash. without both arguments go on with step 6.
 6. Integrate: superpowers:finishing-a-development-branch (or by hand) – ONE squash commit on the
    integration branch named in work/conventions.md. Before the squash, in this order:
-   a. merge the integration branch into slice-NN and run the checks again after the merge;
+   a. merge the integration branch into slice-NN and run the checks again after the merge, before the squash or SLICE-READY;
    b. in the main checkout, `git merge --squash slice-NN`;
    c. check the resolved files before committing: `grep '^<<<<<<<'` finds nothing, every line of both sides
       (`git show HEAD:<file>` and `git show slice-NN:<file>`) is still present, and the number of `Result:`
@@ -188,6 +193,7 @@ from the first column, exactly as written – no bullet, quote or code format, n
 - "PLAN: <path of the plan file>" – last line of a "plan" run
 - "NEEDS-DECISION: <question>" – one per open point, before the PLAN line
 - "SLICE-DONE: NN" – the slice is green, ticked and on the integration branch
+- "SLICE-READY: NN" – branch committed, checklist ticked through Checks, squash message written; waits for the merge queue
 - "SLICE-OPEN: NN <reason>" – anything else that stops the slice
 - "ALL-DONE" – every slice of the round is done, the round is still open
 - "ROUND-DONE: Rnn" – the round is closed
@@ -206,9 +212,9 @@ unasked and once per run; never in auto mode (the loop script starts the next ru
   "model" of its entry in work/_slices.json goes into that tool's model parameter, never the model of
   this session. Without such a tool, print one ready-to-paste prompt per slice instead, each headed
   by the command line that starts it: `claude --model <model of the slice>`.
-- Each prompt carries: "/slice NN"; the round, the slice's name, model, goal, scope, not-building list
+- Each prompt carries: "/slice NN parallel"; the round, the slice's name, model, goal, scope, not-building list
   and acceptance cases from work/_slices.json; that other slices run in parallel sessions, so the merge
   in section 4 may conflict in work/checklist.md, the round record and the documents that change with
-  a change, and every tick and entry of both sides stays; that it reads work/session-hints.md when it exists; that it touches only its own branch and
-  worktree, never pushes, and ends with the three lines of section 4.
+  a change, and every tick and entry of both sides stays; that the squash happens in the main checkout through the merge queue (`slice-loop --merge`) or the running loop; that it reads work/session-hints.md when it exists; that it touches only its own branch and
+  worktree, never pushes, and ends with SLICE-READY: NN.
 - Never two sessions on one slice: a slice with a branch slice-NN is in progress, not ready.

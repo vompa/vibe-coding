@@ -2,12 +2,12 @@
 import pathlib, re
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SKILL = ROOT / "plugins/vibe-coding/skills/vibe-coding"
-MARKERS = ["PLAN:", "NEEDS-DECISION:", "SLICE-DONE:", "SLICE-OPEN:", "ALL-DONE", "ROUND-DONE:", "ROUND-OPEN:"]
+MARKERS = ["PLAN:", "NEEDS-DECISION:", "SLICE-DONE:", "SLICE-OPEN:", "ALL-DONE", "ROUND-DONE:", "ROUND-OPEN:", "SLICE-READY:"]
 
 def test_command_defines_every_marker():
     text = (SKILL / "references/slice-command.md").read_text(encoding="utf-8")
     for m in MARKERS: assert m in text, m
-    assert 'argument-hint: "[status | NN | close] [plan] [auto] [direct]"' in text
+    assert 'argument-hint: "[status | NN | close] [plan] [auto | parallel] [direct]"' in text
     assert "work/conventions.md" in text and "git merge --squash" in text and "never push" in text.lower()
 
 def test_command_offers_parallel_sessions_outside_auto():
@@ -167,6 +167,34 @@ def test_tracked_findings_file_is_marked_by_each_slice():
     assert "marking format" in _skill_part("references/templates.md", "## Source", "## Brief")
     close = _section(*SECTION_4)
     assert "tracked findings file" in close and "done in slice NN" in close and "before the squash" in close
+
+SECTION_1 = ("## 1. Decide what to do", "## 2. Read first")
+SECTION_6 = ("## 6. Marker lines", "## 7. Parallel slices")
+
+def test_parallel_or_auto_run_stops_before_the_squash():
+    section = _section(*SECTION_4)
+    for phrase in ("`auto` or `parallel`", ".slice-loop/slice-NN.msg", "git rev-parse --git-common-dir",
+                   "do not merge", "Commit at ☐", "SLICE-READY: NN", "without both arguments"):
+        assert phrase in section, phrase
+    assert section.index("Pass the message with `git commit -F <file>`") < section.index(".slice-loop/slice-NN.msg") < section.index("6. Integrate")
+
+def test_slice_ready_is_a_marker_with_its_meaning():
+    section = _section(*SECTION_6)
+    assert "SLICE-READY: NN" in section
+    assert "branch committed, checklist ticked through Checks, squash message written; waits for the merge queue" in section
+
+def test_parallel_prompts_start_with_parallel_and_name_the_queue():
+    section = _section("## 7. Parallel slices")
+    for phrase in ('"/slice NN parallel"', "merge queue", "slice-loop --merge", "main checkout", "ends with SLICE-READY: NN"):
+        assert phrase in section, phrase
+
+def test_status_shows_ready_to_merge():
+    section = _section(*SECTION_1)
+    assert "ready to merge" in section and "ticked through Checks" in section
+
+def test_step_6a_names_slice_ready():
+    section = _section(*SECTION_4)
+    assert "before the squash or SLICE-READY" in section
 
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
