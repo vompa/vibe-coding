@@ -2,7 +2,6 @@ import type { ClientModule } from 'claude-code'
 
 /** How long the pointer rests on a name before its details appear, like a tooltip of the app. */
 const DELAY_MS = 600
-const TICK_MS = 100
 
 export type NameLine = { text: string; tone: 'strong' | 'dim' | 'subtle' }
 export type NameProps = { label: string; isDim: boolean; lines: NameLine[] }
@@ -18,17 +17,28 @@ const SliceName: ClientModule<NameProps, NameState> = (props, surface) => {
   const { Box, Text } = surface.elements
   if (surface.state === undefined) {
     const now = () => surface.state ?? resting
+    // The timer runs only while the pointer rests on this name and stops once the details show: a list of names with a
+    // timer each, ticking all the time, kept a busy surface from drawing them at all.
+    let stopWaiting: (() => void) | null = null
+    const stop = () => {
+      stopWaiting?.()
+      stopWaiting = null
+    }
     surface.onPointer(event => {
       const state = now()
-      if (event.type === 'enter') surface.setState({ ...state, isOver: true, waited: 0 })
-      else if (event.type === 'leave') surface.setState({ ...state, isOver: false, waited: 0, isShown: false })
-      else if (event.type === 'down' && event.button === 'left') surface.setState({ ...state, isPinned: !state.isPinned })
-    })
-    surface.every(TICK_MS, () => {
-      const state = now()
-      if (!state.isOver || state.isShown) return
-      const waited = state.waited + TICK_MS
-      surface.setState({ ...state, waited, isShown: waited >= DELAY_MS })
+      if (event.type === 'enter') {
+        stop()
+        surface.setState({ ...state, isOver: true, waited: 0 })
+        stopWaiting = surface.every(DELAY_MS, () => {
+          stop()
+          surface.setState({ ...now(), waited: DELAY_MS, isShown: true })
+        })
+      } else if (event.type === 'leave') {
+        stop()
+        surface.setState({ ...state, isOver: false, waited: 0, isShown: false })
+      } else if (event.type === 'down' && event.button === 'left') {
+        surface.setState({ ...state, isPinned: !state.isPinned })
+      }
     })
     surface.setState(resting)
   }

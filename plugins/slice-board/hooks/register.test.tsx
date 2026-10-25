@@ -103,7 +103,7 @@ async function startBoard($: Board$, on: BoardOn, appSessions: typeof sessions, 
 }
 
 test('the pane shows the round as a legend with groups, opens a session and starts the ready slices', async ($, on) => {
-  const { gitCalls, shown, filled, box } = await startBoard($, on, sessions)
+  const { gitCalls, shown } = await startBoard($, on, sessions)
   // One listing of the slice branches per refresh, not one call per slice.
   expect(gitCalls.filter(args => args.startsWith('branch --list')).length).toBe(1)
 
@@ -135,6 +135,10 @@ test('the pane shows the round as a legend with groups, opens a session and star
     await ui.unmount()
   }
 
+})
+
+test('Start writes a request into the prompt box, after any draft the person typed', async ($, on) => {
+  const { filled, box } = await startBoard($, on, sessions, Date.UTC(2026, 9, 25, 16, 0, 0))
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect((await ui.find({ type: 'Text', text: /slots free/ }))?.text).toBe('3 of 4 slots free')
   // Start writes a request into the prompt box instead of starting sessions itself; Enter makes it the person's message.
