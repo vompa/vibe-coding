@@ -146,8 +146,9 @@ test('Start writes a request into the prompt box, after any draft the person typ
   expect(filled).toHaveLength(1)
   expect(box.text).toMatch(/^Start one separate session per slice of round R01 for: 02 B ready\. /)
   expect(box.text).toContain('work/session-hints.md')
-  // Parallel sessions end with SLICE-READY; the merge queue in the main checkout does the squash.
-  expect(box.text).toContain('"/slice NN parallel"')
+  // Parallel sessions run on their own (auto: the plan's assumptions, no approval round) and end with SLICE-READY;
+  // the merge queue in the main checkout does the squash.
+  expect(box.text).toContain('"/slice NN parallel auto"')
   expect(box.text).toContain('SLICE-READY: NN')
   expect(box.text).toContain('slice-loop --merge')
   // A draft the person typed stays; the request comes after it.
