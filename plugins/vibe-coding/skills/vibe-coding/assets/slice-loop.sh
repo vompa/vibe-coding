@@ -120,9 +120,24 @@ worktree_of() {
 }
 
 # Removes the squashed branch slice-$1 and its worktree; a worktree git will not remove is reported and kept with its branch.
+# Removes every symlink and junction inside worktree $1, never what it points to: on Windows git follows a
+# junction (for example node_modules linked onto the main checkout) when it removes the worktree and empties its target.
+unlink_links() {
+  local link
+  while IFS= read -r link; do
+    if [[ -d "$link" ]] && command -v cygpath >/dev/null 2>&1; then
+      # Plain /c: this script turns off Git Bash path conversion, so //c would reach cmd as it is.
+      cmd /c rmdir "$(cygpath -w "$link")" >/dev/null
+    else
+      rm -f "$link"
+    fi
+  done < <(find "$1" -type l 2>/dev/null)
+}
+
 remove_slice_branch() {
   local branch="slice-$1" path
   path=$(worktree_of "$branch")
+  if [[ -n "$path" ]]; then unlink_links "$path"; fi
   if [[ -n "$path" ]] && ! git worktree remove "$path" >/dev/null 2>&1; then
     echo "[slice $1] worktree $path could not be removed – it and $branch are left" >&2
     return

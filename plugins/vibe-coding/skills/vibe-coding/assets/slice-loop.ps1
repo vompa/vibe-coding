@@ -112,6 +112,11 @@ function Remove-SliceBranch([string]$Nr) {
     $branch = "slice-$Nr"
     $path = Get-WorktreeOf $branch
     if ($path) {
+        # Links first (for example node_modules as a junction onto the main checkout): git follows a junction when it
+        # removes the worktree and empties its target. Deleting the reparse point removes the link, never the target.
+        foreach ($link in @(Get-ChildItem -LiteralPath $path -Recurse -Force -Attributes ReparsePoint -ErrorAction SilentlyContinue)) {
+            if ($link.PSIsContainer) { [System.IO.Directory]::Delete($link.FullName) } else { [System.IO.File]::Delete($link.FullName) }
+        }
         git worktree remove $path *> $null
         if ($LASTEXITCODE -ne 0) { Write-Host "[slice $Nr] worktree $path could not be removed – it and $branch are left"; return }
     }

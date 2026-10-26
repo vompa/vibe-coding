@@ -73,12 +73,28 @@ def append_to_record(worktree, nr):
             return
 
 
+def link_packages(worktree):
+    """Like a slice session that links node_modules of its worktree to the main checkout's (a junction on Windows):
+    removing the worktree must not empty the link's target."""
+    os.makedirs("node_modules", exist_ok=True)
+    open("node_modules/keep.txt", "w", encoding="utf-8", newline="\n").write("package\n")
+    link = f"{worktree}/node_modules"
+    if not os.path.lexists(link):
+        if os.name == "nt":
+            import _winapi
+            _winapi.CreateJunction(os.path.abspath("node_modules"), os.path.abspath(link))
+        else:
+            os.symlink(os.path.abspath("node_modules"), link, target_is_directory=True)
+
+
 def build_on_branch(nr):
     """A /slice run in auto mode: its own worktree on slice-NN, the row ticked through Checks, the round record
     appended to, a task commit, the squash message in .slice-loop/ of the main checkout, then SLICE-READY."""
     worktree = f".claude/worktrees/slice-{nr}"
     if not os.path.isdir(worktree):
         git("worktree", "add", "-q", "-b", f"slice-{nr}", worktree, "HEAD")
+    if os.environ.get("STUB_LINK") == "1":
+        link_packages(worktree)
     if os.environ.get("STUB_NO_TICK") != nr:
         tick(f"{worktree}/{folder}/checklist.md", nr, keep_commit=True)
     append_to_record(worktree, nr)
@@ -206,6 +222,9 @@ PROFILES = [
              {"prepared": [{"nr": "100"}, {"nr": "101", "record_line": "======="}],
               "subjects": ["Slice 100 stub squash"], "branches": ["slice-101"], "says": "R01-test.md failed its check",
               "no_calls": True}),
+            # A worktree with node_modules linked to the main checkout: removing the worktree keeps the main packages.
+            ("removing a worktree keeps the target of its linked folder", 3, ["--yes", "--max-slices", "1"], {"STUB_LINK": "1"},
+             None, (0, 4, 1, 0), {"subjects": ["Slice 100 stub squash"], "keeps": "node_modules/keep.txt"}),
             ("merge leaves a branch whose row is not ticked through Checks", 3, ["--merge"], {}, None, (0, 3, 0, 0),
              {"prepared": [{"nr": "100", "ready": False}], "subjects": [], "branches": ["slice-100"], "no_calls": True}),
         ],
@@ -244,7 +263,7 @@ def init_git(repo: pathlib.Path) -> None:
     git(repo, "init", "-q", "-b", "main")
     for key, value in TEST_IDENTITY + (("core.autocrlf", "false"), ("commit.gpgsign", "false")):
         git(repo, "config", key, value)
-    (repo / ".git/info/exclude").write_text("stub-calls.log\nstub.lock\n.claude/worktrees/\n", encoding="utf-8", newline="\n")
+    (repo / ".git/info/exclude").write_text("stub-calls.log\nstub.lock\n.claude/worktrees/\nnode_modules\n", encoding="utf-8", newline="\n")
     git(repo, "add", "-A")
     git(repo, "commit", "-q", "-m", "Initial state")
 
@@ -373,6 +392,8 @@ def git_problems(repo: pathlib.Path, profile: dict, result: subprocess.Completed
         problems.append(f"output names {expected['says_not']!r}")
     if expected.get("no_calls") and calls_log(repo):
         problems.append("claude was called")
+    if "keeps" in expected and not (repo / expected["keeps"]).is_file():
+        problems.append(f"{expected['keeps']} of the main checkout is gone")
     folder = repo / profile["folder"]
     record = (folder / "rounds/R01-test.md").read_text(encoding="utf-8").splitlines()
     checklist = (folder / "checklist.md").read_text(encoding="utf-8").splitlines()

@@ -5,7 +5,7 @@ license: MIT
 compatibility: Designed for Claude Code with file access and subagents; render script needs Python 3.10+; the slice-loop needs the claude CLI plus PowerShell 7 or bash; uses the superpowers plugin when installed.
 metadata:
   author: vompa
-  version: "1.2.0"
+  version: "1.2.1"
 ---
 
 # Vibe Coding – run everyday coding work in rounds of slices
