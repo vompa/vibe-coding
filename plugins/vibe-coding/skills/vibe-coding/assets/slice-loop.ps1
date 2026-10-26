@@ -429,7 +429,7 @@ function Get-DuplicateIds([string[]]$Lines) {
         if ($line.StartsWith('|')) { $kind = 'row'; $id = Get-RowKey $line }
         elseif ($line -match '^#+ (\S+)') { $kind = 'head'; $id = $Matches[1] -replace '[:.,]$', '' }
         else { continue }
-        if ($id -cnotmatch '^[A-Z]+-?[0-9]+$') { continue }
+        if ($id -cnotmatch '^\p{Lu}+-?[0-9]+$') { continue }  # uppercase letters in any script: B71, F-01, Ä77
         $seen[$kind][$id] = 1 + $(if ($seen[$kind].ContainsKey($id)) { $seen[$kind][$id] } else { 0 })
         if ($seen[$kind][$id] -eq 2) { $id }
     }

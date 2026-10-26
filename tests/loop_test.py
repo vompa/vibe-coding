@@ -302,6 +302,11 @@ PROFILES = [
              {"prepared": [{"nr": "100", "finding": "F-90"}, {"nr": "101", "finding": "F-90"}],
               "subjects": ["Slice 100 stub squash"], "branches": ["slice-101"],
               "says": "finding id defined twice: F-90 in docs/findings.md", "no_calls": True}),
+            # Ids may start with a non-ASCII capital (the owner's own findings Ä77 – Ä103 in a target repository).
+            ("merge refuses a finding id with a non-ASCII capital defined twice", 3, ["--merge"], {}, None, (1, 4, 0, 0),
+             {"prepared": [{"nr": "100", "finding": "Ä77"}, {"nr": "101", "finding": "Ä77"}],
+              "subjects": ["Slice 100 stub squash"], "branches": ["slice-101"],
+              "says": "finding id defined twice: Ä77 in docs/findings.md", "no_calls": True}),
             # The integration branch got slice 102's block after the branches were cut: the blocks end in slice order.
             ("merge puts the manual test blocks in slice order", 3, ["--merge"], {}, None, (0, 5, 0, 0),
              {"prepared": [{"nr": "101"}, {"nr": "100"}], "main_change": {"block": "102"}, "results": 3,
@@ -475,7 +480,9 @@ def command(shell: str, bin_dir: pathlib.Path, body: str) -> list[str]:
     executable = shutil.which(shell)
     if shell == "bash":
         return [executable, "-c", f'export PATH="{posix(bin_dir)}:$PATH"; {body}']
-    return [executable, "-NoProfile", "-Command", f"$env:PATH = '{bin_dir}' + [IO.Path]::PathSeparator + $env:PATH; {body}"]
+    # UTF-8 console output, so the test can read non-ASCII ids (Ä77) the script prints; a real console shows its own code page.
+    return [executable, "-NoProfile", "-Command", "[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); "
+            f"$env:PATH = '{bin_dir}' + [IO.Path]::PathSeparator + $env:PATH; {body}"]
 
 
 def assert_stub_first(shell: str, bin_dir: pathlib.Path) -> None:

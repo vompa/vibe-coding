@@ -393,12 +393,15 @@ END {
 '
 
 # Finding ids defined more than once in file $1: as the first cell of two table rows, or as the first word of two headings.
+# An id is uppercase letters, an optional "-" and digits (B71, F-01, Ä77). awk runs on bytes (LC_ALL=C), so an uppercase
+# letter is A-Z or a two-byte UTF-8 Latin-1 capital (\303\200-\303\236: À-Þ, with Ä Ö Ü); other scripts are not matched.
 readonly AWK_IDS='
+function is_id(w) { return w ~ /^([A-Z]|\303[\200-\236])+-?[0-9]+$/ }
 { sub(/\r$/, "") }
-/^[|]/ { split($0, c, "|"); k = c[2]; gsub(/^[ \t]+|[ \t]+$/, "", k); if (k ~ /^[A-Z]+-?[0-9]+$/ && ++rows[k] == 2) print k; next }
-/^#+ / { w = $2; sub(/[:.,]$/, "", w); if (w ~ /^[A-Z]+-?[0-9]+$/ && ++heads[w] == 2) print w }
+/^[|]/ { split($0, c, "|"); k = c[2]; gsub(/^[ \t]+|[ \t]+$/, "", k); if (is_id(k) && ++rows[k] == 2) print k; next }
+/^#+ / { w = $2; sub(/[:.,]$/, "", w); if (is_id(w) && ++heads[w] == 2) print w }
 '
-duplicate_ids_in() { awk "$AWK_IDS" "$@" | sort -u; }
+duplicate_ids_in() { LC_ALL=C awk "$AWK_IDS" "$@" | LC_ALL=C sort -u; }
 
 # Tracked files that record $1 names in backticks under "## Source" (the findings file), one per line.
 findings_files() {
@@ -415,7 +418,7 @@ new_duplicate_ids() {
   while IFS= read -r file; do
     while IFS= read -r id; do
       echo "$id in $file"
-    done < <(comm -23 <(duplicate_ids_in "$file") <(git show "HEAD:$file" 2>/dev/null | duplicate_ids_in))
+    done < <(LC_ALL=C comm -23 <(duplicate_ids_in "$file") <(git show "HEAD:$file" 2>/dev/null | duplicate_ids_in))
   done < <(echo "$record"; findings_files "$record")
 }
 
