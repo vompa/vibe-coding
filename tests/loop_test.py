@@ -61,14 +61,27 @@ def build_in_place(nr):
     print(f"SLICE-DONE: {nr}")
 
 
+def append_to_record(worktree, nr):
+    """Every /slice run adds to the open round record: a surprise and a manual-test block (STUB_RECORD_LINE adds one line more)."""
+    rounds = f"{worktree}/{folder}/rounds"
+    for name in sorted(os.listdir(rounds)) if os.path.isdir(rounds) else []:
+        path = f"{rounds}/{name}"
+        if open(path, encoding="utf-8").readline().strip() == "Status: open":
+            lines = [f"- Slice {nr} stub surprise", f"### Slice {nr} stub check", f"Result: {UNTICKED}"]
+            lines += [os.environ["STUB_RECORD_LINE"]] if os.environ.get("STUB_RECORD_LINE") else []
+            open(path, "a", encoding="utf-8", newline="\n").write("\n".join(lines) + "\n")
+            return
+
+
 def build_on_branch(nr):
-    """A /slice run in auto mode: its own worktree on slice-NN, the row ticked through Checks, a task commit,
-    the squash message in .slice-loop/ of the main checkout, then SLICE-READY."""
+    """A /slice run in auto mode: its own worktree on slice-NN, the row ticked through Checks, the round record
+    appended to, a task commit, the squash message in .slice-loop/ of the main checkout, then SLICE-READY."""
     worktree = f".claude/worktrees/slice-{nr}"
     if not os.path.isdir(worktree):
         git("worktree", "add", "-q", "-b", f"slice-{nr}", worktree, "HEAD")
     if os.environ.get("STUB_NO_TICK") != nr:
         tick(f"{worktree}/{folder}/checklist.md", nr, keep_commit=True)
+    append_to_record(worktree, nr)
     file = os.environ.get("STUB_FILE", f"slice-{nr}.txt")
     open(f"{worktree}/{file}", "w", encoding="utf-8", newline="\n").write(os.environ.get("STUB_CONTENT", f"slice {nr}") + "\n")
     commit(worktree, f"Slice {nr} task commit", f"task-{nr}.msg")
@@ -114,10 +127,12 @@ else:
 
 # One profile per plugin. Case: name, slices done before, options, env, rounds (None = default),
 # expected (exit code, ticked slices, build turns, close turns), and for the vibe-coding profile an optional dict of
-# git expectations: "prepared" (branches made before the run: nr, optional file, content, ready, message),
-# "subjects" (commit subjects after the initial commit, oldest first), "branches" (slice-* branches left; default none),
-# "says" (a phrase in the loop's output), "no_calls" (no claude call). "dry_run_ready" is what --dry-run prints when
-# the first three slices are done.
+# git expectations: "prepared" (branches made before the run: nr, optional file, content, ready, message, record_line),
+# "main_row" (a checklist row committed on main after the branches were made), "subjects" (commit subjects after the
+# initial commit, oldest first), "branches" (slice-* branches left; default none), "says" / "says_not" (a phrase that
+# is / is not in the loop's output), "no_calls" (no claude call), "record_has" (lines of work/rounds/R01-test.md),
+# "results" (its number of "Result:" lines), "checklist_has" (lines of work/checklist.md). "dry_run_ready" is what
+# --dry-run prints when the first three slices are done.
 PROFILES = [
     {
         "plugin": "vibe-rebuild", "script": "rebuild-loop", "folder": "rebuild", "command": "/rebuild",
@@ -150,13 +165,16 @@ PROFILES = [
         "cases": [
             ("dry run lists ready slices", 3, ["--dry-run"], {}, None, (0, 3, 0, 0)),
             ("auto approve runs all slices through the merge queue then closes the round", 1, ["--yes"], {}, None, (0, 5, 4, 1),
-             {"subjects": ["Slice 06 stub squash", "Slice 07 stub squash", "Slice 100 stub squash", "Slice 101 stub squash"]}),
+             {"subjects": ["Slice 06 stub squash", "Slice 07 stub squash", "Slice 100 stub squash", "Slice 101 stub squash"],
+              "results": 4}),
             ("three-digit slice is squashed through the queue", 3, ["--yes", "--max-slices", "1"], {}, None, (0, 4, 1, 0),
              {"subjects": ["Slice 100 stub squash"]}),
-            # Slice 06 resolves conflicts in the checklist: until then two parallel slices that tick adjacent rows
-            # stop at the second squash.
-            ("parallel: first squash lands, second stops on the checklist conflict", 3, ["--yes", "--parallel"], {}, None, (1, 4, 2, 0),
-             {"subjects": ["Slice 100 stub squash"], "branches": ["slice-101"], "says": "work/checklist.md"}),
+            # Two parallel slices tick adjacent checklist rows and both append to the record: the queue resolves both files.
+            ("parallel builds both ready slices through the queue then close the round", 3, ["--yes", "--parallel"], {}, None,
+             (0, 5, 2, 1),
+             {"subjects": ["Slice 100 stub squash", "Slice 101 stub squash"], "results": 2,
+              "record_has": ["- Slice 100 stub surprise", "### Slice 100 stub check", "- Slice 101 stub surprise", "### Slice 101 stub check"],
+              "checklist_has": ["| 100 Name | ☑ | ☑ |", "| 101 Name | ☑ | ☑ |"]}),
             ("red slice stops the loop", 3, ["--yes"], {"STUB_FAIL": "100"}, None, (1, 3, 1, 0)),
             ("ready but not ticked stops instead of merging", 3, ["--yes"], {"STUB_NO_TICK": "100"}, None, (1, 3, 1, 0),
              {"subjects": [], "branches": ["slice-100"]}),
@@ -176,7 +194,18 @@ PROFILES = [
             ("merge stops on a conflict in a foreign file", 3, ["--merge"], {}, None, (1, 4, 0, 0),
              {"prepared": [{"nr": "100", "file": "shared.txt", "content": "from 100"},
                            {"nr": "101", "file": "shared.txt", "content": "from 101"}],
-              "subjects": ["Slice 100 stub squash"], "branches": ["slice-101"], "says": "shared.txt", "no_calls": True}),
+              "subjects": ["Slice 100 stub squash"], "branches": ["slice-101"], "says": "merge conflict in shared.txt ",
+              "says_not": "work/checklist.md", "no_calls": True}),
+            # The integration branch got a row after the branches were cut: it stays, and 101's squash keeps 100's ticks.
+            ("merge resolves the checklist and keeps a row only the integration branch has", 3, ["--merge"], {}, None, (0, 5, 0, 0),
+             {"prepared": [{"nr": "100"}, {"nr": "101"}], "main_row": "102",
+              "subjects": ["Add row 102", "Slice 100 stub squash", "Slice 101 stub squash"], "results": 2,
+              "checklist_has": ["| 100 Name | ☑ | ☑ |", "| 101 Name | ☑ | ☑ |", "| 102 Name | ☐ | ☐ |"],
+              "no_calls": True}),
+            ("a resolution that fails its check resets and stops", 3, ["--merge"], {}, None, (1, 4, 0, 0),
+             {"prepared": [{"nr": "100"}, {"nr": "101", "record_line": "======="}],
+              "subjects": ["Slice 100 stub squash"], "branches": ["slice-101"], "says": "R01-test.md failed its check",
+              "no_calls": True}),
             ("merge leaves a branch whose row is not ticked through Checks", 3, ["--merge"], {}, None, (0, 3, 0, 0),
              {"prepared": [{"nr": "100", "ready": False}], "subjects": [], "branches": ["slice-100"], "no_calls": True}),
         ],
@@ -229,12 +258,22 @@ def prepare_branch(repo: pathlib.Path, stub: pathlib.Path, profile: dict, branch
         env["STUB_NO_TICK"] = branch["nr"]
     if not branch.get("message", True):
         env["STUB_NO_MESSAGE"] = branch["nr"]
+    if branch.get("record_line"):
+        env["STUB_RECORD_LINE"] = branch["record_line"]
     subprocess.run([sys.executable, "-X", "utf8", str(stub), f"Build slice {branch['nr']} and close it"],
                    cwd=repo, env=env, check=True, capture_output=True)
 
 
+def add_main_row(repo: pathlib.Path, profile: dict, nr: str) -> None:
+    """A checklist row committed on main after the slice branches were cut."""
+    checklist = repo / profile["folder"] / "checklist.md"
+    with checklist.open("a", encoding="utf-8", newline="\n") as file:
+        file.write(f"| {nr} Name | ☐ | ☐ |\n")
+    git(repo, "commit", "-q", "-am", f"Add row {nr}")
+
+
 def make_repo(base: pathlib.Path, profile: dict, done: int, rounds: list[tuple[str, str]] | None,
-              stub: pathlib.Path, prepared: list[dict]) -> pathlib.Path:
+              stub: pathlib.Path, prepared: list[dict], main_row: str | None) -> pathlib.Path:
     """Plan repo with the first `done` slices ticked; the slice loop also gets one record per round and a real git repository."""
     repo = pathlib.Path(tempfile.mkdtemp(dir=base))
     folder = repo / profile["folder"]
@@ -254,6 +293,8 @@ def make_repo(base: pathlib.Path, profile: dict, done: int, rounds: list[tuple[s
     init_git(repo)
     for branch in prepared:
         prepare_branch(repo, stub, profile, branch)
+    if main_row:
+        add_main_row(repo, profile, main_row)
     return repo
 
 
@@ -325,10 +366,23 @@ def git_problems(repo: pathlib.Path, profile: dict, result: subprocess.Completed
     subjects = git(repo, "log", "--reverse", "--format=%s").splitlines()[1:]
     if "subjects" in expected and subjects != expected["subjects"]:
         problems.append(f"commit subjects after the initial one: {subjects}")
-    if "says" in expected and expected["says"] not in result.stdout + result.stderr:
+    output = result.stdout + result.stderr
+    if "says" in expected and expected["says"] not in output:
         problems.append(f"output does not name {expected['says']!r}")
+    if "says_not" in expected and expected["says_not"] in output:
+        problems.append(f"output names {expected['says_not']!r}")
     if expected.get("no_calls") and calls_log(repo):
         problems.append("claude was called")
+    folder = repo / profile["folder"]
+    record = (folder / "rounds/R01-test.md").read_text(encoding="utf-8").splitlines()
+    checklist = (folder / "checklist.md").read_text(encoding="utf-8").splitlines()
+    problems += [f"record lacks {line!r}" for line in expected.get("record_has", []) if line not in record]
+    problems += [f"checklist lacks {line!r}" for line in expected.get("checklist_has", []) if line not in checklist]
+    if "results" in expected and sum(line.startswith("Result:") for line in record) != expected["results"]:
+        problems.append(f"record has {sum(line.startswith('Result:') for line in record)} Result lines")
+    markers = [line for line in record + checklist if line.startswith(("<<<<<<<", "=======", ">>>>>>>", "|||||||"))]
+    if markers:
+        problems.append(f"conflict markers left: {markers}")
     return problems
 
 
@@ -347,6 +401,7 @@ def wrong_models(repo: pathlib.Path, profile: dict) -> list[str]:
 
 
 def main() -> int:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # failure output carries ☑ and ☐; Windows consoles default to cp1252
     shells = [s for s in ("bash", "pwsh") if shutil.which(s)]
     if not shells:
         print("no bash or pwsh found")
@@ -362,7 +417,7 @@ def main() -> int:
             for profile in PROFILES:
                 for name, done, options, env, rounds, expected, *extra in profile["cases"]:
                     git_expected = extra[0] if extra else {}
-                    repo = make_repo(base, profile, done, rounds, stub, git_expected.get("prepared", []))
+                    repo = make_repo(base, profile, done, rounds, stub, git_expected.get("prepared", []), git_expected.get("main_row"))
                     result = run_case(shell, repo, bin_dir, profile, options, env)
                     got = outcome(repo, profile, result)
                     problems = wrong_models(repo, profile) + git_problems(repo, profile, result, git_expected)

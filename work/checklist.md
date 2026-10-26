@@ -6,7 +6,7 @@
 | 03 ready-marker | ☑ | ☑ | ☑ | ☑ | ☑ |
 | 04 suite-lock | ☑ | ☑ | ☑ | ☑ | ☑ |
 | 05 merge-queue | ☑ | ☑ | ☑ | ☑ | ☑ |
-| 06 merge-rules | ☐ | ☐ | ☐ | ☐ | ☐ |
+| 06 merge-rules | ☑ | ☑ | ☑ | ☑ | ☑ |
 | 07 release-1-2-0 | ☐ | ☐ | ☐ | ☐ | ☐ |
 | 08 slice-board-parallel | ☑ | ☑ | ☑ | ☑ | ☑ |
 | 09 command-rules | ☑ | ☑ | ☑ | ☑ | ☑ |

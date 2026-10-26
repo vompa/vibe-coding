@@ -45,6 +45,7 @@ Ruling: slice 03 plan approved with all nine assumptions (hint `[auto | parallel
 Ruling: slice 04 plan approved with all ten assumptions (lock paragraph at the end of step 1 with a clause in section 2, `mkdir` / `New-Item` without `-Force` plus an `owner` file, wait 30 minutes for a live slice under 60 minutes old and report anything else, `status` line, template and SKILL.md pointers, line limit 230, slice 08 untouched and merged in before the squash, phrase tests) – User, 2026-10-25 (via the orchestrating session)
 Ruling: Slice 08 – plan approved with all six assumptions (merge queue named as `slice-loop --merge` or the running loop, rules sentence without the conflict clause, three new assertions in the existing Start test, README Ready paragraph and request sentence, command/loop scripts/tests untouched, slice-board and baseline checks) – User, 2026-10-25 (via the orchestrating session)
 Ruling: Slice 05 – plan approved with all eleven assumptions, including the -D cleanup, list order and the temporary parallel stop – User, 2026-10-25 (via the orchestrating session)
+Ruling: Slice 06 – plan approved with all eight assumptions, including the refined line check (every line both sides kept or either side added) – User, 2026-10-26
 
 ## Surprises
 - `CLAUDE.md` does not exist at the repository root, although the slice command names it. The rules came from `work/conventions.md` and the workspace note; nothing changed for that.
@@ -63,6 +64,9 @@ Ruling: Slice 05 – plan approved with all eleven assumptions, including the -D
 - Slice 05: the first red run of the new loop test overlapped with the script edits, so some cases saw half-edited scripts. The red proof was repeated on an export of the unchanged tree (`git archive`) with the new tests: all eleven queue cases red in bash and pwsh, the vibe-rebuild profile 16 of 16 green. The green run: 52 of 52.
 - Slice 05: PowerShell decodes git's output with the console code page (here ibm850), which garbles ☑ and ☐; git output that carries checklist rows is read through `Get-GitLines` with UTF-8. The bash script had to keep `SLICE-DONE:` and `SLICE-READY:` as literal text for the marker contract, so the marker regex names both in full.
 - Slice 05: the loop-test runs did not take the full-suite lock of slice 04 by hand; no other slice session was running at the time.
+- Slice 06: the record check found a real loss on its first green attempt: both sides end their appendix with the same line `Result: ☐`, and git's default conflict style moves that common last line out of the hunk, so keeping both sides kept it once (the same trap the field notes describe for manual merges). The squash now runs with `-c merge.conflictStyle=diff3`, which keeps every hunk whole; the base section the resolver drops is therefore exercised on every resolution, not only read as the plan's review focus assumed.
+- Slice 06: the conflict message of slice 05 named the files twice (`${conflicts:-…}` expands to the value when it is set); the new message code in both shells writes the reason with an `if`, and the foreign-file test now checks the exact wording.
+- Slice 06: `tests/loop_test.py` crashed while printing a failure on Windows (stdout in cp1252 cannot encode ☑); `main()` now writes UTF-8. The red proof ran on the slice 05 scripts before any script edit: exactly the four planned cases red in bash and pwsh, 48 others green; green afterwards 56 of 56. Baseline and final loop runs held the full-suite lock.
 
 ## Deferred minors
 - Slice 04: the lock is a protocol in prose; nothing executes it in the loop scripts (slice 05 decides whether the queue uses it for its own checks). A lock left by a crashed session is only reported, never removed: the user removes the directory by hand.
@@ -75,6 +79,8 @@ Ruling: Slice 05 – plan approved with all eleven assumptions, including the -D
 - Slice 05: two merge-queue runners at once (a loop and a `--merge` from another session) are guarded only by git's own `index.lock`; a merge-queue lock is left out.
 - Slice 05: the bash reader of text fields (`slice_field`) cuts a name or source with an escaped quote at that quote; the fallback message would then be shortened.
 - Slice 05: the queue keeps `.slice-loop/slice-NN.msg` and the fallback file as part of the log; nothing removes them.
+- Slice 06: PowerShell writes the loop's messages to a Windows console in its code page, so the en dash in them shows as `-`; the messages are correct, only their display is plain. Not changed (it affects every message of the script).
+- Slice 06: the record check is the refined rule of assumption 4 (every line both sides kept or either side added); a slice that rewrites an existing line of the record on one side while the other side keeps it still lands, as intended, and a lost appendix stops the queue.
 
 ## Open decisions
 
@@ -127,4 +133,12 @@ Start: a scratch repository with an open round of two slices, the command copied
 2. Run `git log --oneline` and `git worktree list`.
 Expected: each slice landed as one squash commit whose subject is the session's squash message, both checklist rows are fully ticked, and `git worktree list` shows only the main checkout; no branch `slice-NN` is left.
 Closes: F-01 (queue), F-08 (loop)
+Result: ☐
+
+### Slice 06 – Rule-based resolution of checklist and round record
+Start: a scratch repository with an open round of two ready slices, both loop scripts copied to `.claude/scripts/`
+1. On two branches `slice-NN` cut from the same commit, tick each slice's checklist row through Checks and append a different line plus a block ending in `Result: ☐` to the round record; commit both.
+2. Run `bash .claude/scripts/slice-loop.sh --merge` (or `pwsh .claude/scripts/slice-loop.ps1 -Merge`), then `git log -p -2`.
+Expected: both branches land as two squash commits; the record holds both appendices with two `Result: ☐` lines and no line starting with `<<<<<<<`, `=======` or `>>>>>>>`; both rows are fully ticked.
+Closes: F-01 (resolution)
 Result: ☐

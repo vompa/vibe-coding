@@ -3,7 +3,8 @@
 .SYNOPSIS
 Builds the open round slice by slice, each slice in a fresh headless Claude session, then closes the round.
 A slice that ends with SLICE-READY is squashed by the merge queue: one slice-NN branch after another, in this
-checkout, with the message from .slice-loop/slice-NN.msg; any merge conflict stops the loop and names the files.
+checkout, with the message from .slice-loop/slice-NN.msg. Conflicts in work/checklist.md and the open round record
+are resolved by rule and checked; a conflict in any other file stops the loop and names the files.
 Stops for plan approval unless -Yes; stops on NEEDS-DECISION, red tests or a blocked slice.
 
 .EXAMPLE
@@ -119,16 +120,124 @@ function Remove-SliceBranch([string]$Nr) {
     if ($LASTEXITCODE -ne 0) { Write-Host "[slice $Nr] branch $branch could not be removed" }
 }
 
-# Squashes branch slice-NN onto the branch checked out here; a conflict resets the merge and stops the loop.
+# Slice number of a checklist row; nothing for any other line.
+function Get-RowNumber([string]$Line) {
+    if ($Line -match '^\|\s*(\d{2,})(\D|$)') { return $Matches[1] }
+}
+
+# Row $Ours with every cell ticked that row $Theirs – the same slice's row on the other side – has ticked: the union of ticks.
+function Merge-RowTicks([string]$Ours, [string]$Theirs) {
+    $cells = $Ours.TrimEnd([char]13).Split('|')
+    $other = $Theirs.TrimEnd([char]13).Split('|')
+    for ($i = 0; $i -lt $cells.Count; $i++) {
+        if ($i -lt $other.Count -and $other[$i].Contains('☑')) { $cells[$i] = $cells[$i].Replace('☐', '☑') }
+    }
+    return $cells -join '|'
+}
+
+# The checklist after a squash conflict, built from both committed versions: the integration branch's lines in their
+# order, a row the branch also has with the union of both rows' ticks, rows only the branch has appended in its order.
+function Resolve-Checklist([string]$Branch) {
+    $theirs = [ordered]@{}
+    foreach ($line in Get-GitLines @('show', "${Branch}:$ChecklistFile")) {
+        $nr = Get-RowNumber $line
+        if ($nr) { $theirs[$nr] = $line }
+    }
+    $oursHas = @{}
+    $out = foreach ($line in Get-GitLines @('show', "HEAD:$ChecklistFile")) {
+        $nr = Get-RowNumber $line
+        if ($nr) {
+            $oursHas[$nr] = $true
+            if ($theirs.Contains($nr)) { $line = Merge-RowTicks $line $theirs[$nr] }
+        }
+        $line
+    }
+    $out = @($out) + @($theirs.Keys | Where-Object { -not $oursHas.ContainsKey($_) } | ForEach-Object { $theirs[$_] })
+    Write-Utf8File $ChecklistFile (($out -join "`n") + "`n")
+}
+
+# The round record after a squash conflict: in every conflict hunk the integration branch's side, then the branch's
+# side; the marker lines and the base section of the diff3 styles are dropped.
+function Resolve-Record([string]$File) {
+    $state = 'outside'
+    $out = foreach ($line in [IO.File]::ReadAllLines((Join-Path (Get-Location).Path $File))) {
+        if ($state -eq 'outside' -and $line.StartsWith('<<<<<<<')) { $state = 'ours'; continue }
+        if ($state -eq 'ours' -and $line.StartsWith('|||||||')) { $state = 'base'; continue }
+        if ($state -in 'ours', 'base' -and $line -eq '=======') { $state = 'theirs'; continue }
+        if ($state -eq 'theirs' -and $line.StartsWith('>>>>>>>')) { $state = 'outside'; continue }
+        if ($state -ne 'base') { $line }
+    }
+    Write-Utf8File $File ((@($out) -join "`n") + "`n")
+}
+
+# Number of lines that start with "Result:" (the manual test list).
+function Get-ResultCount([string[]]$Lines) { return @($Lines | Where-Object { $_.StartsWith('Result:') }).Count }
+
+# A set of lines; the leading comma keeps PowerShell from unrolling it.
+function New-LineSet([string[]]$Lines) {
+    $set = [Collections.Generic.HashSet[string]]::new()
+    foreach ($line in $Lines) { [void]$set.Add($line) }
+    return , $set
+}
+
+# Every row of both sides is in the resolved checklist, and none of their ticks is missing there.
+function Test-ChecklistResolved([string[]]$Result, [string]$Branch) {
+    $rows = @{}
+    foreach ($line in $Result) { $nr = Get-RowNumber $line; if ($nr) { $rows[$nr] = $line } }
+    $sides = @(Get-GitLines @('show', "HEAD:$ChecklistFile")) + @(Get-GitLines @('show', "${Branch}:$ChecklistFile"))
+    foreach ($line in $sides) {
+        $nr = Get-RowNumber $line
+        if (-not $nr) { continue }
+        if (-not $rows.ContainsKey($nr) -or (Merge-RowTicks $rows[$nr] $line) -ne $rows[$nr]) { return $false }
+    }
+    return $true
+}
+
+# Nothing was lost in the resolved file: no conflict marker is left; the checklist keeps every row and tick of both
+# sides; the record keeps every line both sides kept or either side added, and its Result: lines add up
+# (ours + theirs - merge base).
+function Test-Resolved([string]$File, [string]$Branch) {
+    $result = @([IO.File]::ReadAllLines((Join-Path (Get-Location).Path $File)))
+    if ($result | Where-Object { $_ -match '^(<<<<<<<|=======|>>>>>>>|\|{7})' }) { return $false }
+    if ($File -eq $ChecklistFile) { return Test-ChecklistResolved $result $Branch }
+    $base = @(Get-GitLines @('merge-base', 'HEAD', $Branch))[0]
+    $ours = Get-GitLines @('show', "HEAD:$File")
+    $theirs = Get-GitLines @('show', "${Branch}:$File")
+    $before = Get-GitLines @('show', "${base}:$File")
+    $have = New-LineSet $result
+    $theirsSet = New-LineSet $theirs
+    $baseSet = New-LineSet $before
+    $needed = @($ours | Where-Object { $theirsSet.Contains($_) -or -not $baseSet.Contains($_) }) +
+        @($theirs | Where-Object { -not $baseSet.Contains($_) })
+    if (@($needed | Where-Object { -not $have.Contains($_) }).Count -gt 0) { return $false }
+    return (Get-ResultCount $result) -eq ((Get-ResultCount $ours) + (Get-ResultCount $theirs) - (Get-ResultCount $before))
+}
+
+# Squashes branch slice-NN onto the branch checked out here. Conflicts only in the checklist and the open round record
+# are resolved by rule and checked; any other conflict, or a failed check, resets the merge and stops the loop.
 function Merge-Slice([string]$Nr) {
     $branch = "slice-$Nr"
     if (Get-GitLines @('status', '--porcelain')) { Stop-Loop "slice ${Nr}: this checkout has uncommitted changes – commit or remove them, then run -Merge" }
-    git merge --squash $branch *> $null
+    $record = Get-OpenRoundFile  # read before the merge: a conflict at its first line would hide "Status: open"
+    # diff3 keeps every hunk whole: the default style moves lines both sides end with (such as "Result: ☐") out of
+    # the hunk, and keeping both sides would then keep that line once.
+    git -c merge.conflictStyle=diff3 merge --squash $branch *> $null
     if ($LASTEXITCODE -ne 0) {
-        $conflicts = Get-GitLines @('diff', '--name-only', '--diff-filter=U')
-        git reset --merge *> $null
-        $what = if ($conflicts) { "merge conflict in $($conflicts -join ' ')" } else { 'git merge --squash failed' }
-        Stop-Loop "slice ${Nr}: $what – merge reset, $branch kept"
+        $conflicts = @(Get-GitLines @('diff', '--name-only', '--diff-filter=U'))
+        $foreign = @($conflicts | Where-Object { $_ -ne $ChecklistFile -and $_ -ne $record })
+        if (-not $conflicts -or $foreign) {
+            git reset --merge *> $null
+            $what = if ($foreign) { "merge conflict in $($foreign -join ' ')" } else { 'git merge --squash failed' }
+            Stop-Loop "slice ${Nr}: $what – merge reset, $branch kept"
+        }
+        foreach ($file in $conflicts) {
+            if ($file -eq $ChecklistFile) { Resolve-Checklist $branch } else { Resolve-Record $file }
+            if (-not (Test-Resolved $file $branch)) {
+                git reset --merge *> $null
+                Stop-Loop "slice ${Nr}: the rule-based resolution of $file failed its check – merge reset, $branch kept"
+            }
+            git add $file
+        }
     }
     Set-CommitTick $Nr
     git add $ChecklistFile
@@ -174,12 +283,18 @@ function Test-AllDone { -not @(Get-Slices | Where-Object { -not (Test-Done $_.Nr
 
 function Get-OpenCount { @(Get-Slices | Where-Object { -not (Test-Done $_.Nr) }).Count }
 
-# Id (R01, R02 …) of the first round record in $RoundsDir whose first line is "Status: open"; nothing if none is open.
-function Get-OpenRound {
+# Path of the first round record in $RoundsDir whose first line is "Status: open", as git names it; nothing if none is open.
+function Get-OpenRoundFile {
     $file = Get-ChildItem -Path $RoundsDir -Filter '*.md' -File -ErrorAction SilentlyContinue | Sort-Object Name |
         Where-Object { (Get-Content $_.FullName -TotalCount 1 -Encoding utf8) -ceq 'Status: open' } |
         Select-Object -First 1
-    if ($file) { return [regex]::Match($file.Name, '^R\d+').Value }
+    if ($file) { return "$RoundsDir/$($file.Name)" }
+}
+
+# Id (R01, R02 …) of the open round record; nothing if none is open.
+function Get-OpenRound {
+    $file = Get-OpenRoundFile
+    if ($file) { return [regex]::Match((Split-Path $file -Leaf), '^R\d+').Value }
 }
 
 # Runs one claude turn on $Model (empty: the CLI default); output goes to the log and is returned for marker parsing.

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Builds the open round slice by slice, each slice in a fresh headless Claude session, then closes the round.
 # A slice that ends with SLICE-READY is squashed by the merge queue: one slice-NN branch after another, in this
-# checkout, with the message from .slice-loop/slice-NN.msg; any merge conflict stops the loop and names the files.
+# checkout, with the message from .slice-loop/slice-NN.msg. Conflicts in work/checklist.md and the open round record
+# are resolved by rule and checked; a conflict in any other file stops the loop and names the files.
 # Stops for plan approval unless --yes; stops on NEEDS-DECISION, red tests or a blocked slice.
 #
 # Usage: bash .claude/scripts/slice-loop.sh [--yes] [--parallel] [--dry-run] [--max-slices N] [--merge]
@@ -130,14 +131,126 @@ remove_slice_branch() {
   git branch -D "$branch" >/dev/null || echo "[slice $1] branch $branch could not be removed" >&2
 }
 
-# Squashes branch slice-$1 onto the branch checked out here; a conflict resets the merge and stops the loop.
+# Slice number of a checklist row; fails for any other line.
+row_number() {
+  local row='^[|][[:space:]]*([0-9]{2,})([^0-9]|$)'
+  [[ "$1" =~ $row ]] && echo "${BASH_REMATCH[1]}"
+}
+
+# Row $1 with every cell ticked that row $2 – the same slice's row on the other side – has ticked: the union of ticks.
+union_row() {
+  local -a ours theirs
+  local i
+  IFS='|' read -ra ours <<<"${1%$'\r'}"
+  IFS='|' read -ra theirs <<<"${2%$'\r'}"
+  for i in "${!ours[@]}"; do
+    if [[ "${theirs[i]-}" == *"☑"* ]]; then ours[i]=${ours[i]//☐/☑}; fi
+  done
+  local IFS='|'
+  echo "${ours[*]}|"
+}
+
+# The checklist after a squash conflict, built from both committed versions: the integration branch's lines in their
+# order, a row the branch also has with the union of both rows' ticks, rows only the branch has appended in its order.
+resolve_checklist() {
+  local branch=$1 line nr
+  local -A theirs=() ours_has=()
+  local -a order=() out=()
+  while IFS= read -r line; do
+    if nr=$(row_number "$line"); then theirs[$nr]=$line; order+=("$nr"); fi
+  done < <(git show "$branch:$CHECKLIST_FILE")
+  while IFS= read -r line; do
+    if nr=$(row_number "$line"); then
+      ours_has[$nr]=1
+      if [[ -n "${theirs[$nr]+set}" ]]; then line=$(union_row "$line" "${theirs[$nr]}"); fi
+    fi
+    out+=("$line")
+  done < <(git show "HEAD:$CHECKLIST_FILE")
+  for nr in "${order[@]}"; do
+    if [[ -z "${ours_has[$nr]+set}" ]]; then out+=("${theirs[$nr]}"); fi
+  done
+  printf '%s\n' "${out[@]}" >"$CHECKLIST_FILE"
+}
+
+# The round record $1 after a squash conflict: in every conflict hunk the integration branch's side, then the branch's
+# side; the marker lines and the base section of the diff3 styles are dropped.
+resolve_record() {
+  local file=$1 line state=outside
+  local -a out=()
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line=${line%$'\r'}
+    case "$state:$line" in
+      outside:'<<<<<<<'*) state=ours; continue ;;
+      ours:'|||||||'*) state=base; continue ;;
+      ours:'=======' | base:'=======') state=theirs; continue ;;
+      theirs:'>>>>>>>'*) state=outside; continue ;;
+    esac
+    if [[ "$state" != base ]]; then out+=("$line"); fi
+  done <"$file"
+  printf '%s\n' "${out[@]}" >"$file"
+}
+
+# Number of lines in file $1 that start with "Result:" (the manual test list).
+count_results() { grep -c '^Result:' "$1" || true; }
+
+# Every row of both sides is in the resolved checklist, and none of their ticks is missing there.
+check_checklist() {
+  local branch=$1 line nr
+  local -A rows=()
+  while IFS= read -r line; do
+    if nr=$(row_number "$line"); then rows[$nr]=${line%$'\r'}; fi
+  done <"$CHECKLIST_FILE"
+  while IFS= read -r line; do
+    nr=$(row_number "$line") || continue
+    [[ -n "${rows[$nr]+set}" ]] || return 1
+    [[ "$(union_row "${rows[$nr]}" "$line")" == "${rows[$nr]}" ]] || return 1
+  done < <(git show "HEAD:$CHECKLIST_FILE"; git show "$branch:$CHECKLIST_FILE")
+}
+
+# Nothing was lost in resolved file $1: no conflict marker is left; the checklist keeps every row and tick of both
+# sides; the record keeps every line both sides kept or either side added, and its Result: lines add up
+# (ours + theirs - merge base).
+check_resolved() {
+  local file=$1 branch=$2 base ours="$LOG_DIR/ours.tmp" theirs="$LOG_DIR/theirs.tmp" before="$LOG_DIR/base.tmp"
+  local result="$LOG_DIR/result.tmp" needed="$LOG_DIR/needed.tmp"
+  if grep -qE '^(<<<<<<<|=======|>>>>>>>|[|]{7})' "$file"; then return 1; fi
+  if [[ "$file" == "$CHECKLIST_FILE" ]]; then check_checklist "$branch"; return; fi
+  base=$(git merge-base HEAD "$branch")
+  git show "HEAD:$file" >"$ours"
+  git show "$branch:$file" >"$theirs"
+  git show "$base:$file" >"$before" 2>/dev/null || : >"$before"
+  tr -d '\r' <"$file" >"$result"
+  { grep -Fx -f "$theirs" "$ours"; grep -Fxv -f "$before" "$ours"; grep -Fxv -f "$before" "$theirs"; } >"$needed" || true
+  if grep -Fxv -f "$result" "$needed" >/dev/null; then return 1; fi
+  (( $(count_results "$result") == $(count_results "$ours") + $(count_results "$theirs") - $(count_results "$before") ))
+}
+
+# Squashes branch slice-$1 onto the branch checked out here. Conflicts only in the checklist and the open round record
+# are resolved by rule and checked; any other conflict, or a failed check, resets the merge and stops the loop.
 merge_slice() {
-  local nr=$1 branch="slice-$1" conflicts
+  local nr=$1 branch="slice-$1" record conflicts foreign files file reason
+  local -a resolvable=(-e "$CHECKLIST_FILE")
   [[ -z "$(git status --porcelain)" ]] || die "slice $nr: this checkout has uncommitted changes – commit or remove them, then run --merge"
-  if ! git merge --squash "$branch" >/dev/null 2>&1; then
-    conflicts=$(git diff --name-only --diff-filter=U | tr '\n' ' ')
-    git reset --merge
-    die "slice $nr: ${conflicts:+merge conflict in ${conflicts% }}${conflicts:-git merge --squash failed} – merge reset, $branch kept"
+  record=$(open_round_file)  # read before the merge: a conflict at its first line would hide "Status: open"
+  if [[ -n "$record" ]]; then resolvable+=(-e "$record"); fi
+  # diff3 keeps every hunk whole: the default style moves lines both sides end with (such as "Result: ☐") out of
+  # the hunk, and keeping both sides would then keep that line once.
+  if ! git -c merge.conflictStyle=diff3 merge --squash "$branch" >/dev/null 2>&1; then
+    conflicts=$(git diff --name-only --diff-filter=U)
+    foreign=$(grep -vxF "${resolvable[@]}" <<<"$conflicts" || true)
+    if [[ -z "$conflicts" || -n "$foreign" ]]; then
+      git reset --merge
+      if [[ -n "$foreign" ]]; then files=$(tr '\n' ' ' <<<"$foreign"); reason="merge conflict in ${files% }"; else reason="git merge --squash failed"; fi
+      die "slice $nr: $reason – merge reset, $branch kept"
+    fi
+    while IFS= read -r file; do
+      if [[ "$file" == "$CHECKLIST_FILE" ]]; then resolve_checklist "$branch"; else resolve_record "$file"; fi
+      if ! check_resolved "$file" "$branch"; then
+        git reset --merge
+        die "slice $nr: the rule-based resolution of $file failed its check – merge reset, $branch kept"
+      fi
+      git add "$file"
+    done <<<"$conflicts"
   fi
   tick_commit "$nr"
   git add "$CHECKLIST_FILE"
@@ -199,17 +312,24 @@ open_count() {
   echo "$count"
 }
 
-# Id (R01, R02 …) of the first round record in $ROUNDS_DIR whose first line is "Status: open"; nothing if none is open.
-open_round() {
+# Path of the first round record in $ROUNDS_DIR whose first line is "Status: open"; nothing if none is open.
+open_round_file() {
   local file first
   for file in "$ROUNDS_DIR"/*.md; do
     [[ -f "$file" ]] || continue
     IFS= read -r first <"$file" || true
     if [[ "${first%$'\r'}" == "Status: open" ]]; then
-      basename "$file" | grep -o '^R[0-9][0-9]*' || true
+      echo "$file"
       return
     fi
   done
+}
+
+# Id (R01, R02 …) of the open round record; nothing if none is open.
+open_round() {
+  local file
+  file=$(open_round_file)
+  if [[ -n "$file" ]]; then basename "$file" | grep -o '^R[0-9][0-9]*' || true; fi
 }
 
 # Random UUID v4 for --session-id (uuidgen and /proc are missing in Git Bash on Windows).
