@@ -2,7 +2,7 @@
 import pathlib, re
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SKILL = ROOT / "plugins/vibe-coding/skills/vibe-coding"
-MARKERS = ["PLAN:", "NEEDS-DECISION:", "SLICE-DONE:", "SLICE-OPEN:", "ALL-DONE", "ROUND-DONE:", "ROUND-OPEN:", "SLICE-READY:"]
+MARKERS = ["PLAN:", "NEEDS-DECISION:", "SLICE-DONE:", "SLICE-OPEN:", "ALL-DONE", "ROUND-DONE:", "ROUND-OPEN:", "SLICE-READY:", "SLICE-WAIT:"]
 
 def test_command_defines_every_marker():
     text = (SKILL / "references/slice-command.md").read_text(encoding="utf-8")
@@ -20,7 +20,7 @@ def test_command_offers_parallel_sessions_outside_auto():
 def test_loop_scripts_read_the_same_markers():
     for name, merge_option in (("slice-loop.sh", "--merge"), ("slice-loop.ps1", "-Merge")):
         text = (SKILL / f"assets/{name}").read_text(encoding="utf-8")
-        for m in ("PLAN:", "NEEDS-DECISION:", "SLICE-DONE:", "SLICE-READY:", "SLICE-OPEN:", "ROUND-DONE:", "ROUND-OPEN:"): assert m in text, (name, m)
+        for m in ("PLAN:", "NEEDS-DECISION:", "SLICE-DONE:", "SLICE-READY:", "SLICE-WAIT:", "SLICE-OPEN:", "ROUND-DONE:", "ROUND-OPEN:"): assert m in text, (name, m)
         assert "/slice" in text and "work/_slices.json" in text and "rebuild" not in text.lower()
         # The merge queue squashes in this checkout and passes the message from a file (F-08).
         assert merge_option in text and "merge --squash" in text and "commit -q -F" in text, name
@@ -128,9 +128,11 @@ def test_adr_only_under_three_conditions():
 
 def test_command_stays_short_and_positive():
     """Slice 09 allowed 25 new lines on top of 195 and no new "never" beyond the 16 the command had.
-    Slice 04 moves the line limit from 220 to 230: the full-suite lock protocol needs its own paragraph and a status line."""
+    Slice 04 moves the line limit from 220 to 230: the full-suite lock protocol needs its own paragraph and a status line.
+    1.3.0 moves it to 260: the checks proof, reserved finding ids, SLICE-WAIT, the manual-test format check and the
+    open-decision scan came out of round R02 of a target repository; section 7 got shorter."""
     text = (SKILL / "references/slice-command.md").read_text(encoding="utf-8")
-    assert len(text.splitlines()) <= 230, len(text.splitlines())
+    assert len(text.splitlines()) <= 260, len(text.splitlines())
     assert text.lower().count("never") <= 16, text.lower().count("never")
 
 def _skill_part(name, start, end=None):
@@ -186,10 +188,88 @@ def test_slice_ready_is_a_marker_with_its_meaning():
     assert "SLICE-READY: NN" in section
     assert "branch committed, checklist ticked through Checks, squash message written; waits for the merge queue" in section
 
-def test_parallel_prompts_start_with_parallel_and_name_the_queue():
+def test_parallel_prompts_are_short_and_name_the_queue():
+    """R02: long pasted prompts duplicated conventions and hints the command reads itself."""
     section = _section("## 7. Parallel slices")
-    for phrase in ('"/slice NN parallel"', "merge queue", "slice-loop --merge", "main checkout", "ends with SLICE-READY: NN"):
+    for phrase in ('"/slice NN parallel auto"', "goal and acceptance cases", "Nothing else is pasted", "work/conventions.md",
+                   "merge queue", "slice-loop --merge", "main checkout", "ends with SLICE-READY: NN"):
         assert phrase in section, phrase
+
+def test_orchestrator_runs_cheap_and_long_runs_go_headless():
+    section = _section("## 7. Parallel slices")
+    for phrase in ("cheaper one", "may refuse to start sessions from background events", "`slice-loop -Parallel`"):
+        assert phrase in section, phrase
+    handover = _skill_part("SKILL.md", "## 5. Handover", "## 6. After the round")
+    for phrase in ("-Yes -Parallel", "may refuse to start sessions from background events", "cheaper model"):
+        assert phrase in handover, phrase
+
+SECTION_5 = ("## 5. Close the round", "## 6. Marker lines")
+
+def test_checks_proof_is_written_and_names_the_tip():
+    section = _section(*SECTION_4)
+    for phrase in ("Checks proof", ".slice-loop/slice-NN.checks", "`<exit code> <commit SHA> <command>`",
+                   "exactly as work/conventions.md writes it", "every baseline command is listed",
+                   "checks proof names the branch tip", "rewrite the checks proof with these runs"):
+        assert phrase in section, phrase
+    steps = ["1. Run the checks", "Checks proof", "5. Commit these edits", "checks proof names the branch tip",
+             "a. merge the integration branch", "rewrite the checks proof"]
+    assert [section.index(s) for s in steps] == sorted(section.index(s) for s in steps), "proof in steps 1, 5 and 6a"
+    for name in ("slice-loop.sh", "slice-loop.ps1"):
+        text = (SKILL / f"assets/{name}").read_text(encoding="utf-8")
+        assert ".checks" in text and "Baseline check" in text and "left behind" in text, name
+
+def test_finding_ids_come_from_a_reserved_range():
+    section = _section(*SECTION_3)
+    for phrase in ("reserved range", '"ids"', "New ids", "next free ones", "renumber your own new ids"):
+        assert phrase in section, phrase
+    assert "New ids" in _skill_part("references/templates.md", "## Slices", "## Decisions")
+    assert "`ids`" in _skill_part("references/templates.md", "## work/_slices.json")
+    assert "Reserve finding ids per slice" in _skill_part("references/intake.md", "## Both")
+    assert "Every entry sets `ids`" in _skill_part("SKILL.md", "## 4. Slicing", "## 5. Handover")
+    assert '"ids"' in (SKILL / "scripts/render_slices.py").read_text(encoding="utf-8")
+
+def test_questions_go_under_open_decisions_and_close_scans_for_more():
+    assert 'Every question for me is a "NEEDS-DECISION: <question>" line under Open decisions' in _section(*SECTION_4)
+    close = _section(*SECTION_5)
+    for phrase in ('"user decides"', '"<Name> entscheidet"', '"decision pending"', "outside that section"):
+        assert phrase in close, phrase
+    assert "user decides" in _skill_part("references/round-close.md", "## Steps", "## Manual test list")
+    assert "never only a note under Deferred minors" in _skill_part("references/templates.md", "## work/rounds/", "## work/checklist.md")
+
+def test_manual_test_blocks_have_one_format_and_close_fails_loudly():
+    assert "slice-number order" in _section(*SECTION_4) and "one Expected: per step" in _section(*SECTION_4)
+    close = _section(*SECTION_5)
+    for phrase in ("exactly one Expected: per step", "exactly one Closes:", "is not repaired", "ROUND-OPEN: Rnn manual test list:"):
+        assert phrase in close, phrase
+    block = close.split("```", 2)[1]
+    assert block.count("Expected:") == 2 and block.count("Closes:") == 1 and block.count("Result: ☐") == 1
+    reference = _skill_part("references/round-close.md", "## Manual test list", "## Handover message")
+    for phrase in ("slice-number order", "exactly one `Expected:` line after each step", "refuses to squash"):
+        assert phrase in reference, phrase
+    assert "not repaired silently" in _skill_part("references/round-close.md", "## Steps", "## Manual test list")
+
+def test_new_findings_go_into_the_findings_file():
+    assert "add new findings there in the file's own format" in _section(*SECTION_4)
+
+def test_raised_test_timeouts_are_recorded_and_reviewed():
+    assert "Every timeout or wait you raise in a test goes into the protocol entry" in _section(*SECTION_3)
+    assert "every raised timeout or wait in a test is recorded with its reason" in _section(*SECTION_4)
+
+def test_slice_wait_means_still_running():
+    section = _section(*SECTION_6)
+    assert "SLICE-WAIT: NN <what runs>" in section and "still running, not done" in section
+    assert '"SLICE-WAIT: NN <what runs>"' in _section(*SECTION_4) and "not with SLICE-READY" in _section(*SECTION_4)
+
+def test_collect_mode_writes_points_to_a_file():
+    intake = _skill_part("references/intake.md", "## Collect mode", "## Both")
+    for phrase in ("ich sammle", "work/_raw/intake-Rnn.md", "the moment it is named", "nothing lives only in chat", '"done" / "fertig"'):
+        assert phrase in intake, phrase
+    assert "Collect mode" in _skill_part("SKILL.md", "## 3. Intake", "## 4. Slicing")
+    assert "## work/_raw/intake-Rnn.md" in (SKILL / "references/templates.md").read_text(encoding="utf-8")
+
+def test_conventions_template_limits_test_workers():
+    assert "Test worker limits under load" in (SKILL / "references/templates.md").read_text(encoding="utf-8")
+    assert "--maxWorkers=3" in (SKILL / "references/templates.md").read_text(encoding="utf-8")
 
 def test_status_shows_ready_to_merge():
     section = _section(*SECTION_1)
@@ -227,7 +307,7 @@ def test_release_version_is_consistent():
     manifest = json.loads((ROOT / "plugins/vibe-coding/.claude-plugin/plugin.json").read_text(encoding="utf-8"))["version"]
     skill = re.search(r'^\s+version: "([^"]+)"', (SKILL / "SKILL.md").read_text(encoding="utf-8"), re.M).group(1)
     changelog = re.search(r"^## (\S+) – \d{4}-\d{2}-\d{2}", (ROOT / "plugins/vibe-coding/CHANGELOG.md").read_text(encoding="utf-8"), re.M).group(1)
-    assert manifest == skill == changelog == "1.2.1", (manifest, skill, changelog)
+    assert manifest == skill == changelog == "1.3.0", (manifest, skill, changelog)
 
 def test_marketplace_validation_is_not_strict_but_the_plugins_are():
     """slice-board carries no version on purpose (every commit is an update), so only the marketplace check tolerates warnings."""

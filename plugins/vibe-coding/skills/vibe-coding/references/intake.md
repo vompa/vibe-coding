@@ -21,8 +21,12 @@ Input: a sentence, a concept document, screenshots, a competitor comparison.
    Decisions that change architecture or cost go to the user before slicing, as `NEEDS-DECISION:` lines.
 3. **Slices**: vertical (each cuts through every layer needed for one observable behaviour), dependency-ordered, MVP first – the first slice is the smallest one the user can try. Each slice has an independent test: it can be verified without the slices after it. Sizing as in A.2.
 
+## Collect mode
+When the user says they collect points first ("I'll collect", "ich sammle", "I'll say done"), write each point the moment it is named as a row of `work/_raw/intake-Rnn.md` (id, where, observed → expected, source; format in `templates.md`) and confirm it in one short line – nothing lives only in chat, so a lost session loses nothing. Build nothing and slice nothing yet. On "done" / "fertig", move the rows into the intake table of the new round record (path A) and go on.
+
 ## Both
 - Slice numbers continue across rounds (`07`, `08`, …); slices carry the round id in the field `round`.
+- **Reserve finding ids per slice.** Slices that run in parallel find new problems at the same time. Give every slice a range of ids for new findings, continuing after the highest id in use (`ids` in `_slices.json`, column `New ids` in `## Slices`; for example six ids per slice: `B84–B89`, `B90–B95`). The merge queue refuses to squash a slice that would define an id twice.
 - A repository without a build or test command gets a harness slice first (test project, check chain, CI hook); when it changes the stack, propose it as a `NEEDS-DECISION:` line.
 - A slice that produces pictures or summaries of other screens (help images, a manual, a status page, a design-token overview) depends on every slice of the round that changes those screens – otherwise its output is stale before the round ends and has to be made twice. Slices that share one folder (for example all help slices) form a chain, not a fan-out, so no two of them run in parallel.
 - Open decisions of the previous round are copied into the new record's `## Open decisions` (see `round-close.md`).

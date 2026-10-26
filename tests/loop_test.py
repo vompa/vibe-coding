@@ -4,7 +4,8 @@ with a fake claude CLI (no real Claude calls).
 The vibe-coding profile runs in a real git repository: the fake claude builds each slice on its own branch and
 worktree and ends with SLICE-READY, and the loop's merge queue squashes the branch in the main checkout.
 
-Usage: python tests/loop_test.py   (bash and/or pwsh must be on PATH; missing shells are skipped)
+Usage: python tests/loop_test.py [text]   (bash and/or pwsh must be on PATH; missing shells are skipped)
+  text: run only the cases whose name contains it; LOOP_TEST_SHELLS="pwsh" runs only that shell.
 """
 import json
 import os
@@ -26,12 +27,32 @@ if os.environ.get("STUB_PREPARE") != "1":  # the test prepares branches with thi
     open("stub-calls.log", "a", encoding="utf-8").write(" | ".join(args) + "\n")
 plan = re.match(command + r" (\d{2,}) plan auto", message)
 build = re.search(r"Build slice (\d{2,}) and close it", message)
+check_back = re.search(r"finish slice (\d{2,}) and close it", message)  # the loop checks back on a slice that printed SLICE-WAIT
 close = re.match(command + r" close auto$", message)
 UNTICKED, TICKED = "\u2610", "\u2611"
 
 
 def git(*arguments, cwd="."):
     subprocess.run(["git", *arguments], cwd=cwd, check=True, capture_output=True)
+
+
+def git_out(*arguments, cwd="."):
+    return subprocess.run(["git", *arguments], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
+
+
+def option(name, nr):
+    """Env option for slice nr: "100" (that slice) or "100:value,101:value" (a value per slice); None when not set for nr."""
+    for part in filter(None, os.environ.get(name, "").split(",")):
+        key, _, value = part.partition(":")
+        if key == nr:
+            return value or True
+    return None
+
+
+def edit(path, change):
+    """Rewrites the lines of a text file with change(lines) -> lines, LF line ends."""
+    lines = open(path, encoding="utf-8").read().split("\n")
+    open(path, "w", encoding="utf-8", newline="\n").write("\n".join(change(lines)))
 
 
 def tick(path, nr, keep_commit):
@@ -61,16 +82,50 @@ def build_in_place(nr):
     print(f"SLICE-DONE: {nr}")
 
 
+def manual_block(nr, bad=False):
+    """A manual test block in the format of /slice; bad: a second Result line."""
+    block = ["", f"### Slice {nr} – stub check", "Start: run", "1. Click", "Expected: shown", f"Closes: F-{nr}", f"Result: {UNTICKED}"]
+    return block + [f"Result: {UNTICKED}"] if bad else block
+
+
 def append_to_record(worktree, nr):
-    """Every /slice run adds to the open round record: a surprise and a manual-test block (STUB_RECORD_LINE adds one line more)."""
+    """Every /slice run adds to the open round record: a surprise at the end of Surprises and a manual-test block at the
+    end (STUB_RECORD_LINE adds one line more, STUB_BAD_BLOCK makes the block malformed)."""
     rounds = f"{worktree}/{folder}/rounds"
     for name in sorted(os.listdir(rounds)) if os.path.isdir(rounds) else []:
         path = f"{rounds}/{name}"
         if open(path, encoding="utf-8").readline().strip() == "Status: open":
-            lines = [f"- Slice {nr} stub surprise", f"### Slice {nr} stub check", f"Result: {UNTICKED}"]
-            lines += [os.environ["STUB_RECORD_LINE"]] if os.environ.get("STUB_RECORD_LINE") else []
-            open(path, "a", encoding="utf-8", newline="\n").write("\n".join(lines) + "\n")
+            extra = [os.environ["STUB_RECORD_LINE"]] if os.environ.get("STUB_RECORD_LINE") else []
+            def change(lines):
+                at = lines.index("## Manual test list")
+                lines = lines[:at] + [f"- Slice {nr} stub surprise"] + lines[at:]
+                return lines[:-1] + manual_block(nr, bad=bool(option("STUB_BAD_BLOCK", nr))) + extra + [""]
+            edit(path, change)
             return
+
+
+def write_checks(worktree, nr):
+    """The checks proof /slice writes before SLICE-READY: "<exit code> <sha> <command>" per check of the baseline.
+    STUB_CHECKS=NN:missing|red|stale|incomplete spoils it."""
+    mode = option("STUB_CHECKS", nr)
+    if mode == "missing":
+        return
+    sha = git_out("rev-parse", "HEAD~1" if mode == "stale" else "HEAD", cwd=worktree)
+    commands = ["baseline-check"] if mode == "incomplete" else ["baseline-check", "unit-tests"]
+    lines = [f"{1 if mode == 'red' and c == 'unit-tests' else 0} {sha} {c}" for c in commands]
+    open(f".slice-loop/slice-{nr}.checks", "w", encoding="utf-8", newline="\n").write("\n".join(lines) + "\n")
+
+
+def touch_shared_files(worktree, nr):
+    """Options for files several slices change: STUB_APPEND appends a line to a file, STUB_STATUS sets the round's cell in
+    the status table, STUB_FINDING appends a finding row with that id to docs/findings.md."""
+    if option("STUB_APPEND", nr):
+        edit(f"{worktree}/{option('STUB_APPEND', nr)}", lambda lines: lines[:-1] + [f"- Slice {nr} entry", ""])
+    if option("STUB_STATUS", nr):
+        edit(f"{worktree}/{option('STUB_STATUS', nr)}",
+             lambda lines: [f"| R01 | open | Slice {nr} done |" if line.startswith("| R01 |") else line for line in lines])
+    if option("STUB_FINDING", nr):
+        edit(f"{worktree}/docs/findings.md", lambda lines: lines[:-1] + [f"| {option('STUB_FINDING', nr)} | found in slice {nr} |", ""])
 
 
 def link_packages(worktree):
@@ -98,11 +153,15 @@ def build_on_branch(nr):
     if os.environ.get("STUB_NO_TICK") != nr:
         tick(f"{worktree}/{folder}/checklist.md", nr, keep_commit=True)
     append_to_record(worktree, nr)
+    touch_shared_files(worktree, nr)
     file = os.environ.get("STUB_FILE", f"slice-{nr}.txt")
     open(f"{worktree}/{file}", "w", encoding="utf-8", newline="\n").write(os.environ.get("STUB_CONTENT", f"slice {nr}") + "\n")
     commit(worktree, f"Slice {nr} task commit", f"task-{nr}.msg")
+    write_checks(worktree, nr)
     if os.environ.get("STUB_NO_MESSAGE") != nr:
         open(f".slice-loop/slice-{nr}.msg", "w", encoding="utf-8", newline="\n").write(f"Slice {nr} stub squash\n\nBody line.\n")
+    if option("STUB_LOCK", nr):  # a worktree git will not remove, as when a shell still runs inside it
+        git("worktree", "lock", worktree)
     print(f"SLICE-READY: {nr}")
 
 
@@ -127,8 +186,12 @@ if plan:
         print("NEEDS-DECISION: Which licence?")
 elif close:
     print("ROUND-OPEN: R01 checks red" if os.environ.get("STUB_CLOSE_FAIL") == "1" else "ROUND-DONE: R01")
-elif build:
-    nr = build.group(1)
+elif (build or check_back) and option("STUB_WAIT_ALWAYS", (build or check_back).group(1)) \
+        or build and option("STUB_WAIT", build.group(1)):
+    # The session ends its turn while its full suite runs in the background.
+    print(f"SLICE-WAIT: {(build or check_back).group(1)} full suite in the background")
+elif build or check_back:
+    nr = (build or check_back).group(1)
     if os.environ.get("STUB_FAIL") == nr:
         print(f"SLICE-OPEN: {nr} tests red")
         sys.exit(0)
@@ -143,12 +206,14 @@ else:
 
 # One profile per plugin. Case: name, slices done before, options, env, rounds (None = default),
 # expected (exit code, ticked slices, build turns, close turns), and for the vibe-coding profile an optional dict of
-# git expectations: "prepared" (branches made before the run: nr, optional file, content, ready, message, record_line),
-# "main_row" (a checklist row committed on main after the branches were made), "subjects" (commit subjects after the
-# initial commit, oldest first), "branches" (slice-* branches left; default none), "says" / "says_not" (a phrase that
-# is / is not in the loop's output), "no_calls" (no claude call), "record_has" (lines of work/rounds/R01-test.md),
-# "results" (its number of "Result:" lines), "checklist_has" (lines of work/checklist.md). "dry_run_ready" is what
-# --dry-run prints when the first three slices are done.
+# git expectations: "prepared" (branches made before the run: nr, optional file, content, ready, message, record_line
+# and the BRANCH_OPTIONS), "main_row" (a checklist row committed on main after the branches were made), "main_change"
+# (files or a manual test block committed on main after that), "rerun" (options of a second run after unlocking the
+# worktrees), "subjects" (commit subjects after the initial commit, oldest first), "branches" (slice-* branches left;
+# default none), "says" / "says_not" (a phrase that is / is not in the loop's output), "no_calls" (no claude call),
+# "record_has" (lines of work/rounds/R01-test.md), "results" (its number of "Result:" lines), "order" (lines it holds in
+# this order), "checklist_has" (lines of work/checklist.md), "file_has" (lines per file), "file_count" (path, line
+# prefix, number of such lines). "dry_run_ready" is what --dry-run prints when the first three slices are done.
 PROFILES = [
     {
         "plugin": "vibe-rebuild", "script": "rebuild-loop", "folder": "rebuild", "command": "/rebuild",
@@ -189,7 +254,7 @@ PROFILES = [
             ("parallel builds both ready slices through the queue then close the round", 3, ["--yes", "--parallel"], {}, None,
              (0, 5, 2, 1),
              {"subjects": ["Slice 100 stub squash", "Slice 101 stub squash"], "results": 2,
-              "record_has": ["- Slice 100 stub surprise", "### Slice 100 stub check", "- Slice 101 stub surprise", "### Slice 101 stub check"],
+              "record_has": ["- Slice 100 stub surprise", "### Slice 100 – stub check", "- Slice 101 stub surprise", "### Slice 101 – stub check"],
               "checklist_has": ["| 100 Name | ☑ | ☑ |", "| 101 Name | ☑ | ☑ |"]}),
             ("red slice stops the loop", 3, ["--yes"], {"STUB_FAIL": "100"}, None, (1, 3, 1, 0)),
             ("ready but not ticked stops instead of merging", 3, ["--yes"], {"STUB_NO_TICK": "100"}, None, (1, 3, 1, 0),
@@ -207,11 +272,58 @@ PROFILES = [
             ("all done and closed exits cleanly", 5, [], {}, [("R01", "closed")], (0, 5, 0, 0)),
             ("merge squashes one ready branch without a claude call", 3, ["--merge"], {}, [("R01", "closed")], (0, 4, 0, 0),
              {"prepared": [{"nr": "100"}], "subjects": ["Slice 100 stub squash"], "no_calls": True}),
-            ("merge stops on a conflict in a foreign file", 3, ["--merge"], {}, None, (1, 4, 0, 0),
-             {"prepared": [{"nr": "100", "file": "shared.txt", "content": "from 100"},
-                           {"nr": "101", "file": "shared.txt", "content": "from 101"}],
-              "subjects": ["Slice 100 stub squash"], "branches": ["slice-101"], "says": "merge conflict in shared.txt ",
-              "says_not": "work/checklist.md", "no_calls": True}),
+            # A real conflict (both sides changed the same line) leaves that slice behind; the queue squashes the next one.
+            ("merge leaves a real conflict behind and squashes the next slice", 3, ["--merge"], {}, None, (1, 4, 0, 0),
+             {"prepared": [{"nr": "100", "file": "shared.txt", "content": "from 100"}, {"nr": "101"}],
+              "main_change": {"shared.txt": "from main\n"},
+              "subjects": ["Change on main", "Slice 101 stub squash"], "branches": ["slice-100"],
+              "says": "merge conflict in shared.txt ", "says_not": "work/checklist.md", "no_calls": True}),
+            ("merge keeps both sides of lines appended at the same place in any file", 3, ["--merge"], {}, None, (0, 5, 0, 0),
+             {"prepared": [{"nr": "100", "append": "docs/protocol.md"}, {"nr": "101", "append": "docs/protocol.md"}],
+              "subjects": ["Slice 100 stub squash", "Slice 101 stub squash"],
+              "file_has": {"docs/protocol.md": ["# Protocol", "- Slice 100 entry", "- Slice 101 entry"]}, "no_calls": True}),
+            ("merge merges the status row of the round by rule", 3, ["--merge"], {}, None, (0, 5, 0, 0),
+             {"prepared": [{"nr": "100", "status": "docs/status.md"}, {"nr": "101", "status": "docs/status.md"}],
+              "file_has": {"docs/status.md": ["| R01 | open | Slice 100 done; Slice 101 done |"]},
+              "file_count": [("docs/status.md", "| R01 |", 1)], "no_calls": True}),
+            ("merge leaves a slice without checks proof and squashes the next", 3, ["--merge"], {}, None, (1, 4, 0, 0),
+             {"prepared": [{"nr": "100", "checks": "missing"}, {"nr": "101"}], "subjects": ["Slice 101 stub squash"],
+              "branches": ["slice-100"], "says": "no checks proof", "no_calls": True}),
+            ("merge leaves a slice with a red check", 3, ["--merge"], {}, None, (1, 3, 0, 0),
+             {"prepared": [{"nr": "100", "checks": "red"}], "subjects": [], "branches": ["slice-100"],
+              "says": "check red (exit 1): unit-tests", "no_calls": True}),
+            ("merge leaves a slice whose checks ran on an older commit", 3, ["--merge"], {}, None, (1, 3, 0, 0),
+             {"prepared": [{"nr": "100", "checks": "stale"}], "subjects": [], "branches": ["slice-100"],
+              "says": "not on the tip", "no_calls": True}),
+            ("merge leaves a slice whose proof lacks a baseline check", 3, ["--merge"], {}, None, (1, 3, 0, 0),
+             {"prepared": [{"nr": "100", "checks": "incomplete"}], "subjects": [], "branches": ["slice-100"],
+              "says": "baseline check missing from .slice-loop/slice-100.checks: unit-tests", "no_calls": True}),
+            ("merge refuses a finding id defined twice", 3, ["--merge"], {}, None, (1, 4, 0, 0),
+             {"prepared": [{"nr": "100", "finding": "F-90"}, {"nr": "101", "finding": "F-90"}],
+              "subjects": ["Slice 100 stub squash"], "branches": ["slice-101"],
+              "says": "finding id defined twice: F-90 in docs/findings.md", "no_calls": True}),
+            # The integration branch got slice 102's block after the branches were cut: the blocks end in slice order.
+            ("merge puts the manual test blocks in slice order", 3, ["--merge"], {}, None, (0, 5, 0, 0),
+             {"prepared": [{"nr": "101"}, {"nr": "100"}], "main_change": {"block": "102"}, "results": 3,
+              "order": ["### Slice 100 – stub check", "### Slice 101 – stub check", "### Slice 102 – stub check"],
+              "no_calls": True}),
+            ("merge refuses a malformed manual test block", 3, ["--merge"], {}, None, (1, 3, 0, 0),
+             {"prepared": [{"nr": "100", "bad_block": True}], "subjects": [], "branches": ["slice-100"],
+              "says": "manual test block of slice 100", "no_calls": True}),
+            # The build loop goes on without a slice it left behind, then lists it and exits non-zero without closing.
+            ("parallel run goes on past a slice it left behind", 3, ["--yes", "--parallel"], {"STUB_CHECKS": "100:red"}, None,
+             (1, 4, 2, 0), {"subjects": ["Slice 101 stub squash"], "branches": ["slice-100"], "says": "1 slice(s) left behind"}),
+            ("SLICE-WAIT is still running and checked back on", 3, ["--yes", "--max-slices", "1"],
+             {"STUB_WAIT": "100", "SLICE_WAIT_SECONDS": "0"}, None, (0, 4, 1, 0),
+             {"subjects": ["Slice 100 stub squash"], "says": "still running: full suite in the background"}),
+            ("SLICE-WAIT without end stops after the last check-back", 3, ["--yes", "--max-slices", "1"],
+             {"STUB_WAIT_ALWAYS": "100", "SLICE_WAIT_SECONDS": "0", "SLICE_WAIT_MAX": "2"}, None, (1, 3, 1, 0),
+             {"subjects": [], "says": "still waiting after 2 check-backs"}),
+            # A worktree git will not remove is reported with its likely cause; a later --merge removes it.
+            ("a worktree left by the squash is removed by a later merge", 3, ["--yes", "--max-slices", "1"], {"STUB_LOCK": "100"},
+             None, (0, 4, 1, 0),
+             {"rerun": ["--merge"], "subjects": ["Slice 100 stub squash"], "branches": [],
+              "says": "a shell, editor or process still runs inside it"}),
             # The integration branch got a row after the branches were cut: it stays, and 101's squash keeps 100's ticks.
             ("merge resolves the checklist and keeps a row only the integration branch has", 3, ["--merge"], {}, None, (0, 5, 0, 0),
              {"prepared": [{"nr": "100"}, {"nr": "101"}], "main_row": "102",
@@ -268,6 +380,25 @@ def init_git(repo: pathlib.Path) -> None:
     git(repo, "commit", "-q", "-m", "Initial state")
 
 
+# Per-branch options of "prepared" and the stub variable each one sets for that slice.
+BRANCH_OPTIONS = {"append": "STUB_APPEND", "status": "STUB_STATUS", "finding": "STUB_FINDING", "checks": "STUB_CHECKS",
+                  "bad_block": "STUB_BAD_BLOCK"}
+# Files every vibe-coding test repository starts with: the baseline check the queue requires in the checks proof, the
+# findings file the record names under ## Source, a status page with the round's row, a protocol appended to.
+WORK_FILES = {
+    "work/conventions.md": "# Conventions\n- Baseline check (before every slice): `baseline-check`, `unit-tests` ← test; not `| tail`\n",
+    "docs/findings.md": "# Findings\n| id | finding |\n|---|---|\n| F-01 | old |\n",
+    "docs/status.md": "| Round | State | Slices |\n|---|---|---|\n| R01 | open | – |\n",
+    "docs/protocol.md": "# Protocol\n",
+    "shared.txt": "base\n",
+}
+
+
+def record_text(status: str) -> str:
+    return (f"Status: {status}\n\n# Round – test\n\n## Source\n`docs/findings.md`, marked \"done in slice NN\"\n\n"
+            "## Surprises\n\n## Manual test list\n")
+
+
 def prepare_branch(repo: pathlib.Path, stub: pathlib.Path, profile: dict, branch: dict) -> None:
     """A slice-NN branch as a finished /slice run leaves it, made by the fake claude without counting as a call."""
     env = dict(os.environ, STUB_FOLDER=profile["folder"], STUB_COMMAND=profile["command"], STUB_PREPARE="1")
@@ -279,6 +410,9 @@ def prepare_branch(repo: pathlib.Path, stub: pathlib.Path, profile: dict, branch
         env["STUB_NO_MESSAGE"] = branch["nr"]
     if branch.get("record_line"):
         env["STUB_RECORD_LINE"] = branch["record_line"]
+    for key, variable in BRANCH_OPTIONS.items():
+        if branch.get(key):
+            env[variable] = f"{branch['nr']}:{branch[key]}" if branch[key] is not True else branch["nr"]
     subprocess.run([sys.executable, "-X", "utf8", str(stub), f"Build slice {branch['nr']} and close it"],
                    cwd=repo, env=env, check=True, capture_output=True)
 
@@ -291,8 +425,22 @@ def add_main_row(repo: pathlib.Path, profile: dict, nr: str) -> None:
     git(repo, "commit", "-q", "-am", f"Add row {nr}")
 
 
+def change_main(repo: pathlib.Path, changes: dict) -> None:
+    """Commits on main after the slice branches were cut: "path": text replaces a file, "block": NN appends a manual
+    test block for slice NN to the open record."""
+    for path, text in changes.items():
+        if path == "block":
+            record = repo / "work/rounds/R01-test.md"
+            record.write_text(record.read_text(encoding="utf-8") + "\n".join(
+                ["", f"### Slice {text} – stub check", "Start: run", "1. Click", "Expected: shown", f"Closes: F-{text}", "Result: ☐", ""]),
+                encoding="utf-8", newline="\n")
+        else:
+            (repo / path).write_text(text, encoding="utf-8", newline="\n")
+    git(repo, "commit", "-q", "-am", "Change on main")
+
+
 def make_repo(base: pathlib.Path, profile: dict, done: int, rounds: list[tuple[str, str]] | None,
-              stub: pathlib.Path, prepared: list[dict], main_row: str | None) -> pathlib.Path:
+              stub: pathlib.Path, prepared: list[dict], main_row: str | None, main_change: dict | None = None) -> pathlib.Path:
     """Plan repo with the first `done` slices ticked; the slice loop also gets one record per round and a real git repository."""
     repo = pathlib.Path(tempfile.mkdtemp(dir=base))
     folder = repo / profile["folder"]
@@ -308,12 +456,17 @@ def make_repo(base: pathlib.Path, profile: dict, done: int, rounds: list[tuple[s
         return repo
     (folder / "rounds").mkdir()
     for round_id, status in rounds or [("R01", "open")]:
-        (folder / f"rounds/{round_id}-test.md").write_text(f"Status: {status}\n", encoding="utf-8", newline="\n")
+        (folder / f"rounds/{round_id}-test.md").write_text(record_text(status), encoding="utf-8", newline="\n")
+    for path, text in WORK_FILES.items():
+        (repo / path).parent.mkdir(parents=True, exist_ok=True)
+        (repo / path).write_text(text, encoding="utf-8", newline="\n")
     init_git(repo)
     for branch in prepared:
         prepare_branch(repo, stub, profile, branch)
     if main_row:
         add_main_row(repo, profile, main_row)
+    if main_change:
+        change_main(repo, main_change)
     return repo
 
 
@@ -399,6 +552,15 @@ def git_problems(repo: pathlib.Path, profile: dict, result: subprocess.Completed
     checklist = (folder / "checklist.md").read_text(encoding="utf-8").splitlines()
     problems += [f"record lacks {line!r}" for line in expected.get("record_has", []) if line not in record]
     problems += [f"checklist lacks {line!r}" for line in expected.get("checklist_has", []) if line not in checklist]
+    for path, lines in expected.get("file_has", {}).items():
+        text = (repo / path).read_text(encoding="utf-8").splitlines()
+        problems += [f"{path} lacks {line!r}" for line in lines if line not in text]
+    for path, prefix, count in expected.get("file_count", []):
+        found = sum(line.startswith(prefix) for line in (repo / path).read_text(encoding="utf-8").splitlines())
+        if found != count:
+            problems.append(f"{path} has {found} lines starting with {prefix!r}, not {count}")
+    if "order" in expected and [line for line in record if line in expected["order"]] != expected["order"]:
+        problems.append(f"record order: {[line for line in record if line.startswith('### ')]}")
     if "results" in expected and sum(line.startswith("Result:") for line in record) != expected["results"]:
         problems.append(f"record has {sum(line.startswith('Result:') for line in record)} Result lines")
     markers = [line for line in record + checklist if line.startswith(("<<<<<<<", "=======", ">>>>>>>", "|||||||"))]
@@ -423,7 +585,8 @@ def wrong_models(repo: pathlib.Path, profile: dict) -> list[str]:
 
 def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # failure output carries ☑ and ☐; Windows consoles default to cp1252
-    shells = [s for s in ("bash", "pwsh") if shutil.which(s)]
+    only = sys.argv[1] if len(sys.argv) > 1 else ""  # optional: run only cases whose name contains this text
+    shells = [s for s in os.environ.get("LOOP_TEST_SHELLS", "bash pwsh").split() if shutil.which(s)]
     if not shells:
         print("no bash or pwsh found")
         return 1
@@ -437,9 +600,19 @@ def main() -> int:
             assert_stub_first(shell, bin_dir)
             for profile in PROFILES:
                 for name, done, options, env, rounds, expected, *extra in profile["cases"]:
+                    if only not in name:
+                        continue
                     git_expected = extra[0] if extra else {}
-                    repo = make_repo(base, profile, done, rounds, stub, git_expected.get("prepared", []), git_expected.get("main_row"))
+                    repo = make_repo(base, profile, done, rounds, stub, git_expected.get("prepared", []), git_expected.get("main_row"),
+                                     git_expected.get("main_change"))
                     result = run_case(shell, repo, bin_dir, profile, options, env)
+                    if "rerun" in git_expected:  # whatever kept the worktree is gone (here: its lock), then the queue runs again
+                        for line in git(repo, "worktree", "list", "--porcelain").splitlines():
+                            if line.startswith("worktree ") and ".claude/worktrees/" in line:
+                                subprocess.run(["git", "worktree", "unlock", line[9:]], cwd=repo, capture_output=True)
+                        first = result
+                        result = run_case(shell, repo, bin_dir, profile, git_expected["rerun"], env)
+                        result.stdout, result.stderr = first.stdout + result.stdout, first.stderr + result.stderr
                     got = outcome(repo, profile, result)
                     problems = wrong_models(repo, profile) + git_problems(repo, profile, result, git_expected)
                     ok = got == expected and not problems and (options != ["--dry-run"] or result.stdout.split() == profile["dry_run_ready"])

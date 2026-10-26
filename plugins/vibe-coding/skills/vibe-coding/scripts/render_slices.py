@@ -4,10 +4,11 @@
 Usage: python3 render_slices.py <_slices.json> <output_dir> [--lang en|de]
 Entry fields (see references/templates.md, _slices.json):
   required: nr, slug, name, goal, deps, scope (list), non_goals
-  optional text (default: an en dash): round, source, model
+  optional text (default: an en dash): round, source, model, ids
     (round also names the round record the prompt points to; without it the prompt
     points to the open round record in work/rounds/; model is the cheapest model tier
-    the slice needs – the loop and parallel sessions start the slice on it)
+    the slice needs – the loop and parallel sessions start the slice on it; ids is the
+    range of finding ids reserved for new findings of the slice, e.g. "B84–B89")
   optional lists (rendered as "- item", an en dash when missing or empty):
     mirror (patterns to copy as file:line), not_building,
     acceptance (Given/When/Then, rendered as checkboxes in the Definition of Done),
@@ -30,6 +31,7 @@ TEMPLATES = {
 **Source:** {source}
 **Depends on:** {deps}
 **Model:** {model}
+**Ids for new findings:** {ids}
 
 ## Scope
 {scope}
@@ -69,6 +71,7 @@ Implement slice {nr} "{name}" (this file).
 **Quelle:** {source}
 **Hängt ab von:** {deps}
 **Modell:** {model}
+**IDs für neue Befunde:** {ids}
 
 ## Umfang
 {scope}
@@ -120,7 +123,7 @@ PHRASES = {
 }
 
 REQUIRED = ("nr", "slug", "name", "goal", "deps", "scope", "non_goals")
-OPTIONAL_TEXT = ("round", "source", "model")
+OPTIONAL_TEXT = ("round", "source", "model", "ids")
 OPTIONAL_LISTS = ("mirror", "not_building")
 EMPTY = "–"
 

@@ -1,18 +1,23 @@
 #!/usr/bin/env bash
 # Builds the open round slice by slice, each slice in a fresh headless Claude session, then closes the round.
 # A slice that ends with SLICE-READY is squashed by the merge queue: one slice-NN branch after another, in this
-# checkout, with the message from .slice-loop/slice-NN.msg. Conflicts in work/checklist.md and the open round record
-# are resolved by rule and checked; a conflict in any other file stops the loop and names the files.
-# Stops for plan approval unless --yes; stops on NEEDS-DECISION, red tests or a blocked slice.
+# checkout, with the message from .slice-loop/slice-NN.msg, once .slice-loop/slice-NN.checks proves green checks on
+# the branch tip. Conflicts are resolved by rule and checked: work/checklist.md by the union of ticks, and in any text
+# file a hunk where both sides only added lines (both kept) or changed rows of one table (merged per row key, e.g. the
+# status row of a round). A real conflict, a missing proof, a duplicate finding id or a malformed manual test block
+# leaves that slice behind with its branch; the queue goes on, lists every slice left behind and exits non-zero.
+# Stops for plan approval unless --yes; stops on NEEDS-DECISION, red tests or a blocked slice. A slice that ends its
+# turn with SLICE-WAIT is still running: the loop checks back on it in the same session.
 #
 # Usage: bash .claude/scripts/slice-loop.sh [--yes] [--parallel] [--dry-run] [--max-slices N] [--merge]
 #   --yes           approve plans without asking (still stops on NEEDS-DECISION)
-#   --parallel      build slices that are ready at the same time side by side (experimental)
+#   --parallel      build slices that are ready at the same time side by side (headless; for long autonomous runs)
 #   --dry-run       only print the slices that are ready now, then exit
 #   --max-slices N  stop after N built slices if slices are left (exit 0; run again to continue)
-#   --merge         only run the merge queue: squash every slice-NN branch ticked through Checks, then exit
-#                   (starts no session, needs no open round)
+#   --merge         only run the merge queue: squash every slice-NN branch ticked through Checks, retry removing
+#                   worktrees an earlier squash left, then exit (starts no session, needs no open round)
 # Env: SLICE_PERMISSION_MODE (default: auto) – passed to claude --permission-mode.
+#      SLICE_WAIT_SECONDS (default: 60), SLICE_WAIT_MAX (default: 30) – pause and number of check-backs on SLICE-WAIT.
 set -euo pipefail
 shopt -s inherit_errexit
 # Git Bash on Windows would rewrite the argument "/slice …" into a Windows path.
@@ -20,9 +25,12 @@ export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
 
 readonly SLICES_FILE="work/_slices.json"
 readonly CHECKLIST_FILE="work/checklist.md"
+readonly CONVENTIONS_FILE="work/conventions.md"
 readonly ROUNDS_DIR="work/rounds"
 readonly LOG_DIR=".slice-loop"
 readonly PERMISSION_MODE="${SLICE_PERMISSION_MODE:-auto}"
+readonly WAIT_SECONDS="${SLICE_WAIT_SECONDS:-60}"
+readonly WAIT_MAX="${SLICE_WAIT_MAX:-30}"
 readonly USAGE="use --yes, --parallel, --dry-run, --max-slices N, --merge"
 
 auto_approve=false
@@ -32,8 +40,25 @@ merge_only=false
 max_slices=0  # 0 = no cap
 built=0
 round=""
+declare -A left_nrs=()  # slices the merge queue left behind in this run
+left_lines=()           # "slice NN: <reason>", in the order they were left
 
 die() { echo "slice-loop: $*" >&2; exit 1; }
+
+# Leaves slice $1 behind for reason $2: its branch stays, the run goes on without it.
+leave_slice() {
+  echo "[slice $1] left behind: $2 – slice-$1 kept" >&2
+  left_nrs[$1]=1
+  left_lines+=("slice $1: $2")
+}
+
+# Lists every slice left behind and fails when there is one.
+report_left() {
+  (( ${#left_lines[@]} == 0 )) && return 0
+  echo "slice-loop: ${#left_lines[@]} slice(s) left behind – fix them on their branch, then run --merge again:" >&2
+  printf '  %s\n' "${left_lines[@]}" >&2
+  return 1
+}
 
 parse_args() {
   while [[ $# -gt 0 ]]; do
@@ -139,9 +164,11 @@ remove_slice_branch() {
   path=$(worktree_of "$branch")
   if [[ -n "$path" ]]; then unlink_links "$path"; fi
   if [[ -n "$path" ]] && ! git worktree remove "$path" >/dev/null 2>&1; then
-    echo "[slice $1] worktree $path could not be removed – it and $branch are left" >&2
+    echo "[slice $1] worktree $path could not be removed – most likely a shell, editor or process still runs inside it" \
+      "(or it is locked); close it and run --merge again to retry. $path and $branch are kept" >&2
     return
   fi
+  rm -f "$LOG_DIR/slice-$1.squashed"
   # -D: a squash merge leaves the branch unmerged in git's eyes; the squash commit made just now is the proof.
   git branch -D "$branch" >/dev/null || echo "[slice $1] branch $branch could not be removed" >&2
 }
@@ -187,26 +214,242 @@ resolve_checklist() {
   printf '%s\n' "${out[@]}" >"$CHECKLIST_FILE"
 }
 
-# The round record $1 after a squash conflict: in every conflict hunk the integration branch's side, then the branch's
-# side; the marker lines and the base section of the diff3 styles are dropped.
-resolve_record() {
-  local file=$1 line state=outside
-  local -a out=()
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    line=${line%$'\r'}
-    case "$state:$line" in
-      outside:'<<<<<<<'*) state=ours; continue ;;
-      ours:'|||||||'*) state=base; continue ;;
-      ours:'=======' | base:'=======') state=theirs; continue ;;
-      theirs:'>>>>>>>'*) state=outside; continue ;;
-    esac
-    if [[ "$state" != base ]]; then out+=("$line"); fi
-  done <"$file"
-  printf '%s\n' "${out[@]}" >"$file"
+# Table rows for the awk programs below: a row starts with "|", its key is its first cell, and a cell holds items
+# separated by "; ". Merging a row both sides changed takes, per cell, the change of the one side that changed it; a
+# cell both changed keeps the integration branch's text and adds every item only the branch's text has.
+readonly AWK_TABLE='
+function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
+function is_row(line) { return line ~ /^[|]/ }
+function row_key(line,   raw) { split(line, raw, "|"); return trim(raw[2]) }
+function cells(line, arr,   raw, n, last, i) {
+  n = split(line, raw, "|"); last = (trim(raw[n]) == "") ? n - 1 : n
+  for (i = 2; i <= last; i++) arr[i - 1] = trim(raw[i])
+  return last - 1
+}
+function has_item(text, x,   parts, n, i) {
+  n = split(text, parts, /; /)
+  for (i = 1; i <= n; i++) if (trim(parts[i]) == x) return 1
+  return 0
+}
+function merge_cell(o, b, t,   parts, n, i, out, x) {
+  if (o == t || t == b) return o
+  if (o == b) return t
+  out = o; n = split(t, parts, /; /)
+  for (i = 1; i <= n; i++) {
+    x = trim(parts[i])
+    if (x != "" && !has_item(o, x) && !has_item(b, x)) out = (out == "") ? x : (out "; " x)
+  }
+  return out
+}
+function merge_row(o, b, t,   co, cb, ct, n, i, row) {
+  if (o == t || t == b) return o
+  if (o == b) return t
+  n = cells(o, co); if (cells(t, ct) != n) return ""
+  if (b != "") { if (cells(b, cb) != n) return "" } else for (i = 1; i <= n; i++) cb[i] = ""
+  row = "|"; for (i = 1; i <= n; i++) row = row " " merge_cell(co[i], cb[i], ct[i]) " |"
+  return row
+}
+function covers(line, b, r,   cl, cb, cr, n, i, parts, m, j, x) {
+  n = cells(line, cl); if (cells(r, cr) != n) return 0
+  if (b != "") { if (cells(b, cb) != n) return 0 } else for (i = 1; i <= n; i++) cb[i] = ""
+  for (i = 1; i <= n; i++) {
+    m = split(cl[i], parts, /; /)
+    for (j = 1; j <= m; j++) { x = trim(parts[j]); if (x != "" && !has_item(cb[i], x) && !has_item(cr[i], x)) return 0 }
+  }
+  return 1
+}
+'
+
+# Resolves every conflict hunk (diff3 style) of the file on stdin, writes the result to stdout; fails on a real conflict.
+# A hunk whose base part is empty (both sides only added lines) keeps the integration branch's lines, then the branch's.
+# A hunk of table rows with unique keys where no side removed a key keeps one row per key: rows only one side has, rows
+# only one side changed in that change, rows both changed merged cell by cell. Any other hunk is a real conflict;
+# mode "record" (the open round record) keeps both sides there, too – the rule of 1.2.
+readonly AWK_RESOLVE='
+function keyed(arr, n, keys,   i, k) {
+  for (i = 1; i <= n; i++) {
+    if (!is_row(arr[i])) return 0
+    k = row_key(arr[i]); if (k == "" || k ~ /^[-: ]+$/ || (k in keys)) return 0
+    keys[k] = i
+  }
+  return 1
+}
+function table_merge(   ko, kb, kt, i, k, m) {
+  nm = 0
+  if (!keyed(O, no, ko) || !keyed(B, nb, kb) || !keyed(T, nt, kt)) return 0
+  for (k in kb) if (!(k in ko) || !(k in kt)) return 0
+  for (i = 1; i <= no; i++) {
+    k = row_key(O[i])
+    if (k in kt) { m = merge_row(O[i], (k in kb) ? B[kb[k]] : "", T[kt[k]]); if (m == "") return 0; M[++nm] = m }
+    else M[++nm] = O[i]
+  }
+  for (i = 1; i <= nt; i++) if (!(row_key(T[i]) in ko)) M[++nm] = T[i]
+  return 1
+}
+function both_sides(   i) { for (i = 1; i <= no; i++) print O[i]; for (i = 1; i <= nt; i++) print T[i] }
+function resolve(   i) {
+  if (nb == 0) both_sides()
+  else if (table_merge()) for (i = 1; i <= nm; i++) print M[i]
+  else if (mode == "record") both_sides()
+  else { failed = 1; exit 1 }
+}
+{ sub(/\r$/, "") }
+state == "" && /^<<<<<<</ { state = "o"; no = nb = nt = 0; next }
+state == "o" && /^[|][|][|][|][|][|][|]/ { state = "b"; next }
+(state == "o" || state == "b") && $0 == "=======" { state = "t"; next }
+state == "t" && /^>>>>>>>/ { state = ""; resolve(); next }
+state == "o" { O[++no] = $0; next }
+state == "b" { B[++nb] = $0; next }
+state == "t" { T[++nt] = $0; next }
+{ print }
+END { if (failed || state != "") exit 1 }
+'
+
+# Nothing was lost in a resolved text file (variables ours, theirs, base, result name the files): every line both sides
+# kept or either side added is in the result, a table row as it is or covered by the result row of its key (every item
+# the side added to a cell is there); no key has more rows than either side had; the Result: lines add up
+# (ours + theirs - merge base). Prints the first problem; prints nothing when the file is fine.
+readonly AWK_CHECK='
+function load(file, lines, set,   n, line) {
+  n = 0
+  while ((getline line < file) > 0) { sub(/\r$/, "", line); lines[++n] = line; set[line] = 1 }
+  close(file); return n
+}
+function results(lines, n,   i, c) { c = 0; for (i = 1; i <= n; i++) if (lines[i] ~ /^Result:/) c++; return c }
+function keys(lines, n, count,   i) { for (i = 1; i <= n; i++) if (is_row(lines[i])) count[row_key(lines[i])]++ }
+function need(line,   k, j) {
+  if (line in hs) return 1
+  if (!is_row(line)) return 0
+  k = row_key(line); needed_key[k] = 1
+  for (j = 1; j <= nh; j++) if (is_row(H[j]) && row_key(H[j]) == k && covers(line, (k in brow) ? brow[k] : "", H[j])) return 1
+  return 0
+}
+BEGIN {
+  no = load(ours, O, os); nt = load(theirs, T, ts); nb = load(base, B, bs); nh = load(result, H, hs)
+  for (i = nb; i >= 1; i--) if (is_row(B[i])) brow[row_key(B[i])] = B[i]
+  for (i = 1; i <= no; i++) if (((O[i] in ts) || !(O[i] in bs)) && !need(O[i])) { print "lost: " O[i]; exit }
+  for (i = 1; i <= nt; i++) if (!(T[i] in bs) && !need(T[i])) { print "lost: " T[i]; exit }
+  keys(O, no, ko); keys(T, nt, kt); keys(H, nh, kh)
+  for (k in needed_key) if (kh[k] > ko[k] && kh[k] > kt[k]) { print "duplicate rows for " k; exit }
+  if (results(H, nh) != results(O, no) + results(T, nt) - results(B, nb)) print "Result: lines do not add up"
+}
+'
+
+# Resolves the conflict hunks of file $1 by rule (mode $2: strict, or record for the open round record); fails and leaves
+# the file as it is on a real conflict.
+resolve_hunks() {
+  local file=$1 mode=$2 out="$LOG_DIR/resolved.tmp"
+  awk -v mode="$mode" "$AWK_TABLE$AWK_RESOLVE" "$file" >"$out" || return 1
+  mv "$out" "$file"
 }
 
-# Number of lines in file $1 that start with "Result:" (the manual test list).
-count_results() { grep -c '^Result:' "$1" || true; }
+# Puts the blocks under "## Manual test list" of record $1 in slice-number order (stable); nothing else moves.
+readonly AWK_ORDER='
+{ sub(/\r$/, ""); L[++n] = $0 }
+END {
+  for (i = 1; i <= n; i++) if (L[i] ~ /^## Manual test list/) { start = i; break }
+  if (!start) { for (i = 1; i <= n; i++) print L[i]; exit }
+  for (stop = start + 1; stop <= n && L[stop] !~ /^## /; stop++) ;
+  for (i = start + 1; i < stop; i++) if (L[i] ~ /^### Slice [0-9]/) { first[++nb] = i; match(L[i], /[0-9]+/); num[nb] = substr(L[i], RSTART, RLENGTH) + 0 }
+  if (!nb) { for (i = 1; i <= n; i++) print L[i]; exit }
+  for (b = 1; b <= nb; b++) { last[b] = (b < nb ? first[b + 1] : stop) - 1; while (last[b] > first[b] && L[last[b]] == "") last[b]-- }
+  blank = 0; for (i = stop - 1; i > last[nb] && L[i] == ""; i--) blank++
+  for (b = 1; b <= nb; b++) order[b] = b
+  for (b = 2; b <= nb; b++) for (c = b; c > 1 && num[order[c - 1]] > num[order[c]]; c--) { t = order[c]; order[c] = order[c - 1]; order[c - 1] = t }
+  for (i = 1; i < first[1]; i++) print L[i]
+  for (b = 1; b <= nb; b++) { if (b > 1) print ""; for (i = first[order[b]]; i <= last[order[b]]; i++) print L[i] }
+  for (i = 1; i <= blank; i++) print ""
+  for (i = stop; i <= n; i++) print L[i]
+}
+'
+order_manual_tests() {
+  local file=$1 out="$LOG_DIR/ordered.tmp"
+  awk "$AWK_ORDER" "$file" >"$out"
+  # Rewritten only when a block moved, so a file with CRLF line endings keeps them otherwise.
+  if ! tr -d '\r' <"$file" | cmp -s - "$out"; then mv "$out" "$file"; fi
+}
+
+# Problems of the manual test block of slice nr in the record: steps numbered 1..n, exactly one Expected: per step,
+# exactly one Closes: and one Result: per block, one block per slice. Prints nothing when the slice has no block or it is fine.
+readonly AWK_BLOCK='
+function end_step() { if (steps > checked) { if (expected != 1) bad = bad "step " steps " has " expected " Expected: lines; "; checked = steps; expected = 0 } }
+{ sub(/\r$/, "") }
+/^## / { end_step(); section = ($0 ~ /^## Manual test list/); inblock = 0; next }
+section && /^### / { end_step(); inblock = ($0 ~ ("^### Slice " nr "([^0-9]|$)")); if (inblock) blocks++; next }
+!inblock { next }
+/^[0-9]+\. / { end_step(); steps++; if ($0 + 0 != steps) bad = bad "step " steps " is numbered " ($0 + 0) "; "; next }
+/^Expected:/ { if (steps == 0 || closes || results) bad = bad "Expected: outside a step; "; else expected++; next }
+/^Closes:/ { end_step(); closes++; next }
+/^Result:/ { end_step(); results++; next }
+END {
+  end_step()
+  if (!blocks) exit
+  if (blocks > 1) bad = bad blocks " blocks; "
+  if (!steps) bad = bad "no numbered step; "
+  if (closes != 1) bad = bad closes " Closes: lines; "
+  if (results != 1) bad = bad results " Result: lines; "
+  if (bad != "") print bad
+}
+'
+
+# Finding ids defined more than once in file $1: as the first cell of two table rows, or as the first word of two headings.
+readonly AWK_IDS='
+{ sub(/\r$/, "") }
+/^[|]/ { split($0, c, "|"); k = c[2]; gsub(/^[ \t]+|[ \t]+$/, "", k); if (k ~ /^[A-Z]+-?[0-9]+$/ && ++rows[k] == 2) print k; next }
+/^#+ / { w = $2; sub(/[:.,]$/, "", w); if (w ~ /^[A-Z]+-?[0-9]+$/ && ++heads[w] == 2) print w }
+'
+duplicate_ids_in() { awk "$AWK_IDS" "$@" | sort -u; }
+
+# Tracked files that record $1 names in backticks under "## Source" (the findings file), one per line.
+findings_files() {
+  local record=$1 path
+  while IFS= read -r path; do
+    if [[ -f "$path" && "$path" != "$record" ]]; then echo "$path"; fi
+  done < <(awk '/^## /{ s = ($0 ~ /^## Source/); next } s' "$record" | { grep -o '`[^`]*`' || true; } | tr -d '`')
+}
+
+# Finding ids the squash would define twice in record $1 or its findings file, as "<id> in <file>"; ids already
+# duplicated on the integration branch do not count.
+new_duplicate_ids() {
+  local record=$1 file id
+  while IFS= read -r file; do
+    while IFS= read -r id; do
+      echo "$id in $file"
+    done < <(comm -23 <(duplicate_ids_in "$file") <(git show "HEAD:$file" 2>/dev/null | duplicate_ids_in))
+  done < <(echo "$record"; findings_files "$record")
+}
+
+# The commands of the "Baseline check" line in work/conventions.md: its backtick spans before the source arrow.
+baseline_commands() {
+  local line
+  [[ -f "$CONVENTIONS_FILE" ]] || return 0
+  line=$(grep -m1 '^- Baseline check' "$CONVENTIONS_FILE" | tr -d '\r' || true)
+  line=${line%%←*}
+  { grep -o '`[^`]*`' <<<"$line" || true; } | tr -d '`'
+}
+
+# Why the checks proof .slice-loop/slice-$1.checks does not allow the squash; nothing when it does. One line per check:
+# "<exit code> <commit SHA> <command>". Every exit code is 0, every SHA is the branch tip (7 to 40 hex digits), and every
+# command of the baseline check in work/conventions.md is listed.
+checks_problem() {
+  local nr=$1 file="$LOG_DIR/slice-$1.checks" tip line count=0 command
+  local -A ran=()
+  [[ -f "$file" ]] || { echo "no checks proof $file"; return; }
+  tip=$(git rev-parse "slice-$nr")
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line=${line%$'\r'}
+    [[ -z "$line" || "$line" == '#'* ]] && continue
+    [[ "$line" =~ ^(-?[0-9]+)[[:space:]]+([0-9a-f]{7,40})[[:space:]]+(.+)$ ]] || { echo "unreadable line in $file: $line"; return; }
+    [[ "${BASH_REMATCH[1]}" == 0 ]] || { echo "check red (exit ${BASH_REMATCH[1]}): ${BASH_REMATCH[3]}"; return; }
+    [[ "$tip" == "${BASH_REMATCH[2]}"* ]] || { echo "check ran on ${BASH_REMATCH[2]}, not on the tip ${tip:0:12} of slice-$nr: ${BASH_REMATCH[3]}"; return; }
+    ran["${BASH_REMATCH[3]}"]=1
+    count=$((count + 1))
+  done <"$file"
+  (( count > 0 )) || { echo "no check listed in $file"; return; }
+  while IFS= read -r command; do
+    [[ -z "$command" || -n "${ran[$command]+set}" ]] || { echo "baseline check missing from $file: $command"; return; }
+  done < <(baseline_commands)
+}
 
 # Every row of both sides is in the resolved checklist, and none of their ticks is missing there.
 check_checklist() {
@@ -222,53 +465,64 @@ check_checklist() {
   done < <(git show "HEAD:$CHECKLIST_FILE"; git show "$branch:$CHECKLIST_FILE")
 }
 
-# Nothing was lost in resolved file $1: no conflict marker is left; the checklist keeps every row and tick of both
-# sides; the record keeps every line both sides kept or either side added, and its Result: lines add up
-# (ours + theirs - merge base).
-check_resolved() {
+# Why resolved file $1 lost something; nothing when it is fine. No conflict marker is left; the checklist keeps every
+# row and tick of both sides; any other file passes AWK_CHECK.
+resolution_problem() {
   local file=$1 branch=$2 base ours="$LOG_DIR/ours.tmp" theirs="$LOG_DIR/theirs.tmp" before="$LOG_DIR/base.tmp"
-  local result="$LOG_DIR/result.tmp" needed="$LOG_DIR/needed.tmp"
-  if grep -qE '^(<<<<<<<|=======|>>>>>>>|[|]{7})' "$file"; then return 1; fi
-  if [[ "$file" == "$CHECKLIST_FILE" ]]; then check_checklist "$branch"; return; fi
+  if grep -qE '^(<<<<<<<|=======|>>>>>>>|[|]{7})' "$file"; then echo "a conflict marker is left"; return; fi
+  if [[ "$file" == "$CHECKLIST_FILE" ]]; then check_checklist "$branch" || echo "a row or tick is missing"; return; fi
   base=$(git merge-base HEAD "$branch")
   git show "HEAD:$file" >"$ours"
   git show "$branch:$file" >"$theirs"
   git show "$base:$file" >"$before" 2>/dev/null || : >"$before"
-  tr -d '\r' <"$file" >"$result"
-  { grep -Fx -f "$theirs" "$ours"; grep -Fxv -f "$before" "$ours"; grep -Fxv -f "$before" "$theirs"; } >"$needed" || true
-  if grep -Fxv -f "$result" "$needed" >/dev/null; then return 1; fi
-  (( $(count_results "$result") == $(count_results "$ours") + $(count_results "$theirs") - $(count_results "$before") ))
+  awk -v ours="$ours" -v theirs="$theirs" -v base="$before" -v result="$file" "$AWK_TABLE$AWK_CHECK" </dev/null
 }
 
-# Squashes branch slice-$1 onto the branch checked out here. Conflicts only in the checklist and the open round record
-# are resolved by rule and checked; any other conflict, or a failed check, resets the merge and stops the loop.
+# Leaves slice $1 behind for reason $2 after resetting the merge in progress.
+reset_and_leave() {
+  git reset -q --merge
+  leave_slice "$1" "$2 – merge reset"
+}
+
+# Squashes branch slice-$1 onto the branch checked out here; fails when it leaves the slice behind (branch kept).
+# First the checks proof; then every conflict is resolved by rule and checked (a real conflict leaves the slice); then
+# the record's manual test list is put in slice order and the slice's block checked, and no finding id may be defined twice.
 merge_slice() {
-  local nr=$1 branch="slice-$1" record conflicts foreign files file reason
-  local -a resolvable=(-e "$CHECKLIST_FILE")
+  local nr=$1 branch="slice-$1" record conflicts file problem
+  local -a real=()
   [[ -z "$(git status --porcelain)" ]] || die "slice $nr: this checkout has uncommitted changes – commit or remove them, then run --merge"
+  problem=$(checks_problem "$nr")
+  if [[ -n "$problem" ]]; then leave_slice "$nr" "$problem"; return 1; fi
   record=$(open_round_file)  # read before the merge: a conflict at its first line would hide "Status: open"
-  if [[ -n "$record" ]]; then resolvable+=(-e "$record"); fi
-  # diff3 keeps every hunk whole: the default style moves lines both sides end with (such as "Result: ☐") out of
-  # the hunk, and keeping both sides would then keep that line once.
+  # diff3 keeps every hunk whole and shows its base: the default style moves lines both sides end with (such as
+  # "Result: ☐") out of the hunk, and keeping both sides would then keep that line once.
   if ! git -c merge.conflictStyle=diff3 merge --squash "$branch" >/dev/null 2>&1; then
     conflicts=$(git diff --name-only --diff-filter=U)
-    foreign=$(grep -vxF "${resolvable[@]}" <<<"$conflicts" || true)
-    if [[ -z "$conflicts" || -n "$foreign" ]]; then
-      git reset --merge
-      if [[ -n "$foreign" ]]; then files=$(tr '\n' ' ' <<<"$foreign"); reason="merge conflict in ${files% }"; else reason="git merge --squash failed"; fi
-      die "slice $nr: $reason – merge reset, $branch kept"
-    fi
+    [[ -n "$conflicts" ]] || { reset_and_leave "$nr" "git merge --squash failed"; return 1; }
     while IFS= read -r file; do
-      if [[ "$file" == "$CHECKLIST_FILE" ]]; then resolve_checklist "$branch"; else resolve_record "$file"; fi
-      if ! check_resolved "$file" "$branch"; then
-        git reset --merge
-        die "slice $nr: the rule-based resolution of $file failed its check – merge reset, $branch kept"
+      if [[ "$file" == "$CHECKLIST_FILE" ]]; then
+        resolve_checklist "$branch"
+      elif ! resolve_hunks "$file" "$([[ "$file" == "$record" ]] && echo record || echo strict)"; then
+        real+=("$file")
+        continue
       fi
+      problem=$(resolution_problem "$file" "$branch")
+      if [[ -n "$problem" ]]; then reset_and_leave "$nr" "the rule-based resolution of $file failed its check ($problem)"; return 1; fi
       git add "$file"
     done <<<"$conflicts"
+    if (( ${#real[@]} )); then reset_and_leave "$nr" "merge conflict in ${real[*]}"; return 1; fi
+  fi
+  if [[ -n "$record" ]]; then
+    order_manual_tests "$record"
+    git add "$record"
+    problem=$(awk -v nr="$nr" "$AWK_BLOCK" "$record")
+    if [[ -n "$problem" ]]; then reset_and_leave "$nr" "manual test block of slice $nr in $record: ${problem%; }"; return 1; fi
+    problem=$(new_duplicate_ids "$record" | tr '\n' ',' | sed 's/,$//; s/,/, /g')
+    if [[ -n "$problem" ]]; then reset_and_leave "$nr" "finding id defined twice: $problem"; return 1; fi
   fi
   tick_commit "$nr"
   git add "$CHECKLIST_FILE"
+  git rev-parse "$branch" >"$LOG_DIR/slice-$nr.squashed"
   git commit -q -F "$(squash_message_file "$nr")" || die "slice $nr: the squash commit failed – see git status"
   echo "[slice $nr] squashed onto $(git branch --show-current) ($(git rev-parse --short HEAD))" >&2
   is_done "$nr" || die "slice $nr was squashed but is not ticked in $CHECKLIST_FILE – check it before running again"
@@ -281,20 +535,34 @@ finish_slice() {
   if ! is_done "$nr"; then
     branch_ready "$nr" \
       || die "slice $nr reported done or ready but is not ticked in $CHECKLIST_FILE or on slice-$nr – check it before running again"
-    merge_slice "$nr"
+    merge_slice "$nr" || return 0
   fi
   echo "[slice $nr] done" >&2
 }
 
-# The merge queue alone (--merge): every slice-NN branch, lowest number first; one not ticked through Checks is left.
+# A slice squashed in an earlier run whose worktree could not be removed: its branch still points where it did at the
+# squash (.slice-loop/slice-NN.squashed), so the removal is tried again; a branch that moved since is left as it is.
+retry_removal() {
+  local nr=$1 squashed="$LOG_DIR/slice-$1.squashed"
+  [[ -f "$squashed" ]] || return 0
+  if [[ "$(git rev-parse "slice-$nr")" == "$(tr -d '\r\n' <"$squashed")" ]]; then
+    echo "[slice $nr] already squashed – removing its leftover worktree and branch again" >&2
+    remove_slice_branch "$nr"
+  else
+    echo "[slice $nr] already squashed, but slice-$nr moved since – left as it is" >&2
+  fi
+}
+
+# The merge queue alone (--merge): every slice-NN branch, lowest number first; one not ticked through Checks is left,
+# one that conflicts or lacks its proof is left behind and the queue goes on.
 merge_queue() {
   local branch nr
   for branch in $(git for-each-ref --format='%(refname:short)' 'refs/heads/slice-*' | sort -t- -k2,2n); do
     nr=${branch#slice-}
     [[ "$nr" =~ ^[0-9]{2,}$ ]] || continue
-    if is_done "$nr"; then continue; fi
+    if is_done "$nr"; then retry_removal "$nr"; continue; fi
     if branch_ready "$nr"; then
-      merge_slice "$nr"
+      merge_slice "$nr" || true
     else
       echo "[slice $nr] not ready to merge: its row on $branch is not ticked through Checks – left as it is" >&2
     fi
@@ -309,7 +577,7 @@ ready_slices() {
   [[ ${#numbers[@]} -eq ${#deps[@]} ]] || die "every entry in $SLICES_FILE needs \"nr\" and \"deps\""
   for i in "${!numbers[@]}"; do
     nr=${numbers[$i]}
-    if is_done "$nr"; then continue; fi
+    if is_done "$nr" || [[ -n "${left_nrs[$nr]+set}" ]]; then continue; fi
     blocked=false
     for dep in ${deps[$i]}; do is_done "$dep" || blocked=true; done
     $blocked || echo "$nr"
@@ -395,21 +663,39 @@ plan_slice() {
 }
 
 build_slice() {
-  local nr=$1 session=$2 log=$3 approval=$4 model=$5 note="" output
+  local nr=$1 session=$2 log=$3 approval=$4 model=$5 note="" output waiting waits=0
   if $parallel; then
     note=" Other slices are built in parallel: if git is locked or the integration branch moved, wait and retry; in conflicts keep every tick in work/checklist.md."
   fi
   echo "[slice $nr] building – this can take a while (log $log)" >&2
   output=$(claude_turn "$log" "$model" --resume "$session" "$approval$note")
-  grep -qE "^(SLICE-DONE:|SLICE-READY:) $nr([^0-9]|$)" <<<"$output" \
+  # SLICE-WAIT: the session ended its turn while its checks still run – it is not done, so check back in it.
+  while ! slice_finished "$nr" "$output" && waiting=$(wait_line "$nr" "$output") && [[ -n "$waiting" ]]; do
+    (( waits < WAIT_MAX )) || die "slice $nr still waiting after $waits check-backs (${waiting}) – see $log"
+    waits=$((waits + 1))
+    echo "[slice $nr] still running: ${waiting#SLICE-WAIT: $nr } – checking back in ${WAIT_SECONDS}s" >&2
+    sleep "$WAIT_SECONDS"
+    output=$(claude_turn "$log" "$model" --resume "$session" \
+      "Still waiting for: ${waiting#SLICE-WAIT: $nr }. Check it; when it is done, finish slice $nr and close it (auto).")
+  done
+  slice_finished "$nr" "$output" \
     || die "slice $nr not finished: $(grep '^SLICE-OPEN:' <<<"$output" || echo 'no SLICE-DONE or SLICE-READY line') – see $log"
 }
+
+# Slice $1 ended with SLICE-DONE or SLICE-READY in output $2.
+slice_finished() { grep -qE "^(SLICE-DONE:|SLICE-READY:) $1([^0-9]|$)" <<<"$2"; }
+
+# The last SLICE-WAIT line of slice $1 in output $2; nothing when the turn did not end waiting.
+wait_line() { { grep -E "^SLICE-WAIT: $1([^0-9]|$)" <<<"$2" || true; } | tail -1; }
 
 run_round() {
   local -a ready sessions logs models approvals pids
   local i
   mapfile -t ready < <(ready_slices)
-  [[ ${#ready[@]} -gt 0 ]] || die "no slice is ready – check $CHECKLIST_FILE (/slice status)"
+  if [[ ${#ready[@]} -eq 0 ]]; then
+    report_left || exit 1
+    die "no slice is ready – check $CHECKLIST_FILE (/slice status)"
+  fi
   $parallel || ready=("${ready[0]}")
   if (( max_slices > 0 )); then ready=("${ready[@]:0:max_slices - built}"); fi
   for i in "${!ready[@]}"; do
@@ -453,7 +739,7 @@ main() {
   if $dry_run; then ready_slices; exit 0; fi
   mkdir -p "$LOG_DIR"
   grep -qx "$LOG_DIR/" .git/info/exclude 2>/dev/null || echo "$LOG_DIR/" >> .git/info/exclude
-  if $merge_only; then merge_queue; exit 0; fi
+  if $merge_only; then merge_queue; report_left || exit 1; exit 0; fi
   round=$(open_round)
   if [[ -z "$round" ]]; then
     echo "slice-loop: no open round in $ROUNDS_DIR – start a round with the vibe-coding skill first" >&2
@@ -464,6 +750,7 @@ main() {
     run_round
     if (( max_slices > 0 && built >= max_slices )) && ! all_done; then
       echo "slice-loop: stopped after $built slice(s) – $(open_count) still open" >&2
+      report_left || exit 1
       exit 0
     fi
   done
