@@ -46,6 +46,9 @@ Ruling: slice 04 plan approved with all ten assumptions (lock paragraph at the e
 Ruling: Slice 08 – plan approved with all six assumptions (merge queue named as `slice-loop --merge` or the running loop, rules sentence without the conflict clause, three new assertions in the existing Start test, README Ready paragraph and request sentence, command/loop scripts/tests untouched, slice-board and baseline checks) – User, 2026-10-25 (via the orchestrating session)
 Ruling: Slice 05 – plan approved with all eleven assumptions, including the -D cleanup, list order and the temporary parallel stop – User, 2026-10-25 (via the orchestrating session)
 Ruling: Slice 06 – plan approved with all eight assumptions, including the refined line check (every line both sides kept or either side added) – User, 2026-10-26
+Ruling: Slice 07 – plan approved with assumptions 1–8; assumption 9 first left open for the user – User, 2026-10-26 (via the orchestrating session)
+Ruling: marketplace validate runs without --strict in CI and in the full check chain; the plugins stay strict; slice-board keeps no version – User, 2026-10-26
+Decision: the Definition of Done line of slice 07 that asks for `claude plugin validate --strict .` to pass is met by that ruling: `claude plugin validate .` exits 0 (warning about the missing `slice-board` version only; the version was removed on purpose in commit 8d59d22, "version follows the commit"), and `.github/workflows/validate.yml`, `work/conventions.md` and the root README now name the non-strict command. The rendered slice file `work/slices/07-release-1-2-0.md` keeps its original wording.
 
 ## Surprises
 - `CLAUDE.md` does not exist at the repository root, although the slice command names it. The rules came from `work/conventions.md` and the workspace note; nothing changed for that.
@@ -67,6 +70,8 @@ Ruling: Slice 06 – plan approved with all eight assumptions, including the ref
 - Slice 06: the record check found a real loss on its first green attempt: both sides end their appendix with the same line `Result: ☐`, and git's default conflict style moves that common last line out of the hunk, so keeping both sides kept it once (the same trap the field notes describe for manual merges). The squash now runs with `-c merge.conflictStyle=diff3`, which keeps every hunk whole; the base section the resolver drops is therefore exercised on every resolution, not only read as the plan's review focus assumed.
 - Slice 06: the conflict message of slice 05 named the files twice (`${conflicts:-…}` expands to the value when it is set); the new message code in both shells writes the reason with an `if`, and the foreign-file test now checks the exact wording.
 - Slice 06: `tests/loop_test.py` crashed while printing a failure on Windows (stdout in cp1252 cannot encode ☑); `main()` now writes UTF-8. The red proof ran on the slice 05 scripts before any script edit: exactly the four planned cases red in bash and pwsh, 48 others green; green afterwards 56 of 56. Baseline and final loop runs held the full-suite lock.
+- Slice 07: the baseline run of `tests/loop_test.py` was started as a plain background job of the shell and was lost (empty log); the run at the end of the slice, under the full-suite lock taken by hand, covers the tree that is squashed. The three new tests were red first (versions 1.1.0, README items missing) and went green with the manifest, metadata and README edits.
+- Slice 07: `skills-ref` (installed with `pip` from GitHub for the full check chain) crashes on Windows decoding the skill files with cp1252 (`UnicodeDecodeError`); with `PYTHONUTF8=1` both skills validate. Its executable is in the user Scripts folder, not on the shell path.
 
 ## Deferred minors
 - Slice 04: the lock is a protocol in prose; nothing executes it in the loop scripts (slice 05 decides whether the queue uses it for its own checks). A lock left by a crashed session is only reported, never removed: the user removes the directory by hand.
@@ -141,4 +146,11 @@ Start: a scratch repository with an open round of two ready slices, both loop sc
 2. Run `bash .claude/scripts/slice-loop.sh --merge` (or `pwsh .claude/scripts/slice-loop.ps1 -Merge`), then `git log -p -2`.
 Expected: both branches land as two squash commits; the record holds both appendices with two `Result: ☐` lines and no line starting with `<<<<<<<`, `=======` or `>>>>>>>`; both rows are fully ticked.
 Closes: F-01 (resolution)
+Result: ☐
+
+### Slice 07 – Release 1.2.0: version, changelog, READMEs
+Start: `python tests/markers_test.py`
+1. Read `plugins/vibe-coding/README.md` top to bottom once.
+Expected: every option and marker it names (`/slice NN parallel`, `-Merge` / `--merge`, `SLICE-READY:`, the merge queue, the full-suite lock, the session hints) exists in the command or the loop scripts, and `plugins/vibe-coding/CHANGELOG.md` opens with `## 1.2.0`.
+Closes: F-01, F-02, F-03, F-04, F-05, F-06, F-07, F-08, F-09
 Result: ☐

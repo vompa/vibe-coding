@@ -222,6 +222,35 @@ def test_conventions_template_and_skill_point_to_the_lock():
     local = _skill_part("SKILL.md", "**Git-ignored", "- **`/slice`, later:**")
     assert ".slice-loop/full-suite.lock/" in local
 
+def test_release_version_is_consistent():
+    import json
+    manifest = json.loads((ROOT / "plugins/vibe-coding/.claude-plugin/plugin.json").read_text(encoding="utf-8"))["version"]
+    skill = re.search(r'^\s+version: "([^"]+)"', (SKILL / "SKILL.md").read_text(encoding="utf-8"), re.M).group(1)
+    changelog = re.search(r"^## (\S+) – \d{4}-\d{2}-\d{2}", (ROOT / "plugins/vibe-coding/CHANGELOG.md").read_text(encoding="utf-8"), re.M).group(1)
+    assert manifest == skill == changelog == "1.2.0", (manifest, skill, changelog)
+
+def test_marketplace_validation_is_not_strict_but_the_plugins_are():
+    """slice-board carries no version on purpose (every commit is an update), so only the marketplace check tolerates warnings."""
+    workflow = (ROOT / ".github/workflows/validate.yml").read_text(encoding="utf-8")
+    assert "claude plugin validate . &&" in workflow
+    assert "claude plugin validate --strict plugins/vibe-rebuild" in workflow and "claude plugin validate --strict plugins/vibe-coding" in workflow
+    assert "validate --strict ." not in workflow
+    conventions = (ROOT / "work/conventions.md").read_text(encoding="utf-8")
+    assert "validate --strict ." not in conventions and "claude plugin validate ." in conventions
+
+def test_plugin_readme_documents_the_round_features():
+    text = " ".join((ROOT / "plugins/vibe-coding/README.md").read_text(encoding="utf-8").split())
+    for item in ("session-hints.md", "/slice NN parallel", "`--merge`", "`-Merge`", "SLICE-READY:", "full-suite.lock"):
+        assert item in text, item
+
+def test_root_readme_names_the_merge_queue_cases():
+    text = (ROOT / "README.md").read_text(encoding="utf-8")
+    loop = " ".join(text.split("**Loop test**", 1)[1].split("**Renderer test**", 1)[0].split())
+    for item in ("merge queue", "--merge", "rule-based resolution"):
+        assert item in loop, item
+    markers = " ".join(text.split("**Markers test**", 1)[1].split("\n", 1)[0].split())
+    assert "SLICE-READY:" in markers and "full-suite lock" in markers
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"): fn(); print("ok  ", name)

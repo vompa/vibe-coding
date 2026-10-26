@@ -69,6 +69,7 @@ Open a terminal in the repository, run `claude --model <model>` with the model o
 | `/slice 07` | exactly slice 07 |
 | `/slice 07 plan` | stops after the plan; your next message approves it, answers its open questions or asks for changes |
 | `/slice 07 direct` | without superpowers, even if it is installed |
+| `/slice NN parallel` | for sessions that run side by side: builds, tests and commits the slice on its branch `slice-NN`, writes the squash message to `.slice-loop/slice-NN.msg` and stops with `SLICE-READY: NN`; the merge queue (below) does the squash |
 | `/slice status` | one table: model, done, in progress, ready, blocked; open decisions; what is ready next |
 | `/slice close` | closes the round (see below) |
 
@@ -87,7 +88,8 @@ The loop checks that a round is open, then for each ready slice starts a fresh h
 |---|---|
 | *(none)* | asks for every plan |
 | `-Yes` / `--yes` | approves plans automatically; still stops when a plan reports an open decision (`NEEDS-DECISION`), a slice stays red, or a slice reports done without being ticked |
-| `-Parallel` / `--parallel` | builds slices that are ready at the same time side by side, each in its own worktree (experimental) |
+| `-Parallel` / `--parallel` | builds slices that are ready at the same time side by side, each in its own worktree; each ends with `SLICE-READY` and the merge queue squashes them one after another (experimental) |
+| `-Merge` / `--merge` | only runs the merge queue: squashes every `slice-NN` branch whose checklist row is ticked through Checks, lowest number first, then exits; starts no session and needs no open round |
 | `-DryRun` / `--dry-run` | only lists the slices that are ready now |
 | `-MaxSlices N` / `--max-slices N` | stops after N built slices if slices are left (exit 0; run it again to continue) |
 
@@ -98,7 +100,10 @@ Good to know:
 - Logs go to `.slice-loop/` in the repository, which the script keeps out of git.
 - Approvals need a terminal. Without one (for example in CI) the script stops instead of approving silently.
 - The script never pushes and never installs anything.
-- Under the hood `/slice` prints marker lines the script reads (`PLAN:`, `NEEDS-DECISION:`, `SLICE-DONE:`, `SLICE-OPEN:`, `ALL-DONE`, `ROUND-DONE:`, `ROUND-OPEN:`); `/slice NN plan auto` is what the script sends.
+- Under the hood `/slice` prints marker lines the script reads (`PLAN:`, `NEEDS-DECISION:`, `SLICE-DONE:`, `SLICE-READY:`, `SLICE-OPEN:`, `ALL-DONE`, `ROUND-DONE:`, `ROUND-OPEN:`); `/slice NN plan auto` is what the script sends.
+- **Merge queue.** A slice that ends with `SLICE-READY: NN` is squashed by the script in the main checkout, one branch after another: clean tree, `git merge --squash`, the Commit column ticked, `git commit -F .slice-loop/slice-NN.msg`, then the merged worktree and branch are removed. A conflict in `work/checklist.md` or the open round record is resolved by rule (both sides kept, ticks united) and checked; a conflict anywhere else resets the merge, keeps the branch and stops with the files named.
+- **Full-suite lock.** Before a full test suite `/slice` creates `.slice-loop/full-suite.lock/` in the main checkout and removes it right after, so two sessions never run a full suite at once. A lock held by a live slice makes the session wait; any other lock is reported with its owner and time, never removed.
+- **Session hints and check scope.** `work/session-hints.md` holds hints for slice sessions, grown round by round; `/slice` reads it. The `Checks for a slice` line of `work/conventions.md` says which tests run when one screen changed and which when shared code changed.
 
 ## After the round
 

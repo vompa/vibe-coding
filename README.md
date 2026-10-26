@@ -31,16 +31,16 @@ A repository finished with vibe-rebuild continues with vibe-coding – see [Rela
     python3 tests/trigger_check.py tests/trigger-eval-vibe-coding.json --skill vibe-coding --plugin-dir plugins/vibe-coding --runs 3
     ```
     The two skills stay apart: with both plugins loaded, none of the ten vibe-coding requests triggers vibe-rebuild (0 of 30 sessions) and none of the ten rebuild requests of `tests/trigger-eval.json` triggers vibe-coding (0 of 10 sessions).
-- **Loop test** (`tests/loop_test.py`): the loop scripts of both plugins (`rebuild-loop` and `slice-loop`, PowerShell and bash) against a fake `claude` CLI – auto approval, parallel slices, red slice, open decision, no terminal, all done; for `slice-loop` also `--max-slices`, a three-digit slice number and the round close. Runs in CI on every push to `main` and on pull requests.
+- **Loop test** (`tests/loop_test.py`): the loop scripts of both plugins (`rebuild-loop` and `slice-loop`, PowerShell and bash) against a fake `claude` CLI – auto approval, parallel slices, red slice, open decision, no terminal, all done; for `slice-loop` also `--max-slices`, a three-digit slice number and the round close, the merge queue (sequential, three-digit and parallel runs, ready but not ticked, `SLICE-DONE` still accepted, the fallback message, three `--merge` cases) and rule-based resolution of `work/checklist.md` and the round record (a foreign conflict names only its own file, a failed resolution check stops). Runs in CI on every push to `main` and on pull requests.
 - **Renderer test** (`tests/render_slices_test.py`): the vibe-coding slice renderer – all sections, defaults for optional fields, German headings, a missing required field, LF line endings.
-- **Markers test** (`tests/markers_test.py`): the `/slice` command, both `slice-loop` scripts and the templates agree on the marker lines and file formats; no absolute user path or private mail address in the vibe-coding skill.
+- **Markers test** (`tests/markers_test.py`): the `/slice` command, both `slice-loop` scripts and the templates agree on the marker lines (including `SLICE-READY:`) and file formats, the merge option, the session hints, the full-suite lock and the check scope per slice; no absolute user path or private mail address in the vibe-coding skill.
 
 ## Development
 
 Repository layout: each shipped plugin lives in `plugins/<name>/` (what the directory and installs see); `tests/` and CI stay outside the plugins.
 
 ```bash
-claude plugin validate --strict .                      # marketplace
+claude plugin validate .                               # marketplace (not strict: slice-board has no version on purpose)
 claude plugin validate --strict plugins/vibe-rebuild   # plugin
 claude plugin validate --strict plugins/vibe-coding    # plugin
 claude --plugin-dir plugins/vibe-rebuild --plugin-dir plugins/vibe-coding   # load both plugins for one session
