@@ -1,4 +1,4 @@
-Status: open
+Status: closed
 
 # Round R01 – field lessons: merge queue, suite lock, session hints
 
@@ -151,6 +151,7 @@ Result: ☐
 ### Slice 07 – Release 1.2.0: version, changelog, READMEs
 Start: `python tests/markers_test.py`
 1. Read `plugins/vibe-coding/README.md` top to bottom once.
-Expected: every option and marker it names (`/slice NN parallel`, `-Merge` / `--merge`, `SLICE-READY:`, the merge queue, the full-suite lock, the session hints) exists in the command or the loop scripts, and `plugins/vibe-coding/CHANGELOG.md` opens with `## 1.2.0`.
+2. Run `claude plugin validate .`, then `claude plugin validate --strict plugins/vibe-coding`.
+Expected: every option and marker it names (`/slice NN parallel`, `-Merge` / `--merge`, `SLICE-READY:`, the merge queue, the full-suite lock, the session hints) exists in the command or the loop scripts, and `plugins/vibe-coding/CHANGELOG.md` opens with `## 1.2.0`; both validations pass (the first with a warning about the missing `slice-board` version).
 Closes: F-01, F-02, F-03, F-04, F-05, F-06, F-07, F-08, F-09
 Result: ☐
