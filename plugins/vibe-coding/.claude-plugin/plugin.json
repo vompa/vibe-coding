@@ -1,7 +1,7 @@
 {
   "name": "vibe-coding",
   "displayName": "Vibe Coding",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "Turns findings lists and feature ideas into rounds of vertical slices and runs them one per fresh Claude session: plan first, tests first, one squash commit per slice, hands-off loop, decisions in files – in any repository, honouring its own rules.",
   "author": {
     "name": "vompa",

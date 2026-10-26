@@ -18,6 +18,8 @@
 #                   worktrees an earlier squash left, then exit (starts no session, needs no open round)
 # Env: SLICE_PERMISSION_MODE (default: auto) – passed to claude --permission-mode.
 #      SLICE_WAIT_SECONDS (default: 60), SLICE_WAIT_MAX (default: 30) – pause and number of check-backs on SLICE-WAIT.
+#      SLICE_WRITE_RETRIES (default: 5), SLICE_WRITE_BACKOFF_SECONDS (default: 2) – retries and pause when the queue
+#      cannot write a file or reset a merge because another process (scanner, indexer, editor) holds it.
 set -euo pipefail
 shopt -s inherit_errexit
 # Git Bash on Windows would rewrite the argument "/slice …" into a Windows path.
@@ -31,6 +33,8 @@ readonly LOG_DIR=".slice-loop"
 readonly PERMISSION_MODE="${SLICE_PERMISSION_MODE:-auto}"
 readonly WAIT_SECONDS="${SLICE_WAIT_SECONDS:-60}"
 readonly WAIT_MAX="${SLICE_WAIT_MAX:-30}"
+readonly WRITE_RETRIES="${SLICE_WRITE_RETRIES:-5}"
+readonly WRITE_BACKOFF="${SLICE_WRITE_BACKOFF_SECONDS:-2}"
 readonly USAGE="use --yes, --parallel, --dry-run, --max-slices N, --merge"
 
 auto_approve=false
@@ -42,8 +46,39 @@ built=0
 round=""
 declare -A left_nrs=()  # slices the merge queue left behind in this run
 left_lines=()           # "slice NN: <reason>", in the order they were left
+write_failed=""         # the file replace_file gave up on
+merging=""              # a squash merge is in progress in this checkout; the exit trap resets it
 
 die() { echo "slice-loop: $*" >&2; exit 1; }
+
+# Moves temp file $1 onto $2, retrying while another process holds $2 (a scanner or indexer with it mapped); after the
+# last retry it names $2 in write_failed and fails.
+replace_file() {
+  local tmp=$1 target=$2 attempt
+  for (( attempt = 0; ; attempt++ )); do
+    mv -f "$tmp" "$target" 2>/dev/null && return 0
+    if (( attempt >= WRITE_RETRIES )); then write_failed=$target; return 1; fi
+    echo "slice-loop: could not write $target (locked by another process?) – retrying in $WRITE_BACKOFF s (attempt $((attempt + 1)) of $WRITE_RETRIES)" >&2
+    sleep "$WRITE_BACKOFF"
+  done
+}
+
+# Resets the merge in progress, retrying while another process holds a file it has to restore; stops the loop when it
+# cannot, so the checkout never stays mid-squash unnoticed. Hard: merge_slice starts only on a clean checkout, and a
+# reset --merge that failed half-way leaves files every later reset --merge refuses.
+reset_merge() {
+  local attempt
+  merging=""
+  for (( attempt = 0; ; attempt++ )); do
+    git reset -q --hard 2>/dev/null && return 0
+    (( attempt < WRITE_RETRIES )) \
+      || die "could not reset the merge in progress (a file is still locked by another process?) – run git reset --merge once it is free, then --merge again"
+    echo "slice-loop: could not reset the merge (a file is locked by another process?) – retrying in $WRITE_BACKOFF s (attempt $((attempt + 1)) of $WRITE_RETRIES)" >&2
+    sleep "$WRITE_BACKOFF"
+  done
+}
+trap 'if [[ -n "$merging" ]]; then reset_merge; fi' EXIT
+trap 'exit 130' INT TERM
 
 # Leaves slice $1 behind for reason $2: its branch stays, the run goes on without it.
 leave_slice() {
@@ -118,8 +153,8 @@ branch_ready() {
 
 # Ticks the last open box of slice $1's row – its Commit column – keeping the file's line endings.
 tick_commit() {
-  sed -E "/^\|[[:space:]]*$1([^0-9]|\$)/ s/(.*)☐/\1☑/" "$CHECKLIST_FILE" >"$CHECKLIST_FILE.tmp"
-  mv "$CHECKLIST_FILE.tmp" "$CHECKLIST_FILE"
+  sed -E "/^\|[[:space:]]*$1([^0-9]|\$)/ s/(.*)☐/\1☑/" "$CHECKLIST_FILE" >"$LOG_DIR/checklist.tmp"
+  replace_file "$LOG_DIR/checklist.tmp" "$CHECKLIST_FILE"
 }
 
 # Path of the squash message for slice $1: the file /slice wrote, else one written from the slice's name and source.
@@ -211,7 +246,8 @@ resolve_checklist() {
   for nr in "${order[@]}"; do
     if [[ -z "${ours_has[$nr]+set}" ]]; then out+=("${theirs[$nr]}"); fi
   done
-  printf '%s\n' "${out[@]}" >"$CHECKLIST_FILE"
+  printf '%s\n' "${out[@]}" >"$LOG_DIR/checklist.tmp"
+  replace_file "$LOG_DIR/checklist.tmp" "$CHECKLIST_FILE"
 }
 
 # Table rows for the awk programs below: a row starts with "|", its key is its first cell, and a cell holds items
@@ -340,7 +376,7 @@ BEGIN {
 resolve_hunks() {
   local file=$1 mode=$2 out="$LOG_DIR/resolved.tmp"
   awk -v mode="$mode" "$AWK_TABLE$AWK_RESOLVE" "$file" >"$out" || return 1
-  mv "$out" "$file"
+  replace_file "$out" "$file"
 }
 
 # Puts the blocks under "## Manual test list" of record $1 in slice-number order (stable); nothing else moves.
@@ -366,7 +402,7 @@ order_manual_tests() {
   local file=$1 out="$LOG_DIR/ordered.tmp"
   awk "$AWK_ORDER" "$file" >"$out"
   # Rewritten only when a block moved, so a file with CRLF line endings keeps them otherwise.
-  if ! tr -d '\r' <"$file" | cmp -s - "$out"; then mv "$out" "$file"; fi
+  if ! tr -d '\r' <"$file" | cmp -s - "$out"; then replace_file "$out" "$file"; fi
 }
 
 # Problems of the manual test block of slice nr in the record: steps numbered 1..n, exactly one Expected: per step,
@@ -483,13 +519,20 @@ resolution_problem() {
 
 # Leaves slice $1 behind for reason $2 after resetting the merge in progress.
 reset_and_leave() {
-  git reset -q --merge
+  reset_merge
   leave_slice "$1" "$2 – merge reset"
+}
+
+# Leaves slice $1 behind (merge reset) when replace_file gave up on a file; fails when it did not.
+left_on_write() {
+  [[ -n "$write_failed" ]] || return 1
+  reset_and_leave "$1" "could not write $write_failed (locked by another process)"
 }
 
 # Squashes branch slice-$1 onto the branch checked out here; fails when it leaves the slice behind (branch kept).
 # First the checks proof; then every conflict is resolved by rule and checked (a real conflict leaves the slice); then
 # the record's manual test list is put in slice order and the slice's block checked, and no finding id may be defined twice.
+# A file it cannot write leaves the slice behind, too; any other way out of the merge (a stop, a signal) resets it.
 merge_slice() {
   local nr=$1 branch="slice-$1" record conflicts file problem
   local -a real=()
@@ -497,6 +540,8 @@ merge_slice() {
   problem=$(checks_problem "$nr")
   if [[ -n "$problem" ]]; then leave_slice "$nr" "$problem"; return 1; fi
   record=$(open_round_file)  # read before the merge: a conflict at its first line would hide "Status: open"
+  write_failed=""
+  merging=$nr
   # diff3 keeps every hunk whole and shows its base: the default style moves lines both sides end with (such as
   # "Result: ☐") out of the hunk, and keeping both sides would then keep that line once.
   if ! git -c merge.conflictStyle=diff3 merge --squash "$branch" >/dev/null 2>&1; then
@@ -504,8 +549,9 @@ merge_slice() {
     [[ -n "$conflicts" ]] || { reset_and_leave "$nr" "git merge --squash failed"; return 1; }
     while IFS= read -r file; do
       if [[ "$file" == "$CHECKLIST_FILE" ]]; then
-        resolve_checklist "$branch"
+        if ! resolve_checklist "$branch" && left_on_write "$nr"; then return 1; fi
       elif ! resolve_hunks "$file" "$([[ "$file" == "$record" ]] && echo record || echo strict)"; then
+        if left_on_write "$nr"; then return 1; fi
         real+=("$file")
         continue
       fi
@@ -516,17 +562,19 @@ merge_slice() {
     if (( ${#real[@]} )); then reset_and_leave "$nr" "merge conflict in ${real[*]}"; return 1; fi
   fi
   if [[ -n "$record" ]]; then
-    order_manual_tests "$record"
+    if ! order_manual_tests "$record" && left_on_write "$nr"; then return 1; fi
     git add "$record"
     problem=$(awk -v nr="$nr" "$AWK_BLOCK" "$record")
     if [[ -n "$problem" ]]; then reset_and_leave "$nr" "manual test block of slice $nr in $record: ${problem%; }"; return 1; fi
     problem=$(new_duplicate_ids "$record" | tr '\n' ',' | sed 's/,$//; s/,/, /g')
     if [[ -n "$problem" ]]; then reset_and_leave "$nr" "finding id defined twice: $problem"; return 1; fi
   fi
-  tick_commit "$nr"
+  if ! tick_commit "$nr" && left_on_write "$nr"; then return 1; fi
   git add "$CHECKLIST_FILE"
-  git rev-parse "$branch" >"$LOG_DIR/slice-$nr.squashed"
-  git commit -q -F "$(squash_message_file "$nr")" || die "slice $nr: the squash commit failed – see git status"
+  git rev-parse "$branch" >"$LOG_DIR/squashed.tmp"
+  if ! replace_file "$LOG_DIR/squashed.tmp" "$LOG_DIR/slice-$nr.squashed" && left_on_write "$nr"; then return 1; fi
+  git commit -q -F "$(squash_message_file "$nr")" || die "slice $nr: the squash commit failed – merge reset"
+  merging=""
   echo "[slice $nr] squashed onto $(git branch --show-current) ($(git rev-parse --short HEAD))" >&2
   is_done "$nr" || die "slice $nr was squashed but is not ticked in $CHECKLIST_FILE – check it before running again"
   remove_slice_branch "$nr"

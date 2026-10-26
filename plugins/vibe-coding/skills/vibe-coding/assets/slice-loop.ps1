@@ -20,6 +20,8 @@ pwsh .claude/scripts/slice-loop.ps1 -MaxSlices 3     # stop after 3 built slices
 pwsh .claude/scripts/slice-loop.ps1 -Merge           # only run the merge queue: squash every slice-NN branch ticked through Checks, retry removing worktrees an earlier squash left, then exit (starts no session, needs no open round)
 Env: SLICE_PERMISSION_MODE (default: auto) – passed to claude --permission-mode.
      SLICE_WAIT_SECONDS (default: 60), SLICE_WAIT_MAX (default: 30) – pause and number of check-backs on SLICE-WAIT.
+     SLICE_WRITE_RETRIES (default: 5), SLICE_WRITE_BACKOFF_SECONDS (default: 2) – retries and pause when the queue
+     cannot write a file or reset a merge because another process (scanner, indexer, editor) holds it.
 #>
 param(
     [switch]$Yes,
@@ -38,6 +40,10 @@ $LogDir = '.slice-loop'
 $PermissionMode = if ($env:SLICE_PERMISSION_MODE) { $env:SLICE_PERMISSION_MODE } else { 'auto' }
 $WaitSeconds = if ($env:SLICE_WAIT_SECONDS) { [int]$env:SLICE_WAIT_SECONDS } else { 60 }
 $WaitMax = if ($env:SLICE_WAIT_MAX) { [int]$env:SLICE_WAIT_MAX } else { 30 }
+$WriteRetries = if ($env:SLICE_WRITE_RETRIES) { [int]$env:SLICE_WRITE_RETRIES } else { 5 }
+$WriteBackoff = if ($env:SLICE_WRITE_BACKOFF_SECONDS) { [double]$env:SLICE_WRITE_BACKOFF_SECONDS } else { 2 }
+$WriteFailed = ''   # the file Write-Utf8File gave up on
+$Merging = $false   # a squash merge is in progress in this checkout; Merge-Slice resets it on any way out
 $Usage = 'use -Yes, -Parallel, -DryRun, -MaxSlices N, -Merge'
 $SliceCap = 0   # 0 = no cap
 $Built = 0
@@ -100,8 +106,18 @@ function Test-BranchReady([string]$Nr) {
 }
 
 # Writes text as UTF-8 without a byte order mark; .NET resolves relative paths against the process, not this location.
+# Retries while another process holds the file (a scanner or indexer with it mapped); after the last retry it names the
+# file in $WriteFailed and throws.
 function Write-Utf8File([string]$Path, [string]$Text) {
-    [IO.File]::WriteAllText((Join-Path (Get-Location).Path $Path), $Text, [Text.UTF8Encoding]::new($false))
+    $full = Join-Path (Get-Location).Path $Path
+    for ($attempt = 0; ; $attempt++) {
+        try { [IO.File]::WriteAllText($full, $Text, [Text.UTF8Encoding]::new($false)); return }
+        catch [IO.IOException], [UnauthorizedAccessException] {
+            if ($attempt -ge $WriteRetries) { $script:WriteFailed = $Path; throw }
+            Write-Host "slice-loop: could not write $Path (locked by another process?) – retrying in $WriteBackoff s (attempt $($attempt + 1) of $WriteRetries)"
+            Start-Sleep -Seconds $WriteBackoff
+        }
+    }
 }
 
 # Ticks the last open box of the slice's row – its Commit column – keeping the file's line endings.
@@ -490,20 +506,49 @@ function Get-ChecksProblem([string]$Nr) {
     return ''
 }
 
+# Resets the merge in progress, retrying while another process holds a file it has to restore; stops the loop when it
+# cannot, so the checkout never stays mid-squash unnoticed. Hard: Merge-Slice starts only on a clean checkout, and a
+# reset --merge that failed half-way leaves files every later reset --merge refuses.
+function Reset-Merge {
+    $script:Merging = $false
+    for ($attempt = 0; ; $attempt++) {
+        git reset -q --hard *> $null
+        if ($LASTEXITCODE -eq 0) { return }
+        if ($attempt -ge $WriteRetries) {
+            Stop-Loop 'could not reset the merge in progress (a file is still locked by another process?) – run git reset --merge once it is free, then -Merge again'
+        }
+        Write-Host "slice-loop: could not reset the merge (a file is locked by another process?) – retrying in $WriteBackoff s (attempt $($attempt + 1) of $WriteRetries)"
+        Start-Sleep -Seconds $WriteBackoff
+    }
+}
+
 # Leaves the slice behind after resetting the merge in progress.
 function Reset-AndLeave([string]$Nr, [string]$Reason) {
-    git reset -q --merge *> $null
+    Reset-Merge
     Add-LeftSlice $Nr "$Reason – merge reset"
 }
 
 # Squashes branch slice-NN onto the branch checked out here; $false when it leaves the slice behind (branch kept).
-# First the checks proof; then every conflict is resolved by rule and checked (a real conflict leaves the slice); then the
-# record's manual test list is put in slice order and the slice's block checked, and no finding id may be defined twice.
+# A file it cannot write leaves the slice behind, too; any other way out of the merge (an exception, a stop) resets it.
 function Merge-Slice([string]$Nr) {
-    $branch = "slice-$Nr"
     if (Get-GitLines @('status', '--porcelain')) { Stop-Loop "slice ${Nr}: this checkout has uncommitted changes – commit or remove them, then run -Merge" }
     $problem = Get-ChecksProblem $Nr
     if ($problem) { Add-LeftSlice $Nr $problem; return $false }
+    $script:WriteFailed = ''
+    $script:Merging = $true
+    try { return Invoke-Squash $Nr }
+    catch {
+        if (-not $script:WriteFailed) { throw }
+        Reset-AndLeave $Nr "could not write $($script:WriteFailed) (locked by another process)"
+        return $false
+    }
+    finally { if ($script:Merging) { Reset-Merge } }
+}
+
+# The squash of Merge-Slice: every conflict is resolved by rule and checked (a real conflict leaves the slice); then the
+# record's manual test list is put in slice order and the slice's block checked, and no finding id may be defined twice.
+function Invoke-Squash([string]$Nr) {
+    $branch = "slice-$Nr"
     $record = Get-OpenRoundFile  # read before the merge: a conflict at its first line would hide "Status: open"
     # diff3 keeps every hunk whole and shows its base: the default style moves lines both sides end with (such as
     # "Result: ☐") out of the hunk, and keeping both sides would then keep that line once.
@@ -531,9 +576,10 @@ function Merge-Slice([string]$Nr) {
     }
     Set-CommitTick $Nr
     git add $ChecklistFile
-    Write-Utf8File (Join-Path $LogDir "slice-$Nr.squashed") "$(@(Get-GitLines @('rev-parse', $branch))[0])`n"
+    Write-Utf8File "$LogDir/slice-$Nr.squashed" "$(@(Get-GitLines @('rev-parse', $branch))[0])`n"
     git commit -q -F (Get-SquashMessageFile $Nr)
-    if ($LASTEXITCODE -ne 0) { Stop-Loop "slice ${Nr}: the squash commit failed – see git status" }
+    if ($LASTEXITCODE -ne 0) { Stop-Loop "slice ${Nr}: the squash commit failed – merge reset" }
+    $script:Merging = $false
     Write-Host "[slice $Nr] squashed onto $(git branch --show-current) ($(git rev-parse --short HEAD))"
     if (-not (Test-Done $Nr)) { Stop-Loop "slice $Nr was squashed but is not ticked in $ChecklistFile – check it before running again" }
     Remove-SliceBranch $Nr

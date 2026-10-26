@@ -8,6 +8,7 @@ Usage: python tests/loop_test.py [text]   (bash and/or pwsh must be on PATH; mis
   text: run only the cases whose name contains it; LOOP_TEST_SHELLS="pwsh" runs only that shell.
 """
 import json
+import mmap
 import os
 import pathlib
 import re
@@ -15,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 STUB = r'''
@@ -342,6 +344,26 @@ PROFILES = [
             # A worktree with node_modules linked to the main checkout: removing the worktree keeps the main packages.
             ("removing a worktree keeps the target of its linked folder", 3, ["--yes", "--max-slices", "1"], {"STUB_LINK": "1"},
              None, (0, 4, 1, 0), {"subjects": ["Slice 100 stub squash"], "keeps": "node_modules/keep.txt"}),
+            # Another process holds a file the queue writes (a scanner with it mapped): the write is retried until it is free.
+            ("merge retries a write until another process frees the file", 3, ["--merge"], {"SLICE_WRITE_BACKOFF_SECONDS": "1"},
+             None, (0, 4, 0, 0),
+             {"prepared": [{"nr": "100"}], "holds": [{"path": ".slice-loop/slice-100.squashed", "release": "could not write"}],
+              "subjects": ["Slice 100 stub squash"],
+              "says": "could not write .slice-loop/slice-100.squashed (locked by another process?) – retrying", "no_calls": True}),
+            # The file stays held: the slice is left behind and the merge reset – retried, as the checklist is held, too –
+            # and the queue squashes the next slice.
+            ("merge leaves a slice whose file stays locked, resets and squashes the next", 3, ["--merge"],
+             {"SLICE_WRITE_RETRIES": "2", "SLICE_WRITE_BACKOFF_SECONDS": "1"}, None, (1, 4, 0, 0),
+             {"prepared": [{"nr": "100"}, {"nr": "101"}],
+              "holds": [{"path": ".slice-loop/slice-100.squashed", "release": "left behind"},
+                        {"path": "work/checklist.md", "start": "could not write", "release": "could not reset"}],
+              "subjects": ["Slice 101 stub squash"], "branches": ["slice-100"],
+              "says": ["slice 100: could not write .slice-loop/slice-100.squashed (locked by another process) – merge reset",
+                       "could not reset the merge (a file is locked by another process?) – retrying"], "no_calls": True}),
+            # (c) A stop in the middle of the squash (here: a pre-commit hook refuses the commit) still resets the merge.
+            ("a stop during the squash leaves a clean checkout", 3, ["--merge"], {}, None, (1, 3, 0, 0),
+             {"prepared": [{"nr": "100"}], "failing_commit": True, "subjects": [], "branches": ["slice-100"],
+              "says": "the squash commit failed – merge reset", "no_calls": True}),
             ("merge leaves a branch whose row is not ticked through Checks", 3, ["--merge"], {}, None, (0, 3, 0, 0),
              {"prepared": [{"nr": "100", "ready": False}], "subjects": [], "branches": ["slice-100"], "no_calls": True}),
         ],
@@ -503,7 +525,71 @@ def pwsh_arguments(options: list[str]) -> str:
     return " ".join(PWSH_FLAGS[o] if o.startswith("--") else o for o in options)
 
 
-def run_case(shell: str, repo: pathlib.Path, bin_dir: pathlib.Path, profile: dict, options: list[str], env: dict) -> subprocess.CompletedProcess:
+class Hold:
+    """Another process holding a file as a scanner or indexer does, so that neither the loop nor git can replace it: on
+    Windows the file is mapped (the loop meets ERROR_USER_MAPPED_FILE); elsewhere, where a mapping blocks nothing, its
+    folder is made read-only (needs a user other than root). It starts at the first output line containing "start"
+    (at once without one) and ends at the first one containing "release" (with the run without one)."""
+
+    def __init__(self, repo: pathlib.Path, spec: dict):
+        self.path = repo / spec["path"]
+        self.start, self.release = spec.get("start"), spec.get("release")
+        self.held = self.done = False
+
+    def take(self) -> None:
+        if os.name == "nt":
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            if not self.path.exists() or not self.path.stat().st_size:
+                self.path.write_text("held\n", encoding="utf-8", newline="\n")
+            self.handle = self.path.open("rb")
+            self.view = mmap.mmap(self.handle.fileno(), 0, access=mmap.ACCESS_READ)
+        else:
+            self.mode = self.path.parent.stat().st_mode
+            self.path.parent.chmod(0o555)
+        self.held = True
+
+    def free(self) -> None:
+        if self.held:
+            if os.name == "nt":
+                self.view.close()
+                self.handle.close()
+            else:
+                self.path.parent.chmod(self.mode)
+        self.held, self.done = False, True
+
+    def see(self, line: str) -> None:
+        if not self.held and not self.done and self.start and self.start in line:
+            self.take()
+        elif self.held and self.release and self.release in line:
+            self.free()
+
+
+def run_held(arguments: list[str], repo: pathlib.Path, env: dict, specs: list[dict]) -> subprocess.CompletedProcess:
+    """Runs the loop while other processes hold files (Hold), reading its output as it comes to start and end each hold."""
+    holds = [Hold(repo, spec) for spec in specs]
+    for hold in holds:
+        if not hold.start:
+            hold.take()
+    process = subprocess.Popen(arguments, cwd=repo, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT, text=True, encoding="utf-8")
+    timer = threading.Timer(120, process.kill)
+    timer.start()
+    lines = []
+    try:
+        for line in process.stdout:
+            lines.append(line)
+            for hold in holds:
+                hold.see(line)
+        process.wait()
+    finally:
+        timer.cancel()
+        for hold in holds:
+            hold.free()
+    return subprocess.CompletedProcess(arguments, process.returncode, "".join(lines), "")
+
+
+def run_case(shell: str, repo: pathlib.Path, bin_dir: pathlib.Path, profile: dict, options: list[str], env: dict,
+             holds: list[dict] | None = None) -> subprocess.CompletedProcess:
     script = script_path(profile, shell)
     if not script.exists():
         # Not left to the shell: a missing .ps1 would not give a failing exit code under -Command.
@@ -513,6 +599,8 @@ def run_case(shell: str, repo: pathlib.Path, bin_dir: pathlib.Path, profile: dic
     else:
         body = f"& '{script}' " + pwsh_arguments(options) + "; exit $LASTEXITCODE"
     stub_env = dict(os.environ, STUB_FOLDER=profile["folder"], STUB_COMMAND=profile["command"], **env)
+    if holds:
+        return run_held(command(shell, bin_dir, body), repo, stub_env, holds)
     return subprocess.run(command(shell, bin_dir, body), cwd=repo, env=stub_env,
                           input="", capture_output=True, text=True, encoding="utf-8", timeout=120)
 
@@ -546,8 +634,10 @@ def git_problems(repo: pathlib.Path, profile: dict, result: subprocess.Completed
     if "subjects" in expected and subjects != expected["subjects"]:
         problems.append(f"commit subjects after the initial one: {subjects}")
     output = result.stdout + result.stderr
-    if "says" in expected and expected["says"] not in output:
-        problems.append(f"output does not name {expected['says']!r}")
+    says = expected.get("says", [])
+    for text in [says] if isinstance(says, str) else says:
+        if text not in output:
+            problems.append(f"output does not name {text!r}")
     if "says_not" in expected and expected["says_not"] in output:
         problems.append(f"output names {expected['says_not']!r}")
     if expected.get("no_calls") and calls_log(repo):
@@ -612,7 +702,9 @@ def main() -> int:
                     git_expected = extra[0] if extra else {}
                     repo = make_repo(base, profile, done, rounds, stub, git_expected.get("prepared", []), git_expected.get("main_row"),
                                      git_expected.get("main_change"))
-                    result = run_case(shell, repo, bin_dir, profile, options, env)
+                    if git_expected.get("failing_commit"):
+                        (repo / ".git/hooks/pre-commit").write_text("#!/bin/sh\nexit 1\n", encoding="utf-8", newline="\n")
+                    result = run_case(shell, repo, bin_dir, profile, options, env, git_expected.get("holds"))
                     if "rerun" in git_expected:  # whatever kept the worktree is gone (here: its lock), then the queue runs again
                         for line in git(repo, "worktree", "list", "--porcelain").splitlines():
                             if line.startswith("worktree ") and ".claude/worktrees/" in line:
