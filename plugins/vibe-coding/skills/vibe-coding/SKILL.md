@@ -5,7 +5,7 @@ license: MIT
 compatibility: Designed for Claude Code with file access and subagents; render script needs Python 3.10+; the slice-loop needs the claude CLI plus PowerShell 7 or bash; uses the superpowers plugin when installed.
 metadata:
   author: vompa
-  version: "1.4.0"
+  version: "1.5.0"
 ---
 
 # Vibe Coding – run everyday coding work in rounds of slices
@@ -140,7 +140,7 @@ Slices run in fresh worktrees cut from the integration branch, so what they need
 
 Every write of this skill and its command, so nothing surprises the user:
 - **Committed** in the one round-start commit of section 5: `work/` (without `_raw/`; it holds `work/session-hints.md`), `.claude/commands/slice.md`, `.claude/scripts/slice-loop.ps1` and `slice-loop.sh`, `.gitignore`, `.gitattributes`, and `CLAUDE.md` only where none exists.
-- **Git-ignored or local, never committed:** `work/_raw/` (working material, also the collect-mode file `intake-Rnn.md`); `.slice-loop/` (loop logs, the squash messages `slice-NN.msg`, the checks proofs `slice-NN.checks` and the full-suite lock `.slice-loop/full-suite.lock/` – both loop scripts also append it to `.git/info/exclude` when it is missing there); the repository-local git identity (`git config --local user.name` / `user.email`), set only with the user's approval.
+- **Git-ignored or local, never committed:** `work/_raw/` (working material, also the collect-mode file `intake-Rnn.md`); `.slice-loop/` (loop logs, the squash messages `slice-NN.msg`, the checks proofs `slice-NN.checks`, the ready files `slice-NN.ready` and the full-suite lock `.slice-loop/full-suite.lock/` – both loop scripts also append it to `.git/info/exclude` when it is missing there); the repository-local git identity (`git config --local user.name` / `user.email`), set only with the user's approval.
 - **`/slice`, later:** a branch and worktree `slice-NN` while it works, then one squash commit per slice on the integration branch – with the plan in `work/plans/`, the checklist tick, the round record entries, the repository's own protocol entry and the documents `conventions.md` lists as "must change with a change".
 - **`/slice close`:** the round-close commit above; it lists leftover worktrees and branches and removes the safe ones only on the user's yes.
 - **`/slice quick <finding>`:** one commit on the integration branch with the fix, its test, a row in `work/quick-fixes.md` and the protocol entry; the next intake reads that file.

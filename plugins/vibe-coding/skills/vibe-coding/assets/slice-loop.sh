@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Builds the open round slice by slice, each slice in a fresh headless Claude session, then closes the round.
 # A slice that ends with SLICE-READY is squashed by the merge queue: one slice-NN branch after another, in this
-# checkout, with the message from .slice-loop/slice-NN.msg, once .slice-loop/slice-NN.checks proves green checks on
+# checkout, with the message from .slice-loop/slice-NN.msg, once .slice-loop/slice-NN.ready names the branch tip (the
+# session wrote it last, at SLICE-READY) and .slice-loop/slice-NN.checks proves green checks on
 # the branch tip. Only proof lines of the branch tip count (lines of other commits are stale runs and ignored); of each
 # command the last line on the tip counts. Conflicts are resolved by rule and checked: work/checklist.md by the union of
 # ticks, and in any text file a hunk where both sides only added lines (both kept) or changed rows of one table (merged
@@ -578,6 +579,18 @@ checks_problem() {
   done < <(check_commands '- Baseline check')
 }
 
+# Why slice $1 has not reported ready on its branch tip; nothing when it has. As its last step before SLICE-READY,
+# /slice writes the tip's SHA to .slice-loop/slice-NN.ready: a session still running its last checks has no such file,
+# or one of an older tip, and its worktree is not taken away under it.
+ready_problem() {
+  local nr=$1 file="$LOG_DIR/slice-$1.ready" tip sha
+  [[ -f "$file" ]] || { echo "not reported ready: no $file (the session has not ended with SLICE-READY)"; return; }
+  tip=$(git rev-parse "slice-$nr")
+  sha=$(tr -d '[:space:]' <"$file")
+  [[ "$sha" =~ ^[0-9a-f]{7,40}$ && "$tip" == "$sha"* ]] && return
+  echo "slice-$nr moved after SLICE-READY: $file names '$sha', the tip is ${tip:0:12}"
+}
+
 # Every row of both sides is in the resolved checklist, and none of their ticks is missing there.
 check_checklist() {
   local branch=$1 line nr
@@ -625,7 +638,8 @@ merge_slice() {
   local nr=$1 branch="slice-$1" record conflicts file problem
   local -a real=()
   [[ -z "$(git status --porcelain)" ]] || die "slice $nr: this checkout has uncommitted changes – commit or remove them, then run --merge"
-  problem=$(checks_problem "$nr")
+  problem=$(ready_problem "$nr")
+  [[ -n "$problem" ]] || problem=$(checks_problem "$nr")
   if [[ -n "$problem" ]]; then leave_slice "$nr" "$problem"; return 1; fi
   record=$(open_round_file)  # read before the merge: a conflict at its first line would hide "Status: open"
   write_failed=""

@@ -132,9 +132,11 @@ def test_command_stays_short_and_positive():
     1.3.0 moves it to 260: the checks proof, reserved finding ids, SLICE-WAIT, the manual-test format check and the
     open-decision scan came out of round R02 of a target repository; section 7 got shorter.
     1.4.0 moves it to 295: the hard list before SLICE-READY, the meaning of red, the wider check scope and the quick-fix
-    path (section 8) came out of round R03."""
+    path (section 8) came out of round R03.
+    1.5.0 moves it to 310: the ready file, the red proof line, the order of the last checks run, stray child processes,
+    real input in screen tests, generated outputs and the fresh reviewer came out of round R04."""
     text = (SKILL / "references/slice-command.md").read_text(encoding="utf-8")
-    assert len(text.splitlines()) <= 295, len(text.splitlines())
+    assert len(text.splitlines()) <= 310, len(text.splitlines())
     assert text.lower().count("never") <= 16, text.lower().count("never")
 
 def _skill_part(name, start, end=None):
@@ -188,7 +190,7 @@ def test_parallel_or_auto_run_stops_before_the_squash():
 def test_slice_ready_is_a_marker_with_its_meaning():
     section = _section(*SECTION_6)
     assert "SLICE-READY: NN" in section
-    assert "branch committed, checklist ticked through Checks, squash message written; waits for the merge queue" in section
+    assert "branch committed, checklist ticked through Checks, squash message and ready file written; waits for the merge queue" in section
 
 def test_parallel_prompts_are_short_and_name_the_queue():
     """R02: long pasted prompts duplicated conventions and hints the command reads itself."""
@@ -215,10 +217,10 @@ def test_checks_proof_is_written_and_names_the_tip():
     section = _section(*SECTION_4)
     for phrase in ("Checks proof", ".slice-loop/slice-NN.checks", "`<exit code> <commit SHA> <command>`",
                    "exactly as work/conventions.md writes it", "every baseline command is listed",
-                   "checks proof names the branch tip", "rewrite the checks proof with these runs"):
+                   "checks proof names the branch tip", "append these runs to the checks proof"):
         assert phrase in section, phrase
     steps = ["1. Run the checks", "Checks proof", "5. Commit these edits", "checks proof names the branch tip",
-             "a. merge the integration branch", "rewrite the checks proof"]
+             "a. merge the integration branch", "append these runs to the checks proof"]
     assert [section.index(s) for s in steps] == sorted(section.index(s) for s in steps), "proof in steps 1, 5 and 6a"
     for name in ("slice-loop.sh", "slice-loop.ps1"):
         text = (SKILL / f"assets/{name}").read_text(encoding="utf-8")
@@ -308,12 +310,38 @@ def test_conventions_template_and_skill_point_to_the_lock():
     local = _skill_part("SKILL.md", "**Git-ignored", "- **`/slice`, later:**")
     assert ".slice-loop/full-suite.lock/" in local
 
+def test_slice_ready_binds_to_the_tip_with_a_ready_file():
+    """R04: the queue squashed two slices while their last checks still ran and took their worktrees away."""
+    section = _section(*SECTION_4)
+    for phrase in ("as the very last write", ".slice-loop/slice-NN.ready", "names its tip", "write it again after any later commit"):
+        assert phrase in section, phrase
+    assert "ready file" in _section("## 6. Marker lines", "## 7. Parallel slices")
+    for script in ("assets/slice-loop.ps1", "assets/slice-loop.sh"):
+        text = (SKILL / script).read_text(encoding="utf-8")
+        assert ".ready" in text and "not reported ready" in text and "moved after SLICE-READY" in text, script
+
+def test_last_checks_run_comes_after_tick_and_merge():
+    section = _section(*SECTION_4)
+    assert "The run that proves the slice is the last one" in section and "after steps 2–5 and the merge of step 6a" in section
+    assert "append these runs to the checks proof" in section and "rewrite the checks proof" not in section
+    assert "child processes" in section and "worktree path in their command line" in section
+    assert "fresh, read-only reviewer" in section and "whole branch diff" in section
+
+def test_r04_build_rules():
+    section = _section(*SECTION_3)
+    for phrase in ("Write that red run to the checks proof", "tick Tests red only with such a line", "through the real input",
+                   "not only by setting view-model state", "Generated outputs", "reset the rest"):
+        assert phrase in section, phrase
+    baseline = _section("## 2. Read first, then check the baseline", "## 3. Plan and build the slice")
+    assert "run the baseline check from work/conventions.md there, before your first change" in baseline
+    assert "other slices' worktrees" in baseline
+
 def test_release_version_is_consistent():
     import json
     manifest = json.loads((ROOT / "plugins/vibe-coding/.claude-plugin/plugin.json").read_text(encoding="utf-8"))["version"]
     skill = re.search(r'^\s+version: "([^"]+)"', (SKILL / "SKILL.md").read_text(encoding="utf-8"), re.M).group(1)
     changelog = re.search(r"^## (\S+) – \d{4}-\d{2}-\d{2}", (ROOT / "plugins/vibe-coding/CHANGELOG.md").read_text(encoding="utf-8"), re.M).group(1)
-    assert manifest == skill == changelog == "1.4.0", (manifest, skill, changelog)
+    assert manifest == skill == changelog == "1.5.0", (manifest, skill, changelog)
 
 def test_marketplace_validation_is_not_strict_but_the_plugins_are():
     """slice-board carries no version on purpose (every commit is an update), so only the marketplace check tolerates warnings."""

@@ -183,6 +183,10 @@ def build_on_branch(nr):
     write_checks(worktree, nr)
     if os.environ.get("STUB_NO_MESSAGE") != nr:
         open(f".slice-loop/slice-{nr}.msg", "w", encoding="utf-8", newline="\n").write(f"Slice {nr} stub squash\n\nBody line.\n")
+    ready = option("STUB_READY_FILE", nr)  # missing: no ready file yet (checks still running); moved: an older tip
+    if ready != "missing":
+        sha = git_out("rev-parse", "HEAD~1" if ready == "moved" else "HEAD", cwd=worktree)
+        open(f".slice-loop/slice-{nr}.ready", "w", encoding="utf-8", newline="\n").write(sha + "\n")
     if option("STUB_LOCK", nr):  # a worktree git will not remove, as when a shell still runs inside it
         git("worktree", "lock", worktree)
     print(f"SLICE-READY: {nr}")
@@ -324,6 +328,13 @@ PROFILES = [
             ("merge leaves a slice without checks proof and squashes the next", 3, ["--merge"], {}, None, (1, 4, 0, 0),
              {"prepared": [{"nr": "100", "checks": "missing"}, {"nr": "101"}], "subjects": ["Slice 101 stub squash"],
               "branches": ["slice-100"], "says": "no checks proof", "no_calls": True}),
+            # A session still running its last checks has written no ready file yet, or one of an older tip.
+            ("merge leaves a slice that has not reported ready and squashes the next", 3, ["--merge"], {}, None, (1, 4, 0, 0),
+             {"prepared": [{"nr": "100", "ready_file": "missing"}, {"nr": "101"}], "subjects": ["Slice 101 stub squash"],
+              "branches": ["slice-100"], "says": "not reported ready: no .slice-loop/slice-100.ready", "no_calls": True}),
+            ("merge leaves a slice whose branch moved after it reported ready", 3, ["--merge"], {}, None, (1, 3, 0, 0),
+             {"prepared": [{"nr": "100", "ready_file": "moved"}], "subjects": [], "branches": ["slice-100"],
+              "says": "slice-100 moved after SLICE-READY", "no_calls": True}),
             ("merge leaves a slice with a red check", 3, ["--merge"], {}, None, (1, 3, 0, 0),
              {"prepared": [{"nr": "100", "checks": "red"}], "subjects": [], "branches": ["slice-100"],
               "says": "check red (exit 1): unit-tests", "no_calls": True}),
@@ -517,7 +528,8 @@ def init_git(repo: pathlib.Path) -> None:
 
 # Per-branch options of "prepared" and the stub variable each one sets for that slice.
 BRANCH_OPTIONS = {"append": "STUB_APPEND", "status": "STUB_STATUS", "finding": "STUB_FINDING", "checks": "STUB_CHECKS",
-                  "bad_block": "STUB_BAD_BLOCK", "glue": "STUB_GLUE", "extend": "STUB_EXTEND", "link": "STUB_LINK"}
+                  "bad_block": "STUB_BAD_BLOCK", "glue": "STUB_GLUE", "extend": "STUB_EXTEND", "link": "STUB_LINK",
+                  "ready_file": "STUB_READY_FILE"}
 # Files every vibe-coding test repository starts with: the baseline check the queue requires in the checks proof, the
 # findings file the record names under ## Source, a status page with the round's row, a protocol appended to.
 WORK_FILES = {

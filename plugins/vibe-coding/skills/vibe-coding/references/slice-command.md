@@ -50,8 +50,9 @@ work/_slices.json. A slice is done when its row in work/checklist.md has a ☑ a
 Before you change anything the working tree must be clean and the integration branch checked out;
 otherwise say what to do (auto: "SLICE-OPEN: NN <reason>"). Generated files you did not touch that show as changed
 or missing usually come from another session's build in this checkout: wait until no build or test process of
-another session runs (at most 10 minutes), then look again; leave those files alone. Then run the baseline check from
-work/conventions.md (a full suite takes the lock of section 4). Red → change nothing and ask whether to fix that first
+another session runs (at most 10 minutes), then look again; leave those files alone. Then create the slice's worktree
+(recipe in section 3) and run the baseline check from work/conventions.md there, before your first change (a full suite
+takes the lock of section 4): a build in the main checkout also picks up files of other slices' worktrees. Red → change nothing and ask whether to fix that first
 (auto: "SLICE-OPEN: NN baseline red: <check>" and stop). No baseline check listed: only a slice
 that creates the checks itself may go on; otherwise stop ("SLICE-OPEN: NN no baseline check").
 
@@ -84,8 +85,12 @@ Rules for plan and build (both paths):
 - Tests: expected values come from an independent source, not computed like the code (that is tautological).
   Red counts when the test checks exactly the fault or requirement. Red means the new test fails against the code
   before the change (stash the change, or run it in a second worktree on the integration branch); a test made to fail
-  by a wrong expectation is not red – say this in every brief to a subagent. Run the type check and the single test file
-  often, the full suite once at the end; refactor after green.
+  by a wrong expectation is not red – say this in every brief to a subagent. Write that red run to the checks proof
+  (section 4) with its exit code and the SHA it ran on; tick Tests red only with such a line, so test and code are not
+  written in one go. Run the type check and the single test file often, the full suite once at the end; refactor after green.
+- A screen's behaviour is tested through the real input (click, key, focus) where the repository's test harness can,
+  not only by setting view-model state: a click path that breaks stays green otherwise.
+- Generated outputs (screenshots, snapshots, generated clients): commit those the slice's change explains, reset the rest.
 - Check scope beyond the slice's own screen: a rule added to an endpoint, a service or a base class → search every
   caller and run their tests, or the full suite before "green"; a change to a shared control or base → run its own tests
   first, before changing it; a change to key bindings, focus or tab order → add the repository's focus-order tests. Every timeout or wait you raise in a test goes into
@@ -128,12 +133,16 @@ Do 1–4 on slice-NN, so they land in the same commit as the code.
    package without approval". A red test that is green when run alone or in a second unchanged run is load, not a
    regression: note it under Surprises as "load, not a fault" (test, both runs) and go on. Check commands never end in `| tail` or another pipe inside an `&&`
    chain: the pipe hides the exit code, so write the output to a file and read its exit code.
+   The run that proves the slice is the last one: on the final tip, after steps 2–5 and the merge of step 6a. A run
+   before a later commit must be repeated, so earlier runs cover what you changed and the full set runs once, at the end.
+   Stopping a background check with the harness's stop tool leaves its child processes (test runners, builds) running:
+   find them by the worktree path in their command line and end them, or the next build finds its files locked.
    Checks proof: write each check you run to .slice-loop/slice-NN.checks in the main checkout (the parent of
    `git rev-parse --git-common-dir`), one line per check: `<exit code> <commit SHA> <command>` – the command exactly
    as work/conventions.md writes it, the SHA of `git rev-parse HEAD` on slice-NN when it ran. Always append, so a stale
    run of an old session cannot wipe the proof. The merge queue reads only the lines with the branch tip, the last one
    per command; it squashes when each of them is green and every baseline command is listed.
-   Review on two axes, kept apart: specification (every finding cites the plan line; ask about unrequested
+   Review the whole branch diff with a fresh, read-only reviewer (a subagent that did not write the code), on two axes, kept apart: specification (every finding cites the plan line; ask about unrequested
    scope) and standards (the repository rule beats the general rule; what tools enforce stays out). The review
    also checks that every raised timeout or wait in a test is recorded with its reason.
    Full-suite lock (also for the baseline check of section 2): before a command that work/conventions.md names a full
@@ -166,19 +175,22 @@ Do 1–4 on slice-NN, so they land in the same commit as the code.
    With `auto` or `parallel`, do 6a, then stop here: write the squash message (commit language and style of
    work/conventions.md, naming the slice and its ids) to .slice-loop/slice-NN.msg in the main checkout (the parent
    of `git rev-parse --git-common-dir`), check that the checks proof names the branch tip, do not merge, leave
-   Commit at ☐ and end with the last line SLICE-READY: NN; the merge queue does the squash.
+   Commit at ☐; as the very last write, put the tip's SHA (`git rev-parse HEAD`) into .slice-loop/slice-NN.ready in the
+   main checkout, and end with the last line SLICE-READY: NN. The merge queue squashes only a slice whose ready file
+   names its tip, so it leaves a session alone while its last checks run.
    Before SLICE-READY, all of these hold – check each one, the queue leaves the slice behind otherwise:
    1. the slice's row in work/checklist.md on slice-NN is ticked through Checks (Commit stays ☐);
    2. .slice-loop/slice-NN.msg exists in the main checkout;
    3. .slice-loop/slice-NN.checks has a green line on the branch tip for every check and every baseline command;
-   4. everything is committed on slice-NN (`git status` in the worktree is clean).
+   4. everything is committed on slice-NN (`git status` in the worktree is clean);
+   5. .slice-loop/slice-NN.ready holds the tip's SHA – write it again after any later commit or merge on slice-NN.
    Checks or anything else still running in the background when your turn ends: end with "SLICE-WAIT: NN <what
    runs>" instead – not with SLICE-READY, and not with a sentence like "I wait for …" without the marker.
    without both arguments go on with step 6.
 6. Integrate: superpowers:finishing-a-development-branch (or by hand) – ONE squash commit on the
    integration branch named in work/conventions.md. Before the squash, in this order:
    a. merge the integration branch into slice-NN and run the checks again after the merge, before the squash or SLICE-READY;
-      rewrite the checks proof with these runs (the SHA of the merged tip);
+      append these runs to the checks proof (the SHA of the merged tip);
    b. in the main checkout, `git merge --squash slice-NN`;
    c. check the resolved files before committing: `grep '^<<<<<<<'` finds nothing, every line of both sides
       (`git show HEAD:<file>` and `git show slice-NN:<file>`) is still present, and the number of `Result:`
@@ -243,7 +255,7 @@ from the first column, exactly as written – no bullet, quote or code format, n
 - "PLAN: <path of the plan file>" – last line of a "plan" run
 - "NEEDS-DECISION: <question>" – one per open point, before the PLAN line
 - "SLICE-DONE: NN" – the slice is green, ticked and on the integration branch
-- "SLICE-READY: NN" – branch committed, checklist ticked through Checks, squash message written; waits for the merge queue
+- "SLICE-READY: NN" – branch committed, checklist ticked through Checks, squash message and ready file written; waits for the merge queue
 - "SLICE-WAIT: NN <what runs>" – the turn ends while checks still run in the background: the slice is still running,
   not done; the loop checks back in this session
 - "SLICE-OPEN: NN <reason>" – anything else that stops the slice

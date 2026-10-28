@@ -3,8 +3,8 @@
 .SYNOPSIS
 Builds the open round slice by slice, each slice in a fresh headless Claude session, then closes the round.
 A slice that ends with SLICE-READY is squashed by the merge queue: one slice-NN branch after another, in this
-checkout, with the message from .slice-loop/slice-NN.msg, once .slice-loop/slice-NN.checks proves green checks on
-the branch tip. Only proof lines of the branch tip count (lines of other commits are stale runs and ignored); of each
+checkout, with the message from .slice-loop/slice-NN.msg, once .slice-loop/slice-NN.ready names the branch tip (the
+session wrote it last, at SLICE-READY) and .slice-loop/slice-NN.checks proves green checks on that tip. Only proof lines of the branch tip count (lines of other commits are stale runs and ignored); of each
 command the last line on the tip counts. Conflicts are resolved by rule and checked: work/checklist.md by the union of
 ticks, and in any text file a hunk where both sides only added lines (both kept) or changed rows of one table (merged
 per row key, e.g. the status row of a round). A real conflict, a missing proof, a duplicate finding id, a line glued to
@@ -570,6 +570,18 @@ function Get-ChecksProblem([string]$Nr) {
     return ''
 }
 
+# Why the slice has not reported ready on its branch tip; empty when it has. As its last step before SLICE-READY,
+# /slice writes the tip's SHA to .slice-loop/slice-NN.ready: a session still running its last checks has no such file,
+# or one of an older tip, and its worktree is not taken away under it.
+function Get-ReadyProblem([string]$Nr) {
+    $file = Join-Path $LogDir "slice-$Nr.ready"
+    if (-not (Test-Path -LiteralPath $file)) { return "not reported ready: no $LogDir/slice-$Nr.ready (the session has not ended with SLICE-READY)" }
+    $tip = @(Get-GitLines @('rev-parse', "slice-$Nr"))[0]
+    $sha = [IO.File]::ReadAllText((Join-Path (Get-Location).Path $file)).Trim()
+    if ($sha -cmatch '^[0-9a-f]{7,40}$' -and $tip.StartsWith($sha)) { return '' }
+    return "slice-$Nr moved after SLICE-READY: $LogDir/slice-$Nr.ready names '$sha', the tip is $($tip.Substring(0, 12))"
+}
+
 # Resets the merge in progress, retrying while another process holds a file it has to restore; stops the loop when it
 # cannot, so the checkout never stays mid-squash unnoticed. Hard: Merge-Slice starts only on a clean checkout, and a
 # reset --merge that failed half-way leaves files every later reset --merge refuses.
@@ -596,7 +608,8 @@ function Reset-AndLeave([string]$Nr, [string]$Reason) {
 # A file it cannot write leaves the slice behind, too; any other way out of the merge (an exception, a stop) resets it.
 function Merge-Slice([string]$Nr) {
     if (Get-GitLines @('status', '--porcelain')) { Stop-Loop "slice ${Nr}: this checkout has uncommitted changes – commit or remove them, then run -Merge" }
-    $problem = Get-ChecksProblem $Nr
+    $problem = Get-ReadyProblem $Nr
+    if (-not $problem) { $problem = Get-ChecksProblem $Nr }
     if ($problem) { Add-LeftSlice $Nr $problem; return $false }
     $script:WriteFailed = ''
     $script:Merging = $true

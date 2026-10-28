@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.5.0 – 2026-10-28
+Lessons from round R04 of a target repository (ten slices in parallel sessions).
+- **`SLICE-READY` is bound to the branch tip.** The merge queue squashed two slices while their last checks still ran and removed their worktrees under them: format and build were already green on the tip, the tests were still running, and a squash message of an earlier pass was there. `/slice` now writes the tip's SHA to `.slice-loop/slice-NN.ready` as its very last write before `SLICE-READY`, and again after any later commit or merge. Both loop scripts squash only a slice whose ready file names its tip; otherwise it is left behind with "not reported ready" or "moved after SLICE-READY". Copy the command and the scripts together: a 1.4 `/slice` writes no ready file.
+- **One last checks run.** The run that proves the slice comes after the tick, the protocol entries and the merge of the integration branch, on the final tip; a slice ran its 35-minute chain twice before. The merge step appends to the checks proof instead of rewriting it.
+- **Red is recorded.** The red run goes into the checks proof with its exit code and SHA, and Tests red is ticked only with such a line – three slices had written test and code in one go.
+- **Baseline in the worktree.** The baseline check runs in the slice's fresh worktree before the first change; in the main checkout a build picked up half-done files of other slices' worktrees.
+- **Build rules.** Screen behaviour is tested through real input (a click path was broken while a view-model test was green); generated outputs the change does not explain are reset (113 unrelated screenshots); stopping a background check leaves its child processes running, so they are found by the worktree path and ended.
+- **Fresh reviewer.** The review is a read-only pass over the whole branch diff by a subagent that did not write the code; in R04 it found real faults in three slices.
+
 ## 1.4.0 – 2026-10-27
 Lessons from round R03 of a target repository: 24 points, collected while an orchestrating chat ran the slices in parallel sessions.
 - **The orchestrator runs on Opus at low effort.** A session cannot start a session on a stronger model than its own – the harness silently falls back (two `opus` slices started on Sonnet). A chat that only dispatches and squashes now runs on `opus` at low effort (`claude --model opus --effort low`) instead of a cheaper model, checks each started session's model and switches it when it differs. The start brief carries a background text and, for repositories with a fact-forcing hook, the facts it asks before the first command.
