@@ -32,6 +32,7 @@ When the user says they collect points first ("I'll collect", "ich sammle", "I'l
 - A slice that produces pictures or summaries of other screens (help images, a manual, a status page, a design-token overview) depends on every slice of the round that changes those screens – otherwise its output is stale before the round ends and has to be made twice. Slices that share one folder (for example all help slices) form a chain, not a fan-out, so no two of them run in parallel.
 - Quick fixes since the last round (`work/quick-fixes.md`, written by `/slice quick`) are read before the intake: a fix that did not hold is a finding marked `reopens <id>`.
 - Open decisions of the previous round are copied into the new record's `## Open decisions` (see `round-close.md`).
+- **Check the keys of `work/conventions.md`.** The lines `- Baseline check` and `- Full check chain` start with these English keys in any language (own words in brackets after the key, no backticks there); a file with translated keys is corrected in this intake. Otherwise the merge queue cannot require the baseline in the checks proof and `slice-loop -Merge -Verify` finds no chain – it says so at its start.
 
 ## Size classes
 - **S** – one place, a few lines, no new behaviour: no slice of its own, goes into a sweep slice.

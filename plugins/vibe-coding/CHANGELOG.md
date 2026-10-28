@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.5.1 – 2026-10-28
+- **The keys of `work/conventions.md` stay English.** An intake in German had written „Basisprüfung“ and „Volle Prüfkette“ instead of `- Baseline check` and `- Full check chain`. The loop scripts read only the English keys, so the merge queue silently stopped requiring the baseline commands in the checks proof, and `-Merge -Verify` would have found no chain. The template, the setup step and the intake now say that both keys stay English in any language, with the repository's own words in brackets after the key and no backticks in that label (the scripts run every backtick text before the `←`); an intake corrects a file with translated keys. Both loop scripts report a `work/conventions.md` without a `- Baseline check` line at their start, and `-Verify` names the missing `- Full check chain` key.
+
 ## 1.5.0 – 2026-10-28
 Lessons from round R04 of a target repository (ten slices in parallel sessions).
 - **`SLICE-READY` is bound to the branch tip.** The merge queue squashed two slices while their last checks still ran and removed their worktrees under them: format and build were already green on the tip, the tests were still running, and a squash message of an earlier pass was there. `/slice` now writes the tip's SHA to `.slice-loop/slice-NN.ready` as its very last write before `SLICE-READY`, and again after any later commit or merge. Both loop scripts squash only a slice whose ready file names its tip; otherwise it is left behind with "not reported ready" or "moved after SLICE-READY". Copy the command and the scripts together: a 1.4 `/slice` writes no ready file.

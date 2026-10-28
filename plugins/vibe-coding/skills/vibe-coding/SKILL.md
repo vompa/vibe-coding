@@ -5,7 +5,7 @@ license: MIT
 compatibility: Designed for Claude Code with file access and subagents; render script needs Python 3.10+; the slice-loop needs the claude CLI plus PowerShell 7 or bash; uses the superpowers plugin when installed.
 metadata:
   author: vompa
-  version: "1.5.0"
+  version: "1.5.1"
 ---
 
 # Vibe Coding – run everyday coding work in rounds of slices
@@ -76,7 +76,7 @@ If the user is away or asks for a trial run, make sensible assumptions, mark the
 Discovered in the first round of a repository only. Later rounds read the file, check that the branch and commands still exist, and update only what changed (the user confirms the change); no rediscovery.
 
 Read what the repository already defines. Sources are examples, not a checklist – for instance `CLAUDE.md`, `AGENTS.md`, README, the working-method or contribution documents that `CLAUDE.md` links, protocol or changelog files, the CI workflow, `.editorconfig` and formatter configuration, and `git log` (branch names, commit style and language) – plus anything else that defines how this repository works. In a large repository let an `Explore` subagent read, and save its report to `work/_raw/`.
-Write `work/conventions.md` from `references/templates.md`: one line per fact with the document it comes from. The facts are examples too: branches and merge style, commit language, the commands (build, test, lint/format, baseline check, checks for a slice, full check chain), where decisions are recorded and which documents must change with a change, languages, the privacy rule for names, how to start the app for manual testing, the finding-id scheme – and any other fact slices will need.
+Write `work/conventions.md` from `references/templates.md`: one line per fact with the document it comes from. The keys `- Baseline check` and `- Full check chain` stay in English in any language (the loop scripts read them); describe them in the repository's language in brackets after the key. The facts are examples too: branches and merge style, commit language, the commands (build, test, lint/format, baseline check, checks for a slice, full check chain), where decisions are recorded and which documents must change with a change, languages, the privacy rule for names, how to start the app for manual testing, the finding-id scheme – and any other fact slices will need.
 
 - **Check scope per slice.** Ask the user for the split and record it on the `Checks for a slice` line: one screen touched → its test classes plus the cross-page scan tests; shared code touched → the full suite; never two full suites at once. Name the widenings too: a new rule on an endpoint, service or base class → the tests of every caller (found by search) or the full suite; a shared control → its own tests first; key bindings, focus or tab order → the repository's focus-order tests by name.
 - **Session hints.** The first round also creates `work/session-hints.md` from `references/templates.md` (what the repository's rules and tooling already teach slice sessions); later rounds append what the previous round learned and change no existing bullet.

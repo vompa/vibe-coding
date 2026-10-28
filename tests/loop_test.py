@@ -239,6 +239,8 @@ CONVENTIONS = f"# Conventions\n{BASELINE_LINE}{CHAIN_LINE}"
 CONVENTIONS_RED = (f"# Conventions\n{BASELINE_LINE}- Full check chain (before the round closes): `git rev-parse --git-dir`, "
                    "`git rev-parse --verify no-such-ref` ← the second one fails\n")
 CONVENTIONS_WITHOUT_CHAIN = f"# Conventions\n{BASELINE_LINE}"
+# The keys translated by an intake in another language: the scripts read only the English keys.
+CONVENTIONS_TRANSLATED = "# Konventionen\n- Basisprüfung (vor jeder Slice): `baseline-check`, `unit-tests`\n" + CHAIN_LINE
 # One profile per plugin. Case: name, slices done before, options, env, rounds (None = default),
 # expected (exit code, ticked slices, build turns, close turns), and for the vibe-coding profile an optional dict of
 # git expectations: "prepared" (branches made before the run: nr, optional file, content, ready, message, record_line
@@ -465,8 +467,14 @@ PROFILES = [
              {"says_not": "[verify]", "lock_gone": True, "no_calls": True}),
             ("verify without a full check chain line verifies nothing", 3, ["--merge", "--verify"], {}, None, (0, 4, 0, 0),
              {"prepared": [{"nr": "100"}], "main_change": {"work/conventions.md": CONVENTIONS_WITHOUT_CHAIN},
-              "subjects": ["Change on main", "Slice 100 stub squash"], "says": "no full check chain in work/conventions.md – nothing verified",
+              "subjects": ["Change on main", "Slice 100 stub squash"],
+              "says": "no '- Full check chain' line in work/conventions.md – nothing verified (the key stays English in any language)",
               "says_not": "[verify]", "lock_gone": True, "no_calls": True}),
+            # A translated key hid the baseline from the queue without a word; now the run says so (and still squashes).
+            ("merge reports a conventions file without a baseline check line", 3, ["--merge"], {}, None, (0, 4, 0, 0),
+             {"prepared": [{"nr": "100"}], "main_change": {"work/conventions.md": CONVENTIONS_TRANSLATED},
+              "subjects": ["Change on main", "Slice 100 stub squash"], "no_calls": True,
+              "says": ["no '- Baseline check' line in work/conventions.md", "the key stays English in any language"]}),
             ("verify skips and fails when the lock is held", 3, ["--merge", "--verify"], {}, None, (1, 4, 0, 0),
              {"prepared": [{"nr": "100"}], "lock": {"owner": "slice 100 2026-10-27T08:00:00Z"}, "subjects": ["Slice 100 stub squash"],
               "says": "full-suite.lock is held (owner: slice 100 2026-10-27T08:00:00Z)", "says_not": "[verify]", "no_calls": True}),

@@ -336,12 +336,22 @@ def test_r04_build_rules():
     assert "run the baseline check from work/conventions.md there, before your first change" in baseline
     assert "other slices' worktrees" in baseline
 
+def test_conventions_keys_stay_english():
+    """A target repository's intake translated "- Baseline check" and the queue stopped requiring the baseline, silently."""
+    head = (SKILL / "references/templates.md").read_text(encoding="utf-8").splitlines()[2]
+    assert "keep these two keys in English in any language" in head and "none in the label" in head
+    assert "stay in English in any language" in _skill_part("SKILL.md", "Write `work/conventions.md`", "The facts are examples")
+    assert "Check the keys of `work/conventions.md`" in _skill_part("references/intake.md", "## Both", "## Size classes")
+    for script in ("assets/slice-loop.ps1", "assets/slice-loop.sh"):
+        text = (SKILL / script).read_text(encoding="utf-8")
+        assert "no '- Baseline check' line in" in text and "no '- Full check chain' line in" in text, script
+
 def test_release_version_is_consistent():
     import json
     manifest = json.loads((ROOT / "plugins/vibe-coding/.claude-plugin/plugin.json").read_text(encoding="utf-8"))["version"]
     skill = re.search(r'^\s+version: "([^"]+)"', (SKILL / "SKILL.md").read_text(encoding="utf-8"), re.M).group(1)
     changelog = re.search(r"^## (\S+) – \d{4}-\d{2}-\d{2}", (ROOT / "plugins/vibe-coding/CHANGELOG.md").read_text(encoding="utf-8"), re.M).group(1)
-    assert manifest == skill == changelog == "1.5.0", (manifest, skill, changelog)
+    assert manifest == skill == changelog == "1.5.1", (manifest, skill, changelog)
 
 def test_marketplace_validation_is_not_strict_but_the_plugins_are():
     """slice-board carries no version on purpose (every commit is an update), so only the marketplace check tolerates warnings."""

@@ -12,7 +12,8 @@ the next one in the round record or a malformed manual test block leaves that sl
 goes on, lists every slice left behind and exits non-zero. Removing the worktree of a squashed slice is retried, and
 the entries of every folder a link in the worktree points to are counted before and after: fewer afterwards is
 reported and makes the run exit non-zero (the squash stays done). A stale .slice-loop/full-suite.lock (its slice
-branch is gone, or it is older than 60 minutes) is reported at the start, never removed.
+branch is gone, or it is older than 60 minutes) is reported at the start, never removed; so is a work/conventions.md
+without a "- Baseline check" line (its keys stay English in any language).
 Stops for plan approval unless -Yes; stops on NEEDS-DECISION, red tests or a blocked slice. A slice that ends its
 turn with SLICE-WAIT is still running: the loop checks back on it in the same session.
 
@@ -726,13 +727,21 @@ function Write-StaleLockNotice {
     if ($why) { [Console]::Error.WriteLine("slice-loop: stale lock $LockDir (owner: $owner) – $why; remove it with: Remove-Item -Recurse $LockDir") }
 }
 
+# Reports a work/conventions.md without a "- Baseline check" line: the queue then cannot require the baseline commands
+# in the checks proof. A key translated into the repository's language is the usual cause. Only reports; the run goes on.
+function Write-BaselineNotice {
+    if (-not (Test-Path -LiteralPath $ConventionsFile)) { return }
+    if (Select-String -LiteralPath $ConventionsFile -Pattern '^- Baseline check' -CaseSensitive -Quiet) { return }
+    [Console]::Error.WriteLine("slice-loop: no '- Baseline check' line in $ConventionsFile – checks proofs are not checked for the baseline commands; the key stays English in any language, e.g. '- Baseline check (<own words>): ``<command>``'")
+}
+
 # After the merge queue (-Verify): when the queue squashed a slice, every command of the "- Full check chain" line in
 # work/conventions.md runs on the integration branch, under the full-suite lock. $false when one is red or the lock is held.
 function Invoke-Verify {
     if ($Squashed -eq 0) { return $true }
     $commands = @(Get-CheckCommands '- Full check chain')
     if (-not $commands) {
-        Write-Host "slice-loop: no full check chain in $ConventionsFile – nothing verified"
+        Write-Host "slice-loop: no '- Full check chain' line in $ConventionsFile – nothing verified (the key stays English in any language)"
         return $true
     }
     try { New-Item -ItemType Directory -Path $LockDir -ErrorAction Stop | Out-Null }
@@ -951,6 +960,7 @@ if ((Test-Path $exclude) -and -not (Select-String -Path $exclude -Pattern "^$Log
     Add-Content -Path $exclude -Value "$LogDir/"
 }
 Write-StaleLockNotice
+Write-BaselineNotice
 if ($Merge) {
     Invoke-MergeQueue
     $clean = Write-LeftReport

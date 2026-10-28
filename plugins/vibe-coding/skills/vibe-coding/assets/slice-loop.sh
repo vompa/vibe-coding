@@ -11,7 +11,8 @@
 # goes on, lists every slice left behind and exits non-zero. Removing the worktree of a squashed slice is retried, and
 # the entries of every folder a link in the worktree points to are counted before and after: fewer afterwards is
 # reported and makes the run exit non-zero (the squash stays done). A stale .slice-loop/full-suite.lock (its slice
-# branch is gone, or it is older than 60 minutes) is reported at the start, never removed.
+# branch is gone, or it is older than 60 minutes) is reported at the start, never removed; so is a work/conventions.md
+# without a "- Baseline check" line (its keys stay English in any language).
 # Stops for plan approval unless --yes; stops on NEEDS-DECISION, red tests or a blocked slice. A slice that ends its
 # turn with SLICE-WAIT is still running: the loop checks back on it in the same session.
 #
@@ -745,6 +746,14 @@ stale_lock_notice() {
   if [[ -n "$why" ]]; then echo "slice-loop: stale lock $LOCK_DIR (owner: $owner) – $why; remove it with: rm -r $LOCK_DIR" >&2; fi
 }
 
+# Reports a work/conventions.md without a "- Baseline check" line: the queue then cannot require the baseline commands
+# in the checks proof. A key translated into the repository's language is the usual cause. Only reports; the run goes on.
+baseline_notice() {
+  [[ -f "$CONVENTIONS_FILE" ]] || return 0
+  grep -q '^- Baseline check' "$CONVENTIONS_FILE" && return 0
+  echo "slice-loop: no '- Baseline check' line in $CONVENTIONS_FILE – checks proofs are not checked for the baseline commands; the key stays English in any language, e.g. '- Baseline check (<own words>): \`<command>\`'" >&2
+}
+
 # After the merge queue (--verify): when the queue squashed a slice, every command of the "- Full check chain" line in
 # work/conventions.md runs on the integration branch, under the full-suite lock. Fails when one is red or the lock is held.
 verify_chain() {
@@ -753,7 +762,7 @@ verify_chain() {
   (( squashed_count > 0 )) || return 0
   mapfile -t commands < <(check_commands '- Full check chain')
   if (( ${#commands[@]} == 0 )); then
-    echo "slice-loop: no full check chain in $CONVENTIONS_FILE – nothing verified" >&2
+    echo "slice-loop: no '- Full check chain' line in $CONVENTIONS_FILE – nothing verified (the key stays English in any language)" >&2
     return 0
   fi
   if ! mkdir "$LOCK_DIR" 2>/dev/null; then
@@ -974,6 +983,7 @@ main() {
   mkdir -p "$LOG_DIR"
   grep -qx "$LOG_DIR/" .git/info/exclude 2>/dev/null || echo "$LOG_DIR/" >> .git/info/exclude
   stale_lock_notice
+  baseline_notice
   if $merge_only; then
     merge_queue
     local clean=true
