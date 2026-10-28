@@ -46,6 +46,16 @@ def test_reserved_ids_are_rendered():
     code, files = render([MINIMAL])
     assert "**Ids for new findings:** –" in files["100-sweep.md"]
 
+def test_expected_files_are_rendered():
+    """The files a slice expects to change: parallel slices that share one are not started together."""
+    entry = {**FULL, "files": ["src/Calendar/EntryPreview.cs", "web/src/help/"]}
+    code, files = render([entry])
+    assert code == 0 and "## Files expected to change\n- src/Calendar/EntryPreview.cs\n- web/src/help/" in files["05-labels.md"]
+    code, files = render([entry], "de")
+    assert "## Voraussichtlich geänderte Dateien\n- src/Calendar/EntryPreview.cs" in files["05-labels.md"]
+    code, files = render([MINIMAL])
+    assert "## Files expected to change\n–" in files["100-sweep.md"]
+
 def test_missing_required_field_fails():
     code, files = render([{k: v for k, v in MINIMAL.items() if k != "goal"}])
     assert code == 1 and not files

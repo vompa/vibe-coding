@@ -27,8 +27,10 @@ When the user says they collect points first ("I'll collect", "ich sammle", "I'l
 ## Both
 - Slice numbers continue across rounds (`07`, `08`, …); slices carry the round id in the field `round`.
 - **Reserve finding ids per slice.** Slices that run in parallel find new problems at the same time. Give every slice a range of ids for new findings, continuing after the highest id in use (`ids` in `_slices.json`, column `New ids` in `## Slices`; for example six ids per slice: `B84–B89`, `B90–B95`). The merge queue refuses to squash a slice that would define an id twice.
+- **Name the files each slice changes** (`files` in `_slices.json`). Two slices that share one either depend on each other or run one after the other – never side by side: parallel sessions on one file collide at the squash.
 - A repository without a build or test command gets a harness slice first (test project, check chain, CI hook); when it changes the stack, propose it as a `NEEDS-DECISION:` line.
 - A slice that produces pictures or summaries of other screens (help images, a manual, a status page, a design-token overview) depends on every slice of the round that changes those screens – otherwise its output is stale before the round ends and has to be made twice. Slices that share one folder (for example all help slices) form a chain, not a fan-out, so no two of them run in parallel.
+- Quick fixes since the last round (`work/quick-fixes.md`, written by `/slice quick`) are read before the intake: a fix that did not hold is a finding marked `reopens <id>`.
 - Open decisions of the previous round are copied into the new record's `## Open decisions` (see `round-close.md`).
 
 ## Size classes

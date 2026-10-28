@@ -2,24 +2,38 @@
 # Builds the open round slice by slice, each slice in a fresh headless Claude session, then closes the round.
 # A slice that ends with SLICE-READY is squashed by the merge queue: one slice-NN branch after another, in this
 # checkout, with the message from .slice-loop/slice-NN.msg, once .slice-loop/slice-NN.checks proves green checks on
-# the branch tip. Conflicts are resolved by rule and checked: work/checklist.md by the union of ticks, and in any text
-# file a hunk where both sides only added lines (both kept) or changed rows of one table (merged per row key, e.g. the
-# status row of a round). A real conflict, a missing proof, a duplicate finding id or a malformed manual test block
-# leaves that slice behind with its branch; the queue goes on, lists every slice left behind and exits non-zero.
+# the branch tip. Only proof lines of the branch tip count (lines of other commits are stale runs and ignored); of each
+# command the last line on the tip counts. Conflicts are resolved by rule and checked: work/checklist.md by the union of
+# ticks, and in any text file a hunk where both sides only added lines (both kept) or changed rows of one table (merged
+# per row key, e.g. the status row of a round). A real conflict, a missing proof, a duplicate finding id, a line glued to
+# the next one in the round record or a malformed manual test block leaves that slice behind with its branch; the queue
+# goes on, lists every slice left behind and exits non-zero. Removing the worktree of a squashed slice is retried, and
+# the entries of every folder a link in the worktree points to are counted before and after: fewer afterwards is
+# reported and makes the run exit non-zero (the squash stays done). A stale .slice-loop/full-suite.lock (its slice
+# branch is gone, or it is older than 60 minutes) is reported at the start, never removed.
 # Stops for plan approval unless --yes; stops on NEEDS-DECISION, red tests or a blocked slice. A slice that ends its
 # turn with SLICE-WAIT is still running: the loop checks back on it in the same session.
 #
-# Usage: bash .claude/scripts/slice-loop.sh [--yes] [--parallel] [--dry-run] [--max-slices N] [--merge]
+# Usage: bash .claude/scripts/slice-loop.sh [--yes] [--parallel] [--dry-run] [--max-slices N] [--merge [--verify]]
 #   --yes           approve plans without asking (still stops on NEEDS-DECISION)
-#   --parallel      build slices that are ready at the same time side by side (headless; for long autonomous runs)
+#   --parallel      build slices that are ready at the same time side by side (headless; for long autonomous runs):
+#                   at most SLICE_PARALLEL_MAX per batch, and a slice whose "files" in work/_slices.json overlap a
+#                   slice already in the batch waits for the next one
 #   --dry-run       only print the slices that are ready now, then exit
 #   --max-slices N  stop after N built slices if slices are left (exit 0; run again to continue)
 #   --merge         only run the merge queue: squash every slice-NN branch ticked through Checks, retry removing
 #                   worktrees an earlier squash left, then exit (starts no session, needs no open round)
+#   --verify        with --merge: after the queue, when it squashed a slice, run every command of the "- Full check
+#                   chain" line in work/conventions.md on the integration branch, under .slice-loop/full-suite.lock
+#                   (red: exit 1)
+# Optional field "files" of an entry in work/_slices.json: the repo-relative paths (or prefixes ending in "/") the slice
+# is expected to change.
 # Env: SLICE_PERMISSION_MODE (default: auto) – passed to claude --permission-mode.
+#      SLICE_PARALLEL_MAX (default: 3) – most slices in one --parallel batch.
 #      SLICE_WAIT_SECONDS (default: 60), SLICE_WAIT_MAX (default: 30) – pause and number of check-backs on SLICE-WAIT.
 #      SLICE_WRITE_RETRIES (default: 5), SLICE_WRITE_BACKOFF_SECONDS (default: 2) – retries and pause when the queue
-#      cannot write a file or reset a merge because another process (scanner, indexer, editor) holds it.
+#      cannot write a file or reset a merge because another process (scanner, indexer, editor) holds it, and when git
+#      cannot remove the worktree of a squashed slice (a shell of the finished session may still stand in it).
 set -euo pipefail
 shopt -s inherit_errexit
 # Git Bash on Windows would rewrite the argument "/slice …" into a Windows path.
@@ -35,12 +49,17 @@ readonly WAIT_SECONDS="${SLICE_WAIT_SECONDS:-60}"
 readonly WAIT_MAX="${SLICE_WAIT_MAX:-30}"
 readonly WRITE_RETRIES="${SLICE_WRITE_RETRIES:-5}"
 readonly WRITE_BACKOFF="${SLICE_WRITE_BACKOFF_SECONDS:-2}"
-readonly USAGE="use --yes, --parallel, --dry-run, --max-slices N, --merge"
+readonly PARALLEL_MAX="${SLICE_PARALLEL_MAX:-3}"
+readonly LOCK_DIR="$LOG_DIR/full-suite.lock"  # taken (mkdir) by whoever runs the full suite; holds a file "owner"
+readonly USAGE="use --yes, --parallel, --dry-run, --max-slices N, --merge, --verify (with --merge)"
 
 auto_approve=false
 parallel=false
 dry_run=false
 merge_only=false
+verify=false
+squashed_count=0        # slices this run squashed
+link_lost=false         # a folder a link of a removed worktree pointed to lost entries
 max_slices=0  # 0 = no cap
 built=0
 round=""
@@ -87,12 +106,14 @@ leave_slice() {
   left_lines+=("slice $1: $2")
 }
 
-# Lists every slice left behind and fails when there is one.
+# Lists every slice left behind and fails when there is one, or when a removed worktree's link target lost entries
+# (that was reported where it happened).
 report_left() {
-  (( ${#left_lines[@]} == 0 )) && return 0
-  echo "slice-loop: ${#left_lines[@]} slice(s) left behind – fix them on their branch, then run --merge again:" >&2
-  printf '  %s\n' "${left_lines[@]}" >&2
-  return 1
+  if (( ${#left_lines[@]} > 0 )); then
+    echo "slice-loop: ${#left_lines[@]} slice(s) left behind – fix them on their branch, then run --merge again:" >&2
+    printf '  %s\n' "${left_lines[@]}" >&2
+  fi
+  (( ${#left_lines[@]} == 0 )) && ! $link_lost
 }
 
 parse_args() {
@@ -102,6 +123,7 @@ parse_args() {
       --parallel) parallel=true ;;
       --dry-run) dry_run=true ;;
       --merge) merge_only=true ;;
+      --verify) verify=true ;;
       --max-slices)
         [[ $# -ge 2 && "$2" =~ ^[1-9][0-9]*$ ]] || die "--max-slices needs a positive integer ($USAGE)"
         max_slices=$2
@@ -110,6 +132,7 @@ parse_args() {
     esac
     shift
   done
+  if $verify && ! $merge_only; then die "--verify needs --merge ($USAGE)"; fi
 }
 
 # Slice numbers in plan order, one per line.
@@ -130,6 +153,15 @@ slice_field() {
   tr '\n}' ' \n' <"$SLICES_FILE" \
     | grep "\"nr\"[[:space:]]*:[[:space:]]*\"$1\"" \
     | grep -o "\"$2\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | sed 's/^[^:]*:[[:space:]]*"//; s/"$//' || true
+}
+
+# The "files" of slice $1 (paths the slice is expected to change), one per line; nothing when the entry has none.
+slice_files() {
+  tr '\n}' ' \n' <"$SLICES_FILE" \
+    | grep "\"nr\"[[:space:]]*:[[:space:]]*\"$1\"" \
+    | { grep -o '"files"[[:space:]]*:[[:space:]]*\[[^]]*\]' || true; } \
+    | sed 's/^"files"[[:space:]]*:[[:space:]]*\[//; s/\]$//' \
+    | { grep -o '"[^"]*"' || true; } | tr -d '"'
 }
 
 # Model of slice $1 – its "model" field. Every turn of the slice runs on it, never on the default of the caller.
@@ -194,11 +226,40 @@ unlink_links() {
   done < <(find "$1" -type l 2>/dev/null)
 }
 
+# Entries directly in folder $1.
+entry_count() { find "$1" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l | tr -d ' '; }
+
+# Removes the worktree $2 of slice $1 and its links like unlink_links, counting the entries of every folder a link
+# points to before and after, so that a loss is reported (and makes the run fail). Fails when git will not remove the
+# worktree, even after retries.
+remove_worktree() {
+  local nr=$1 path=$2 link target now attempt
+  local -A held=()
+  while IFS= read -r link; do
+    target=$(readlink -f "$link" 2>/dev/null || true)
+    if [[ -n "$target" && -d "$target" && -z "${held[$target]+set}" ]]; then held[$target]=$(entry_count "$target"); fi
+  done < <(find "$path" -type l 2>/dev/null)
+  unlink_links "$path"
+  # A shell of the finished session may still stand in the worktree: it often lets go within seconds.
+  for (( attempt = 0; ; attempt++ )); do
+    git worktree remove "$path" >/dev/null 2>&1 && break
+    (( attempt < WRITE_RETRIES )) || return 1
+    echo "slice-loop: could not remove the worktree of slice-$nr (a shell or process still runs inside it?) – retrying in $WRITE_BACKOFF s (attempt $((attempt + 1)) of $WRITE_RETRIES)" >&2
+    sleep "$WRITE_BACKOFF"
+  done
+  for target in "${!held[@]}"; do
+    now=$(entry_count "$target")
+    (( now >= held[$target] )) && continue
+    echo "slice-loop: link target $target lost entries during the removal of the worktree of slice-$nr (before ${held[$target]}, now $now) – restore it (for example npm ci)" >&2
+    link_lost=true
+  done
+  return 0
+}
+
 remove_slice_branch() {
   local branch="slice-$1" path
   path=$(worktree_of "$branch")
-  if [[ -n "$path" ]]; then unlink_links "$path"; fi
-  if [[ -n "$path" ]] && ! git worktree remove "$path" >/dev/null 2>&1; then
+  if [[ -n "$path" ]] && ! remove_worktree "$1" "$path"; then
     echo "[slice $1] worktree $path could not be removed – most likely a shell, editor or process still runs inside it" \
       "(or it is locked); close it and run --merge again to retry. $path and $branch are kept" >&2
     return
@@ -447,6 +508,20 @@ findings_files() {
   done < <(awk '/^## /{ s = ($0 ~ /^## Source/); next } s' "$record" | { grep -o '`[^`]*`' || true; } | tr -d '`')
 }
 
+# A line of record $1 on the integration branch that the squash lost and that is the start of a longer line of the
+# result: two lines glued into one (a hand-made conflict resolution without the line break). Prints the first one;
+# nothing when there is none.
+readonly AWK_GLUED='
+BEGIN { while ((getline line < result) > 0) { sub(/\r$/, "", line); R[++n] = line; has[line] = 1 } }
+{ sub(/\r$/, "") }
+found || $0 ~ /^[ \t]*$/ || $0 ~ /^\|/ || ($0 in has) { next }
+# Glued only when the rest starts like a line of its own (a bullet, a step, a heading, "Word:"); text a slice adds to
+# the end of a line is no glue.
+{ for (i = 1; i <= n; i++) if (length(R[i]) > length($0) && substr(R[i], 1, length($0)) == $0 &&
+    substr(R[i], length($0) + 1) ~ /^[ \t]*([-*+] |[0-9]+\. |#+ |[A-Za-z][A-Za-z0-9-]*: )/) { print; found = 1; break } }
+'
+glued_line() { git show "HEAD:$1" 2>/dev/null | awk -v result="$1" "$AWK_GLUED" || true; }
+
 # Finding ids the squash would define twice in record $1 or its findings file, as "<id> in <file>"; ids already
 # duplicated on the integration branch do not count.
 new_duplicate_ids() {
@@ -458,36 +533,49 @@ new_duplicate_ids() {
   done < <(echo "$record"; findings_files "$record")
 }
 
-# The commands of the "Baseline check" line in work/conventions.md: its backtick spans before the source arrow.
-baseline_commands() {
+# The commands of the line of work/conventions.md that starts with $1 ("- Baseline check", "- Full check chain"): its
+# backtick spans before the source arrow.
+check_commands() {
   local line
   [[ -f "$CONVENTIONS_FILE" ]] || return 0
-  line=$(grep -m1 '^- Baseline check' "$CONVENTIONS_FILE" | tr -d '\r' || true)
+  line=$(grep -m1 "^$1" "$CONVENTIONS_FILE" | tr -d '\r' || true)
   line=${line%%←*}
   { grep -o '`[^`]*`' <<<"$line" || true; } | tr -d '`'
 }
 
 # Why the checks proof .slice-loop/slice-$1.checks does not allow the squash; nothing when it does. One line per check:
-# "<exit code> <commit SHA> <command>". Every exit code is 0, every SHA is the branch tip (7 to 40 hex digits), and every
-# command of the baseline check in work/conventions.md is listed.
+# "<exit code> <commit SHA> <command>". Only lines of the branch tip count (the SHA is a prefix of it, 7 to 40 hex
+# digits): lines of other commits are stale runs, for example of an old session, and ignored. Of each command the last
+# line on the tip counts – red then green is fine, green then red is red. Every such line is green and every command of
+# the baseline check in work/conventions.md has one.
 checks_problem() {
-  local nr=$1 file="$LOG_DIR/slice-$1.checks" tip line count=0 command
-  local -A ran=()
+  local nr=$1 file="$LOG_DIR/slice-$1.checks" tip line stale=0 command
+  local -A last=()   # command -> exit code of its last line on the tip
+  local -a order=()  # the commands in the order of their first line on the tip
   [[ -f "$file" ]] || { echo "no checks proof $file"; return; }
   tip=$(git rev-parse "slice-$nr")
   while IFS= read -r line || [[ -n "$line" ]]; do
     line=${line%$'\r'}
     [[ -z "$line" || "$line" == '#'* ]] && continue
     [[ "$line" =~ ^(-?[0-9]+)[[:space:]]+([0-9a-f]{7,40})[[:space:]]+(.+)$ ]] || { echo "unreadable line in $file: $line"; return; }
-    [[ "${BASH_REMATCH[1]}" == 0 ]] || { echo "check red (exit ${BASH_REMATCH[1]}): ${BASH_REMATCH[3]}"; return; }
-    [[ "$tip" == "${BASH_REMATCH[2]}"* ]] || { echo "check ran on ${BASH_REMATCH[2]}, not on the tip ${tip:0:12} of slice-$nr: ${BASH_REMATCH[3]}"; return; }
-    ran["${BASH_REMATCH[3]}"]=1
-    count=$((count + 1))
+    if [[ "$tip" == "${BASH_REMATCH[2]}"* ]]; then
+      command=${BASH_REMATCH[3]}
+      [[ -n "${last[$command]+set}" ]] || order+=("$command")
+      last["$command"]=${BASH_REMATCH[1]}
+    else
+      stale=$((stale + 1))
+    fi
   done <"$file"
-  (( count > 0 )) || { echo "no check listed in $file"; return; }
+  if (( ${#order[@]} == 0 )); then
+    if (( stale == 0 )); then echo "no check listed in $file"; else echo "no check ran on the tip ${tip:0:12} of slice-$nr ($stale stale line(s) ignored)"; fi
+    return
+  fi
+  for command in "${order[@]}"; do
+    [[ "${last[$command]}" == 0 ]] || { echo "check red (exit ${last[$command]}): $command"; return; }
+  done
   while IFS= read -r command; do
-    [[ -z "$command" || -n "${ran[$command]+set}" ]] || { echo "baseline check missing from $file: $command"; return; }
-  done < <(baseline_commands)
+    [[ -z "$command" || -n "${last[$command]+set}" ]] || { echo "baseline check missing from $file: $command"; return; }
+  done < <(check_commands '- Baseline check')
 }
 
 # Every row of both sides is in the resolved checklist, and none of their ticks is missing there.
@@ -564,6 +652,8 @@ merge_slice() {
   if [[ -n "$record" ]]; then
     if ! order_manual_tests "$record" && left_on_write "$nr"; then return 1; fi
     git add "$record"
+    problem=$(glued_line "$record")
+    if [[ -n "$problem" ]]; then reset_and_leave "$nr" "line glued to the next one in $record: $problem"; return 1; fi
     problem=$(awk -v nr="$nr" "$AWK_BLOCK" "$record")
     if [[ -n "$problem" ]]; then reset_and_leave "$nr" "manual test block of slice $nr in $record: ${problem%; }"; return 1; fi
     problem=$(new_duplicate_ids "$record" | tr '\n' ',' | sed 's/,$//; s/,/, /g')
@@ -575,6 +665,7 @@ merge_slice() {
   if ! replace_file "$LOG_DIR/squashed.tmp" "$LOG_DIR/slice-$nr.squashed" && left_on_write "$nr"; then return 1; fi
   git commit -q -F "$(squash_message_file "$nr")" || die "slice $nr: the squash commit failed – merge reset"
   merging=""
+  squashed_count=$((squashed_count + 1))
   echo "[slice $nr] squashed onto $(git branch --show-current) ($(git rev-parse --short HEAD))" >&2
   is_done "$nr" || die "slice $nr was squashed but is not ticked in $CHECKLIST_FILE – check it before running again"
   remove_slice_branch "$nr"
@@ -600,7 +691,7 @@ retry_removal() {
     echo "[slice $nr] already squashed – removing its leftover worktree and branch again" >&2
     remove_slice_branch "$nr"
   else
-    echo "[slice $nr] already squashed, but slice-$nr moved since – left as it is" >&2
+    echo "[slice $nr] already squashed; slice-$nr has commits after the squash – nothing to do for the queue (squash them by hand or delete the branch)" >&2
   fi
 }
 
@@ -618,6 +709,84 @@ merge_queue() {
       echo "[slice $nr] not ready to merge: its row on $branch is not ticked through Checks – left as it is" >&2
     fi
   done
+}
+
+# Who holds the full-suite lock, from its owner file, e.g. "slice 100 2026-10-27T09:00:00Z" or "merge queue …".
+lock_owner() {
+  if [[ -f "$LOCK_DIR/owner" ]]; then tr -d '\r' <"$LOCK_DIR/owner" | head -1; else echo unknown; fi
+}
+
+# Reports a full-suite lock nobody can hold any more: its owner is a slice whose branch is gone, or it is older than an
+# hour. Only reports – removing it is the caller's call; the run goes on.
+stale_lock_notice() {
+  local owner why="" touched=$LOCK_DIR
+  [[ -d "$LOCK_DIR" ]] || return 0
+  owner=$(lock_owner)
+  if [[ -f "$LOCK_DIR/owner" ]]; then touched=$LOCK_DIR/owner; fi
+  if [[ "$owner" =~ ^slice\ ([0-9]{2,})([[:space:]]|$) ]] && ! git rev-parse --verify --quiet "refs/heads/slice-${BASH_REMATCH[1]}" >/dev/null; then
+    why="its slice branch is gone"
+  elif [[ -n "$(find "$touched" -maxdepth 0 -mmin +60)" ]]; then
+    why="it is older than 60 minutes"
+  fi
+  if [[ -n "$why" ]]; then echo "slice-loop: stale lock $LOCK_DIR (owner: $owner) – $why; remove it with: rm -r $LOCK_DIR" >&2; fi
+}
+
+# After the merge queue (--verify): when the queue squashed a slice, every command of the "- Full check chain" line in
+# work/conventions.md runs on the integration branch, under the full-suite lock. Fails when one is red or the lock is held.
+verify_chain() {
+  local command code red=false
+  local -a commands
+  (( squashed_count > 0 )) || return 0
+  mapfile -t commands < <(check_commands '- Full check chain')
+  if (( ${#commands[@]} == 0 )); then
+    echo "slice-loop: no full check chain in $CONVENTIONS_FILE – nothing verified" >&2
+    return 0
+  fi
+  if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    echo "slice-loop: $LOCK_DIR is held (owner: $(lock_owner)) – the full check chain was not run" >&2
+    return 1
+  fi
+  echo "merge queue $(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$LOCK_DIR/owner"
+  for command in "${commands[@]}"; do
+    code=0
+    bash -c "$command" || code=$?
+    if (( code == 0 )); then echo "[verify] $command – green" >&2; else echo "[verify] $command – red (exit $code)" >&2; red=true; fi
+  done
+  rm -r "$LOCK_DIR"
+  if $red; then echo "slice-loop: full check chain red on $(git branch --show-current) after the merge queue" >&2; return 1; fi
+}
+
+# Two paths of the "files" of slices overlap when they are equal or one is a prefix ending in "/" of the other.
+# Prints the more specific of the two; fails when they do not overlap.
+shared_path() {
+  if [[ "$1" == "$2" ]]; then echo "$1"
+  elif [[ "$1" == */ && "$2" == "$1"* ]]; then echo "$2"
+  elif [[ "$2" == */ && "$1" == "$2"* ]]; then echo "$1"
+  else return 1
+  fi
+}
+
+# The ready slices $@ (in order) that go into the next --parallel batch, one per line: at most PARALLEL_MAX, and none
+# whose "files" overlap a slice already picked; that one waits for a later batch.
+parallel_batch() {
+  local nr other mine theirs shared clash
+  local -a batch=()
+  local -A files=()
+  for nr in "$@"; do files[$nr]=$(slice_files "$nr"); done
+  for nr in "$@"; do
+    (( ${#batch[@]} < PARALLEL_MAX )) || break
+    clash=""
+    for other in ${batch[@]+"${batch[@]}"}; do
+      while IFS= read -r mine; do
+        [[ -n "$mine" && -z "$clash" ]] || continue
+        while IFS= read -r theirs; do
+          if [[ -n "$theirs" && -z "$clash" ]] && shared=$(shared_path "$mine" "$theirs"); then clash="shares $shared with slice $other"; fi
+        done <<<"${files[$other]}"
+      done <<<"${files[$nr]}"
+    done
+    if [[ -n "$clash" ]]; then echo "[slice $nr] waits: $clash" >&2; else batch+=("$nr"); fi
+  done
+  printf '%s\n' ${batch[@]+"${batch[@]}"}
 }
 
 ready_slices() {
@@ -747,7 +916,7 @@ run_round() {
     report_left || exit 1
     die "no slice is ready – check $CHECKLIST_FILE (/slice status)"
   fi
-  $parallel || ready=("${ready[0]}")
+  if $parallel; then mapfile -t ready < <(parallel_batch "${ready[@]}"); else ready=("${ready[0]}"); fi
   if (( max_slices > 0 )); then ready=("${ready[@]:0:max_slices - built}"); fi
   for i in "${!ready[@]}"; do
     sessions[i]=$(new_session_id)
@@ -790,7 +959,15 @@ main() {
   if $dry_run; then ready_slices; exit 0; fi
   mkdir -p "$LOG_DIR"
   grep -qx "$LOG_DIR/" .git/info/exclude 2>/dev/null || echo "$LOG_DIR/" >> .git/info/exclude
-  if $merge_only; then merge_queue; report_left || exit 1; exit 0; fi
+  stale_lock_notice
+  if $merge_only; then
+    merge_queue
+    local clean=true
+    report_left || clean=false
+    if $verify; then verify_chain || clean=false; fi
+    $clean || exit 1
+    exit 0
+  fi
   round=$(open_round)
   if [[ -z "$round" ]]; then
     echo "slice-loop: no open round in $ROUNDS_DIR – start a round with the vibe-coding skill first" >&2
@@ -806,6 +983,7 @@ main() {
     fi
   done
   close_round
+  if $link_lost; then exit 1; fi
 }
 
 main "$@"

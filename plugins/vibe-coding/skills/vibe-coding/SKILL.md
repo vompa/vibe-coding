@@ -5,7 +5,7 @@ license: MIT
 compatibility: Designed for Claude Code with file access and subagents; render script needs Python 3.10+; the slice-loop needs the claude CLI plus PowerShell 7 or bash; uses the superpowers plugin when installed.
 metadata:
   author: vompa
-  version: "1.3.1"
+  version: "1.4.0"
 ---
 
 # Vibe Coding – run everyday coding work in rounds of slices
@@ -78,7 +78,7 @@ Discovered in the first round of a repository only. Later rounds read the file, 
 Read what the repository already defines. Sources are examples, not a checklist – for instance `CLAUDE.md`, `AGENTS.md`, README, the working-method or contribution documents that `CLAUDE.md` links, protocol or changelog files, the CI workflow, `.editorconfig` and formatter configuration, and `git log` (branch names, commit style and language) – plus anything else that defines how this repository works. In a large repository let an `Explore` subagent read, and save its report to `work/_raw/`.
 Write `work/conventions.md` from `references/templates.md`: one line per fact with the document it comes from. The facts are examples too: branches and merge style, commit language, the commands (build, test, lint/format, baseline check, checks for a slice, full check chain), where decisions are recorded and which documents must change with a change, languages, the privacy rule for names, how to start the app for manual testing, the finding-id scheme – and any other fact slices will need.
 
-- **Check scope per slice.** Ask the user for the split and record it on the `Checks for a slice` line: one screen touched → its test classes plus the cross-page scan tests; shared code touched → the full suite; never two full suites at once.
+- **Check scope per slice.** Ask the user for the split and record it on the `Checks for a slice` line: one screen touched → its test classes plus the cross-page scan tests; shared code touched → the full suite; never two full suites at once. Name the widenings too: a new rule on an endpoint, service or base class → the tests of every caller (found by search) or the full suite; a shared control → its own tests first; key bindings, focus or tab order → the repository's focus-order tests by name.
 - **Session hints.** The first round also creates `work/session-hints.md` from `references/templates.md` (what the repository's rules and tooling already teach slice sessions); later rounds append what the previous round learned and change no existing bullet.
 - **Extend, never replace.** Pointers, not copies: long rules stay in their document, `conventions.md` names the owner of each fact. Conflicts between documents are listed under `## Conflicts between documents`, never resolved silently.
 - **Privacy rule for names.** When the repository does not say, ask once whether files may name people (a private repository may); otherwise decisions are "User, <date>". Record the answer.
@@ -110,9 +110,10 @@ python3 scripts/render_slices.py work/_slices.json work/slices --lang <lang>
 - **Every entry** sets `round` (the one open round) and `source` (round and ids), `acceptance` as Given/When/Then lines with exact values, `manual` for every UI finding (what to click, what to see), and, where they apply, `not_building` and `mirror`: existing patterns read from the code as `file:line`, checked to exist. Mirror what the repository already does; never duplicate a class or pattern.
 - **Every entry sets `ids`:** a range of finding ids reserved for new findings of the slice, continuing after the highest id in use (`references/intake.md`, Both); the same range goes into the `New ids` column of `## Slices`.
 - **Every entry sets `model`:** the cheapest model tier that does the slice reliably, chosen per slice from its work (`references/intake.md`, Model per slice) – never the model of this planning session. The loop passes it as `claude --model`, and `/slice` starts parallel sessions on it, so each slice costs what it needs and no more.
+- **Every entry sets `files`:** the paths (or folder prefixes ending in `/`) the slice expects to change, read from the code. Slices that share one are not started side by side – the loop's `-Parallel` and `/slice` keep them apart – so either give them a dependency or let them run one after the other; say which in the slice map.
 - **`work/checklist.md`:** round 1 creates it with the header `| Slice | Plan | Tests red | Green | Checks | Commit |`; every round appends one row `| NN name | ☐ | ☐ | ☐ | ☐ | ☐ |` per slice. Only the agent ticks these columns; manual acceptance is not a column – the user ticks `Result:` in the round record's manual test list.
 - Fill `## Slices` in the round record (slice | name | ids).
-- **Check before the handover:** every finding id or AC appears in a slice, except items waiting on a `NEEDS-DECISION:` line; every dependency points to an earlier slice; every entry has a `model`; no slice needs more than one session.
+- **Check before the handover:** every finding id or AC appears in a slice, except items waiting on a `NEEDS-DECISION:` line; every dependency points to an earlier slice; every entry has a `model` and `files`; no slice needs more than one session.
 
 ## 5. Handover
 
@@ -128,7 +129,7 @@ Slices run in fresh worktrees cut from the integration branch, so what they need
 8. **Handover message** in the user's language. Short and concrete; the full local path of the repository appears here in chat, never in a file:
    1. Where: path, branch, commit.
    2. How to start: "Open a terminal in the repository folder, run `claude --model <model>` with the model of the slice (slice map, `/slice status`), type `/slice NN`." One sentence on what happens: it runs the baseline check, shows a plan, builds after approval and lands one squash commit; then a fresh session on the next slice's model and `/slice NN` again, and `/slice close` after the last. Also `/slice status` for the state and the model per slice, `/slice` alone for the lowest ready slice, `/slice NN plan` to stop after the plan.
-   3. Hands-off: `pwsh .claude/scripts/slice-loop.ps1` (`bash .claude/scripts/slice-loop.sh`) runs the slices one after another in fresh sessions, stops for plan approvals, open decisions and red slices, and closes the round after the last slice. Useful options: `-Yes` / `--yes` approves plans without asking, `-MaxSlices N` / `--max-slices N` stops after N slices; the others are in the script header. For long autonomous runs with parallel slices, recommend `-Yes -Parallel` (`--yes --parallel`) – headless, it squashes through the merge queue itself – over an orchestrating chat session: a desktop harness may refuse to start sessions from background events, and a chat that only dispatches and squashes should run on a cheaper model (`haiku` or `sonnet`), since it writes no code.
+   3. Hands-off: `pwsh .claude/scripts/slice-loop.ps1` (`bash .claude/scripts/slice-loop.sh`) runs the slices one after another in fresh sessions, stops for plan approvals, open decisions and red slices, and closes the round after the last slice. Useful options: `-Yes` / `--yes` approves plans without asking, `-MaxSlices N` / `--max-slices N` stops after N slices; the others are in the script header. For long autonomous runs with parallel slices, recommend `-Yes -Parallel` (`--yes --parallel`) – headless, it squashes through the merge queue itself – over an orchestrating chat session: a desktop harness may refuse to start sessions from background events. A chat that only dispatches and squashes runs on `opus` at low effort (`claude --model opus --effort low`, or the app's model and effort picker): a session cannot start a session on a stronger model than its own, and low effort keeps it cheap, since it writes no code. After each group of squashes it runs `slice-loop -Merge -Verify` once.
    4. The slice map: slice | name | depends on | model | ids, and which slices can run in parallel.
    5. Open decisions (or none), the assumption of step 1 if it applies, and prerequisites still missing on the user's side.
    Mention that superpowers is optional and detected automatically; never install it yourself.
@@ -141,7 +142,9 @@ Every write of this skill and its command, so nothing surprises the user:
 - **Committed** in the one round-start commit of section 5: `work/` (without `_raw/`; it holds `work/session-hints.md`), `.claude/commands/slice.md`, `.claude/scripts/slice-loop.ps1` and `slice-loop.sh`, `.gitignore`, `.gitattributes`, and `CLAUDE.md` only where none exists.
 - **Git-ignored or local, never committed:** `work/_raw/` (working material, also the collect-mode file `intake-Rnn.md`); `.slice-loop/` (loop logs, the squash messages `slice-NN.msg`, the checks proofs `slice-NN.checks` and the full-suite lock `.slice-loop/full-suite.lock/` – both loop scripts also append it to `.git/info/exclude` when it is missing there); the repository-local git identity (`git config --local user.name` / `user.email`), set only with the user's approval.
 - **`/slice`, later:** a branch and worktree `slice-NN` while it works, then one squash commit per slice on the integration branch – with the plan in `work/plans/`, the checklist tick, the round record entries, the repository's own protocol entry and the documents `conventions.md` lists as "must change with a change".
-- **`/slice close`:** the round-close commit above. The loop writes nothing besides its logs and what `/slice` writes.
+- **`/slice close`:** the round-close commit above; it lists leftover worktrees and branches and removes the safe ones only on the user's yes.
+- **`/slice quick <finding>`:** one commit on the integration branch with the fix, its test, a row in `work/quick-fixes.md` and the protocol entry; the next intake reads that file.
+- The loop writes nothing besides its logs and what `/slice` writes.
 
 The user tries the build with the manual test list, ticks `Result:` or writes what they saw, and answers the open decisions – in chat or in the round record. Those notes start the next round: go back to section 1 (the closed round no longer counts as open), read and update `conventions.md` instead of rediscovering it, and run intake A with the notes as the findings list. Findings that show an earlier fix did not hold are marked `reopens <id>`, open decisions are copied as `(from Rnn)`, slice numbering continues.
 
@@ -173,5 +176,6 @@ work/
   slices/NN-<slug>.md       one file per slice (rendered)
   plans/<date>-slice-NN.md  the plan each /slice writes
   research.md               only when a round needed research
+  quick-fixes.md            fixes outside a slice (/slice quick)
   _raw/                     working material (git-ignored)
 ```

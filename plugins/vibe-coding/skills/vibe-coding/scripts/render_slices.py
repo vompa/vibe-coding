@@ -10,7 +10,9 @@ Entry fields (see references/templates.md, _slices.json):
     the slice needs – the loop and parallel sessions start the slice on it; ids is the
     range of finding ids reserved for new findings of the slice, e.g. "B84–B89")
   optional lists (rendered as "- item", an en dash when missing or empty):
-    mirror (patterns to copy as file:line), not_building,
+    mirror (patterns to copy as file:line), files (paths or folder prefixes ending
+    in "/" the slice expects to change; parallel slices sharing one are not started
+    together), not_building,
     acceptance (Given/When/Then, rendered as checkboxes in the Definition of Done),
     manual (manual check items, rendered as "Manual: ..." checkboxes there)
 Unknown fields are ignored.
@@ -38,6 +40,9 @@ TEMPLATES = {
 
 ## Patterns to mirror
 {mirror}
+
+## Files expected to change
+{files}
 
 ## NOT building
 {not_building}
@@ -78,6 +83,9 @@ Implement slice {nr} "{name}" (this file).
 
 ## Muster übernehmen
 {mirror}
+
+## Voraussichtlich geänderte Dateien
+{files}
 
 ## NICHT bauen
 {not_building}
@@ -124,7 +132,7 @@ PHRASES = {
 
 REQUIRED = ("nr", "slug", "name", "goal", "deps", "scope", "non_goals")
 OPTIONAL_TEXT = ("round", "source", "model", "ids")
-OPTIONAL_LISTS = ("mirror", "not_building")
+OPTIONAL_LISTS = ("mirror", "files", "not_building")
 EMPTY = "–"
 
 

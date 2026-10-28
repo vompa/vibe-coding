@@ -7,7 +7,7 @@ MARKERS = ["PLAN:", "NEEDS-DECISION:", "SLICE-DONE:", "SLICE-OPEN:", "ALL-DONE",
 def test_command_defines_every_marker():
     text = (SKILL / "references/slice-command.md").read_text(encoding="utf-8")
     for m in MARKERS: assert m in text, m
-    assert 'argument-hint: "[status | NN | close] [plan] [auto | parallel] [direct]"' in text
+    assert 'argument-hint: "[status | NN | close | quick <finding>] [plan] [auto | parallel] [direct]"' in text
     assert "work/conventions.md" in text and "git merge --squash" in text and "never push" in text.lower()
 
 def test_command_offers_parallel_sessions_outside_auto():
@@ -130,9 +130,11 @@ def test_command_stays_short_and_positive():
     """Slice 09 allowed 25 new lines on top of 195 and no new "never" beyond the 16 the command had.
     Slice 04 moves the line limit from 220 to 230: the full-suite lock protocol needs its own paragraph and a status line.
     1.3.0 moves it to 260: the checks proof, reserved finding ids, SLICE-WAIT, the manual-test format check and the
-    open-decision scan came out of round R02 of a target repository; section 7 got shorter."""
+    open-decision scan came out of round R02 of a target repository; section 7 got shorter.
+    1.4.0 moves it to 295: the hard list before SLICE-READY, the meaning of red, the wider check scope and the quick-fix
+    path (section 8) came out of round R03."""
     text = (SKILL / "references/slice-command.md").read_text(encoding="utf-8")
-    assert len(text.splitlines()) <= 260, len(text.splitlines())
+    assert len(text.splitlines()) <= 295, len(text.splitlines())
     assert text.lower().count("never") <= 16, text.lower().count("never")
 
 def _skill_part(name, start, end=None):
@@ -195,13 +197,17 @@ def test_parallel_prompts_are_short_and_name_the_queue():
                    "merge queue", "slice-loop --merge", "main checkout", "ends with SLICE-READY: NN"):
         assert phrase in section, phrase
 
-def test_orchestrator_runs_cheap_and_long_runs_go_headless():
+def test_orchestrator_runs_on_opus_low_and_long_runs_go_headless():
+    """R03: a session cannot start a session on a stronger model than its own, so the orchestrator runs on the
+    strongest tier (opus) at low effort, and every started session's model is checked after the start."""
     section = _section("## 7. Parallel slices")
-    for phrase in ("cheaper one", "may refuse to start sessions from background events", "`slice-loop -Parallel`"):
+    for phrase in ("`opus` at low effort", "stronger model than its own", "check the model it actually runs on",
+                   "may refuse to start sessions from background events", "`slice-loop -Parallel`"):
         assert phrase in section, phrase
     handover = _skill_part("SKILL.md", "## 5. Handover", "## 6. After the round")
-    for phrase in ("-Yes -Parallel", "may refuse to start sessions from background events", "cheaper model"):
+    for phrase in ("-Yes -Parallel", "may refuse to start sessions from background events", "`opus` at low effort"):
         assert phrase in handover, phrase
+    assert "cheaper model (`haiku` or `sonnet`)" not in handover
 
 SECTION_5 = ("## 5. Close the round", "## 6. Marker lines")
 
@@ -307,7 +313,7 @@ def test_release_version_is_consistent():
     manifest = json.loads((ROOT / "plugins/vibe-coding/.claude-plugin/plugin.json").read_text(encoding="utf-8"))["version"]
     skill = re.search(r'^\s+version: "([^"]+)"', (SKILL / "SKILL.md").read_text(encoding="utf-8"), re.M).group(1)
     changelog = re.search(r"^## (\S+) – \d{4}-\d{2}-\d{2}", (ROOT / "plugins/vibe-coding/CHANGELOG.md").read_text(encoding="utf-8"), re.M).group(1)
-    assert manifest == skill == changelog == "1.3.1", (manifest, skill, changelog)
+    assert manifest == skill == changelog == "1.4.0", (manifest, skill, changelog)
 
 def test_marketplace_validation_is_not_strict_but_the_plugins_are():
     """slice-board carries no version on purpose (every commit is an update), so only the marketplace check tolerates warnings."""
@@ -330,6 +336,58 @@ def test_root_readme_names_the_merge_queue_cases():
         assert item in loop, item
     markers = " ".join(text.split("**Markers test**", 1)[1].split("\n", 1)[0].split())
     assert "SLICE-READY:" in markers and "full-suite lock" in markers
+
+def test_slice_ready_follows_a_hard_list():
+    """R03: slice 59 ended with SLICE-READY without ticks, message and proof; the queue found out only at the squash."""
+    section = _section(*SECTION_4)
+    assert "Before SLICE-READY, all of these hold" in section
+    items = ["ticked through Checks", ".slice-loop/slice-NN.msg", ".slice-loop/slice-NN.checks", "committed on slice-NN"]
+    block = section.split("Before SLICE-READY, all of these hold", 1)[1]
+    for item in items: assert item in block, item
+    assert "append" in section and "a stale run" in section, "the proof is appended to; lines of other commits are ignored"
+
+def test_red_means_failing_against_the_code_before_the_change():
+    section = _section(*SECTION_3)
+    for phrase in ("Red means", "the code before the change", "second worktree", "a wrong expectation is not red"):
+        assert phrase in section, phrase
+
+def test_check_scope_widens_for_shared_code_rules_and_focus():
+    section = _section(*SECTION_3)
+    for phrase in ("every caller", "full suite before", "its own tests first", "focus or tab order"):
+        assert phrase in section, phrase
+    conventions = _skill_part("SKILL.md", "## 2. Conventions", "## 3. Intake")
+    assert "every caller" in conventions and "focus" in conventions
+
+def test_parallel_start_brief_and_files():
+    section = _section("## 7. Parallel slices")
+    for phrase in ('"files"', "share a file", "background text", "facts a hook asks for", "SLICE-WAIT"):
+        assert phrase in section, phrase
+    assert "files" in _section(*SECTION_1) and "Ready now" in _section(*SECTION_1)
+    assert '`files`' in _skill_part("references/templates.md", "## work/_slices.json")
+    assert "Every entry sets `files`" in _skill_part("SKILL.md", "## 4. Slicing", "## 5. Handover")
+
+def test_quick_fix_path():
+    """R03: changes after a round close had no path – no plan, no proof, no protocol entry."""
+    text = (SKILL / "references/slice-command.md").read_text(encoding="utf-8")
+    section = _section("## 8. Quick fix")
+    for phrase in ('"quick', "failing test first", "full check chain", "One commit", "protocol", "work/quick-fixes.md", "QUICK-DONE:"):
+        assert phrase in section, phrase
+    assert "QUICK-DONE:" in _section(*SECTION_6)
+    assert '"quick"' in _section(*SECTION_1)
+
+def test_round_close_offers_to_clean_up_old_worktrees():
+    close = _section(*SECTION_5)
+    for phrase in ("worktrees and branches", "lists", "links first", "only without changes", "tip SHA"):
+        assert phrase in close, phrase
+
+def test_queue_verify_after_a_group():
+    section = _section("## 7. Parallel slices")
+    assert "-Merge -Verify" in section and "full check chain" in section
+
+def test_foreign_builds_are_waited_out():
+    assert "another session's build" in _section(*SECTION_2_)
+
+SECTION_2_ = ("## 2. Read first", "## 3. Plan and build")
 
 if __name__ == "__main__":
     for name, fn in list(globals().items()):

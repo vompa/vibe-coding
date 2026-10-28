@@ -4,30 +4,40 @@
 Builds the open round slice by slice, each slice in a fresh headless Claude session, then closes the round.
 A slice that ends with SLICE-READY is squashed by the merge queue: one slice-NN branch after another, in this
 checkout, with the message from .slice-loop/slice-NN.msg, once .slice-loop/slice-NN.checks proves green checks on
-the branch tip. Conflicts are resolved by rule and checked: work/checklist.md by the union of ticks, and in any text
-file a hunk where both sides only added lines (both kept) or changed rows of one table (merged per row key, e.g. the
-status row of a round). A real conflict, a missing proof, a duplicate finding id or a malformed manual test block
-leaves that slice behind with its branch; the queue goes on, lists every slice left behind and exits non-zero.
+the branch tip. Only proof lines of the branch tip count (lines of other commits are stale runs and ignored); of each
+command the last line on the tip counts. Conflicts are resolved by rule and checked: work/checklist.md by the union of
+ticks, and in any text file a hunk where both sides only added lines (both kept) or changed rows of one table (merged
+per row key, e.g. the status row of a round). A real conflict, a missing proof, a duplicate finding id, a line glued to
+the next one in the round record or a malformed manual test block leaves that slice behind with its branch; the queue
+goes on, lists every slice left behind and exits non-zero. Removing the worktree of a squashed slice is retried, and
+the entries of every folder a link in the worktree points to are counted before and after: fewer afterwards is
+reported and makes the run exit non-zero (the squash stays done). A stale .slice-loop/full-suite.lock (its slice
+branch is gone, or it is older than 60 minutes) is reported at the start, never removed.
 Stops for plan approval unless -Yes; stops on NEEDS-DECISION, red tests or a blocked slice. A slice that ends its
 turn with SLICE-WAIT is still running: the loop checks back on it in the same session.
 
 .EXAMPLE
 pwsh .claude/scripts/slice-loop.ps1                  # ask for every plan
 pwsh .claude/scripts/slice-loop.ps1 -Yes             # approve plans without asking
-pwsh .claude/scripts/slice-loop.ps1 -Parallel        # build ready slices side by side (headless; for long autonomous runs)
+pwsh .claude/scripts/slice-loop.ps1 -Parallel        # build ready slices side by side (headless; for long autonomous runs): at most SLICE_PARALLEL_MAX per batch, and a slice whose "files" in work/_slices.json overlap a slice already in the batch waits for the next one
 pwsh .claude/scripts/slice-loop.ps1 -DryRun          # only print the slices that are ready now
 pwsh .claude/scripts/slice-loop.ps1 -MaxSlices 3     # stop after 3 built slices if slices are left (exit 0; run again to continue)
 pwsh .claude/scripts/slice-loop.ps1 -Merge           # only run the merge queue: squash every slice-NN branch ticked through Checks, retry removing worktrees an earlier squash left, then exit (starts no session, needs no open round)
+pwsh .claude/scripts/slice-loop.ps1 -Merge -Verify   # after the queue, when it squashed a slice: run every command of the "- Full check chain" line in work/conventions.md on the integration branch, under .slice-loop/full-suite.lock (red: exit 1; -Verify needs -Merge)
+Optional field "files" of an entry in work/_slices.json: the repo-relative paths (or prefixes ending in "/") the slice is expected to change.
 Env: SLICE_PERMISSION_MODE (default: auto) – passed to claude --permission-mode.
+     SLICE_PARALLEL_MAX (default: 3) – most slices in one -Parallel batch.
      SLICE_WAIT_SECONDS (default: 60), SLICE_WAIT_MAX (default: 30) – pause and number of check-backs on SLICE-WAIT.
      SLICE_WRITE_RETRIES (default: 5), SLICE_WRITE_BACKOFF_SECONDS (default: 2) – retries and pause when the queue
-     cannot write a file or reset a merge because another process (scanner, indexer, editor) holds it.
+     cannot write a file or reset a merge because another process (scanner, indexer, editor) holds it, and when git
+     cannot remove the worktree of a squashed slice (a shell of the finished session may still stand in it).
 #>
 param(
     [switch]$Yes,
     [switch]$Parallel,
     [switch]$DryRun,
     [switch]$Merge,
+    [switch]$Verify,
     [string]$MaxSlices
 )
 $ErrorActionPreference = 'Stop'
@@ -42,9 +52,13 @@ $WaitSeconds = if ($env:SLICE_WAIT_SECONDS) { [int]$env:SLICE_WAIT_SECONDS } els
 $WaitMax = if ($env:SLICE_WAIT_MAX) { [int]$env:SLICE_WAIT_MAX } else { 30 }
 $WriteRetries = if ($env:SLICE_WRITE_RETRIES) { [int]$env:SLICE_WRITE_RETRIES } else { 5 }
 $WriteBackoff = if ($env:SLICE_WRITE_BACKOFF_SECONDS) { [double]$env:SLICE_WRITE_BACKOFF_SECONDS } else { 2 }
+$ParallelMax = if ($env:SLICE_PARALLEL_MAX) { [int]$env:SLICE_PARALLEL_MAX } else { 3 }
+$LockDir = "$LogDir/full-suite.lock"   # taken (mkdir) by whoever runs the full suite; holds a file "owner"
 $WriteFailed = ''   # the file Write-Utf8File gave up on
 $Merging = $false   # a squash merge is in progress in this checkout; Merge-Slice resets it on any way out
-$Usage = 'use -Yes, -Parallel, -DryRun, -MaxSlices N, -Merge'
+$Squashed = 0       # slices this run squashed
+$LinkLost = $false  # a folder a link of a removed worktree pointed to lost entries
+$Usage = 'use -Yes, -Parallel, -DryRun, -MaxSlices N, -Merge, -Verify (with -Merge)'
 $SliceCap = 0   # 0 = no cap
 $Built = 0
 $LeftBehind = [ordered]@{}  # slices the merge queue left behind in this run: number -> reason
@@ -60,12 +74,14 @@ function Add-LeftSlice([string]$Nr, [string]$Reason) {
     $script:LeftBehind[$Nr] = $Reason
 }
 
-# Lists every slice left behind; $false when there is one.
+# Lists every slice left behind; $false when there is one, or when a removed worktree's link target lost entries
+# (that was reported where it happened).
 function Write-LeftReport {
-    if ($script:LeftBehind.Count -eq 0) { return $true }
-    [Console]::Error.WriteLine("slice-loop: $($script:LeftBehind.Count) slice(s) left behind – fix them on their branch, then run -Merge again:")
-    foreach ($nr in $script:LeftBehind.Keys) { [Console]::Error.WriteLine("  slice ${nr}: $($script:LeftBehind[$nr])") }
-    return $false
+    if ($script:LeftBehind.Count -gt 0) {
+        [Console]::Error.WriteLine("slice-loop: $($script:LeftBehind.Count) slice(s) left behind – fix them on their branch, then run -Merge again:")
+        foreach ($nr in $script:LeftBehind.Keys) { [Console]::Error.WriteLine("  slice ${nr}: $($script:LeftBehind[$nr])") }
+    }
+    return $script:LeftBehind.Count -eq 0 -and -not $script:LinkLost
 }
 
 function Get-Slices {
@@ -73,6 +89,7 @@ function Get-Slices {
         [pscustomobject]@{
             Nr = $_.nr; Deps = @([regex]::Matches([string]$_.deps, '\d{2,}') | ForEach-Object Value)
             Model = [string]$_.model; Name = [string]$_.name; Source = [string]$_.source
+            Files = @($_.files | Where-Object { $_ } | ForEach-Object { [string]$_ })
         }
     }
 }
@@ -146,22 +163,47 @@ function Get-WorktreeOf([string]$Branch) {
     }
 }
 
-# Removes the squashed branch slice-NN and its worktree; a worktree git will not remove is reported and kept with its branch.
+# Entries directly in a folder.
+function Get-EntryCount([string]$Folder) { return @(Get-ChildItem -LiteralPath $Folder -Force -ErrorAction SilentlyContinue).Count }
+
+# Reports every folder in $Held (path -> entries before the removal of the worktree of slice $Nr) that has fewer entries now.
+function Test-LinkTargets([string]$Nr, $Held) {
+    foreach ($target in $Held.Keys) {
+        $now = Get-EntryCount $target
+        if ($now -ge $Held[$target]) { continue }
+        [Console]::Error.WriteLine("slice-loop: link target $target lost entries during the removal of the worktree of slice-$Nr (before $($Held[$target]), now $now) – restore it (for example npm ci)")
+        $script:LinkLost = $true
+    }
+}
+
+# Removes the squashed branch slice-NN and its worktree; a worktree git will not remove (after retries) is reported and
+# kept with its branch.
 function Remove-SliceBranch([string]$Nr) {
     $branch = "slice-$Nr"
     $path = Get-WorktreeOf $branch
     if ($path) {
         # Links first (for example node_modules as a junction onto the main checkout): git follows a junction when it
         # removes the worktree and empties its target. Deleting the reparse point removes the link, never the target.
+        # The entries of each target are counted before and after, so a loss is noticed.
+        $held = [ordered]@{}
         foreach ($link in @(Get-ChildItem -LiteralPath $path -Recurse -Force -Attributes ReparsePoint -ErrorAction SilentlyContinue)) {
+            $target = $link.ResolveLinkTarget($true)
+            if ($target -is [IO.DirectoryInfo] -and -not $held.Contains($target.FullName)) { $held[$target.FullName] = Get-EntryCount $target.FullName }
             if ($link.PSIsContainer) { [System.IO.Directory]::Delete($link.FullName) } else { [System.IO.File]::Delete($link.FullName) }
         }
-        git worktree remove $path *> $null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host ("[slice $Nr] worktree $path could not be removed – most likely a shell, editor or process still runs inside it " +
-                "(or it is locked); close it and run -Merge again to retry. $path and $branch are kept")
-            return
+        # A shell of the finished session may still stand in the worktree: it often lets go within seconds.
+        for ($attempt = 0; ; $attempt++) {
+            git worktree remove $path *> $null
+            if ($LASTEXITCODE -eq 0) { break }
+            if ($attempt -ge $WriteRetries) {
+                Write-Host ("[slice $Nr] worktree $path could not be removed – most likely a shell, editor or process still runs inside it " +
+                    "(or it is locked); close it and run -Merge again to retry. $path and $branch are kept")
+                return
+            }
+            Write-Host "slice-loop: could not remove the worktree of slice-$Nr (a shell or process still runs inside it?) – retrying in $WriteBackoff s (attempt $($attempt + 1) of $WriteRetries)"
+            Start-Sleep -Seconds $WriteBackoff
         }
+        Test-LinkTargets $Nr $held
     }
     Remove-Item -LiteralPath (Join-Path $LogDir "slice-$Nr.squashed") -ErrorAction SilentlyContinue
     # -D: a squash merge leaves the branch unmerged in git's eyes; the squash commit made just now is the proof.
@@ -465,6 +507,22 @@ function Get-FindingsFiles([string]$Record) {
     }
 }
 
+# A line of the record on the integration branch that the squash lost and that is the start of a longer line of the
+# result: two lines glued into one (a hand-made conflict resolution without the line break). Nothing when there is none.
+function Get-GluedLine([string]$Record) {
+    $result = Read-Lines $Record
+    $have = New-LineSet $result
+    foreach ($line in Get-GitLines @('show', "HEAD:$Record")) {
+        $line = $line.TrimEnd([char]13)
+        if (-not $line.Trim() -or (Test-Row $line) -or $have.Contains($line)) { continue }
+        # Glued only when the rest starts like a line of its own (a bullet, a step, a heading, "Word:"); text a slice
+        # adds to the end of a line is no glue.
+        $glued = @($result | Where-Object { $_.Length -gt $line.Length -and $_.StartsWith($line, [StringComparison]::Ordinal) -and
+            $_.Substring($line.Length) -match '^\s*([-*+] |\d+\. |#+ |\p{L}[\p{L}\d-]*: )' })
+        if ($glued) { return $line }
+    }
+}
+
 # Finding ids the squash would define twice in the record or its findings file, as "<id> in <file>"; ids already
 # duplicated on the integration branch do not count.
 function Get-NewDuplicateIds([string]$Record) {
@@ -474,34 +532,40 @@ function Get-NewDuplicateIds([string]$Record) {
     }
 }
 
-# The commands of the "Baseline check" line in work/conventions.md: its backtick spans before the source arrow.
-function Get-BaselineCommands {
+# The commands of the line of work/conventions.md that starts with $Prefix ("- Baseline check", "- Full check chain"):
+# its backtick spans before the source arrow.
+function Get-CheckCommands([string]$Prefix) {
     if (-not (Test-Path $ConventionsFile)) { return }
-    $line = Get-Content $ConventionsFile -Encoding utf8 | Where-Object { $_.StartsWith('- Baseline check') } | Select-Object -First 1
+    $line = Get-Content $ConventionsFile -Encoding utf8 | Where-Object { $_.StartsWith($Prefix) } | Select-Object -First 1
     if (-not $line) { return }
     $line = $line.Split('←')[0]
     foreach ($m in [regex]::Matches($line, '`([^`]*)`')) { if ($m.Groups[1].Value) { $m.Groups[1].Value } }
 }
 
 # Why the checks proof .slice-loop/slice-NN.checks does not allow the squash; empty when it does. One line per check:
-# "<exit code> <commit SHA> <command>". Every exit code is 0, every SHA is the branch tip (7 to 40 hex digits), and
-# every command of the baseline check in work/conventions.md is listed.
+# "<exit code> <commit SHA> <command>". Only lines of the branch tip count (the SHA is a prefix of it, 7 to 40 hex
+# digits): lines of other commits are stale runs, for example of an old session, and ignored. Of each command the last
+# line on the tip counts – red then green is fine, green then red is red. Every such line is green and every command
+# of the baseline check in work/conventions.md has one.
 function Get-ChecksProblem([string]$Nr) {
     $file = Join-Path $LogDir "slice-$Nr.checks"
     if (-not (Test-Path -LiteralPath $file)) { return "no checks proof $LogDir/slice-$Nr.checks" }
     $tip = @(Get-GitLines @('rev-parse', "slice-$Nr"))[0]
-    $ran = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $last = [Collections.Specialized.OrderedDictionary]::new([StringComparer]::Ordinal)   # command -> exit code of its last line on the tip
+    $stale = 0
     foreach ($line in [IO.File]::ReadAllLines((Join-Path (Get-Location).Path $file))) {
         if (-not $line -or $line.StartsWith('#')) { continue }
         if ($line -cnotmatch '^(-?\d+)\s+([0-9a-f]{7,40})\s+(.+)$') { return "unreadable line in $LogDir/slice-$Nr.checks: $line" }
         $code, $sha, $command = $Matches[1], $Matches[2], $Matches[3]
-        if ($code -ne '0') { return "check red (exit $code): $command" }
-        if (-not $tip.StartsWith($sha)) { return "check ran on $sha, not on the tip $($tip.Substring(0, 12)) of slice-${Nr}: $command" }
-        [void]$ran.Add($command)
+        if ($tip.StartsWith($sha)) { $last[$command] = $code } else { $stale++ }
     }
-    if ($ran.Count -eq 0) { return "no check listed in $LogDir/slice-$Nr.checks" }
-    foreach ($command in Get-BaselineCommands) {
-        if (-not $ran.Contains($command)) { return "baseline check missing from $LogDir/slice-$Nr.checks: $command" }
+    if ($last.Count -eq 0) {
+        if ($stale -eq 0) { return "no check listed in $LogDir/slice-$Nr.checks" }
+        return "no check ran on the tip $($tip.Substring(0, 12)) of slice-$Nr ($stale stale line(s) ignored)"
+    }
+    foreach ($command in $last.Keys) { if ($last[$command] -ne '0') { return "check red (exit $($last[$command])): $command" } }
+    foreach ($command in Get-CheckCommands '- Baseline check') {
+        if (-not $last.Contains($command)) { return "baseline check missing from $LogDir/slice-$Nr.checks: $command" }
     }
     return ''
 }
@@ -569,6 +633,8 @@ function Invoke-Squash([string]$Nr) {
     if ($record) {
         Sort-ManualTests $record
         git add $record
+        $glued = Get-GluedLine $record
+        if ($glued) { Reset-AndLeave $Nr "line glued to the next one in ${record}: $glued"; return $false }
         $problem = Get-ManualTestProblem $record $Nr
         if ($problem) { Reset-AndLeave $Nr "manual test block of slice $Nr in ${record}: $problem"; return $false }
         $duplicates = @(Get-NewDuplicateIds $record)
@@ -580,6 +646,7 @@ function Invoke-Squash([string]$Nr) {
     git commit -q -F (Get-SquashMessageFile $Nr)
     if ($LASTEXITCODE -ne 0) { Stop-Loop "slice ${Nr}: the squash commit failed – merge reset" }
     $script:Merging = $false
+    $script:Squashed++
     Write-Host "[slice $Nr] squashed onto $(git branch --show-current) ($(git rev-parse --short HEAD))"
     if (-not (Test-Done $Nr)) { Stop-Loop "slice $Nr was squashed but is not ticked in $ChecklistFile – check it before running again" }
     Remove-SliceBranch $Nr
@@ -606,7 +673,7 @@ function Invoke-RetryRemoval([string]$Nr) {
         Write-Host "[slice $Nr] already squashed – removing its leftover worktree and branch again"
         Remove-SliceBranch $Nr
     } else {
-        Write-Host "[slice $Nr] already squashed, but slice-$Nr moved since – left as it is"
+        Write-Host "[slice $Nr] already squashed; slice-$Nr has commits after the squash – nothing to do for the queue (squash them by hand or delete the branch)"
     }
 }
 
@@ -621,6 +688,89 @@ function Invoke-MergeQueue {
         if (Test-BranchReady $nr) { [void](Merge-Slice $nr) }
         else { Write-Host "[slice $nr] not ready to merge: its row on $branch is not ticked through Checks – left as it is" }
     }
+}
+
+# Who holds the full-suite lock, from its owner file, e.g. "slice 100 2026-10-27T09:00:00Z" or "merge queue …".
+function Get-LockOwner {
+    $file = Join-Path $LockDir 'owner'
+    if (-not (Test-Path -LiteralPath $file)) { return 'unknown' }
+    return (Get-Content -LiteralPath $file -Raw -Encoding utf8).Trim()
+}
+
+# Reports a full-suite lock nobody can hold any more: its owner is a slice whose branch is gone, or it is older than an
+# hour. Only reports – removing it is the caller's call; the run goes on.
+function Write-StaleLockNotice {
+    if (-not (Test-Path -LiteralPath $LockDir -PathType Container)) { return }
+    $owner = Get-LockOwner
+    $why = ''
+    $ownerFile = Join-Path $LockDir 'owner'
+    $touched = (Get-Item -LiteralPath $(if (Test-Path -LiteralPath $ownerFile) { $ownerFile } else { $LockDir })).LastWriteTime
+    if ($owner -match '^slice (\d{2,})(\s|$)' -and -not (Get-GitLines @('rev-parse', '--verify', '--quiet', "refs/heads/slice-$($Matches[1])"))) {
+        $why = 'its slice branch is gone'
+    } elseif (((Get-Date) - $touched).TotalMinutes -gt 60) {
+        $why = 'it is older than 60 minutes'
+    }
+    if ($why) { [Console]::Error.WriteLine("slice-loop: stale lock $LockDir (owner: $owner) – $why; remove it with: Remove-Item -Recurse $LockDir") }
+}
+
+# After the merge queue (-Verify): when the queue squashed a slice, every command of the "- Full check chain" line in
+# work/conventions.md runs on the integration branch, under the full-suite lock. $false when one is red or the lock is held.
+function Invoke-Verify {
+    if ($Squashed -eq 0) { return $true }
+    $commands = @(Get-CheckCommands '- Full check chain')
+    if (-not $commands) {
+        Write-Host "slice-loop: no full check chain in $ConventionsFile – nothing verified"
+        return $true
+    }
+    try { New-Item -ItemType Directory -Path $LockDir -ErrorAction Stop | Out-Null }
+    catch {
+        [Console]::Error.WriteLine("slice-loop: $LockDir is held (owner: $(Get-LockOwner)) – the full check chain was not run")
+        return $false
+    }
+    $red = $false
+    try {
+        Write-Utf8File "$LockDir/owner" "merge queue $((Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'))`n"
+        foreach ($command in $commands) {
+            # A process of its own: an "exit" in the command ends that process, not this script with the lock held.
+            # It hands on the command's own exit code (-Command alone turns every failure into 1).
+            $program = "`$global:LASTEXITCODE = 0`n$command`nif (-not `$?) { exit [Math]::Max(1, [int]`$LASTEXITCODE) }`nexit `$LASTEXITCODE"
+            & (Get-Process -Id $PID).Path -NoProfile -Command $program | Out-Host
+            $code = $LASTEXITCODE
+            Write-Host "[verify] $command – $(if ($code -eq 0) { 'green' } else { "red (exit $code)" })"
+            if ($code -ne 0) { $red = $true }
+        }
+    } finally { Remove-Item -LiteralPath $LockDir -Recurse -Force -ErrorAction SilentlyContinue }
+    if ($red) { [Console]::Error.WriteLine("slice-loop: full check chain red on $(git branch --show-current) after the merge queue") }
+    return -not $red
+}
+
+# Two paths of the "files" of slices overlap when they are equal or one is a prefix ending in "/" of the other.
+# Returns the more specific of the two, nothing when they do not overlap.
+function Get-SharedPath([string]$A, [string]$B) {
+    if ($A -ceq $B) { return $A }
+    if ($A.EndsWith('/') -and $B.StartsWith($A, [StringComparison]::Ordinal)) { return $B }
+    if ($B.EndsWith('/') -and $A.StartsWith($B, [StringComparison]::Ordinal)) { return $A }
+}
+
+# The ready slices (in order) that go into the next -Parallel batch: at most $ParallelMax, and none whose "files" overlap
+# a slice already picked; that one waits for a later batch.
+function Select-ParallelBatch([string[]]$Ready) {
+    $files = @{}
+    foreach ($slice in Get-Slices) { $files[$slice.Nr] = $slice.Files }
+    $batch = [Collections.Generic.List[string]]::new()
+    foreach ($nr in $Ready) {
+        if ($batch.Count -ge $ParallelMax) { break }
+        $clash = $null
+        foreach ($other in $batch) {
+            foreach ($mine in $files[$nr]) {
+                foreach ($theirs in $files[$other]) {
+                    if (-not $clash -and (Get-SharedPath $mine $theirs)) { $clash = "shares $(Get-SharedPath $mine $theirs) with slice $other" }
+                }
+            }
+        }
+        if ($clash) { Write-Host "[slice $nr] waits: $clash" } else { $batch.Add($nr) }
+    }
+    return , [string[]]$batch
 }
 
 function Get-ReadySlices {
@@ -722,7 +872,7 @@ function Invoke-Round {
         if (-not (Write-LeftReport)) { exit 1 }
         Stop-Loop "no slice is ready – check $ChecklistFile (/slice status)"
     }
-    if (-not $Parallel) { $ready = @($ready[0]) }
+    $ready = if ($Parallel) { @(Select-ParallelBatch $ready) } else { @($ready[0]) }
     if ($SliceCap -gt 0) { $ready = @($ready | Select-Object -First ($SliceCap - $Built)) }
     $runs = foreach ($nr in $ready) {
         $session = [guid]::NewGuid().ToString()
@@ -777,6 +927,7 @@ function Close-Round {
 if ($PSBoundParameters.ContainsKey('MaxSlices') -and -not ([int]::TryParse($MaxSlices, [ref]$SliceCap) -and $SliceCap -gt 0)) {
     Stop-Loop "-MaxSlices needs a positive integer ($Usage)"
 }
+if ($Verify -and -not $Merge) { Stop-Loop "-Verify needs -Merge ($Usage)" }
 if (-not ((Test-Path $SlicesFile) -and (Test-Path $ChecklistFile))) {
     Stop-Loop "run from the repo root (needs $SlicesFile and $ChecklistFile)"
 }
@@ -786,7 +937,14 @@ $exclude = '.git/info/exclude'
 if ((Test-Path $exclude) -and -not (Select-String -Path $exclude -Pattern "^$LogDir/$" -Quiet)) {
     Add-Content -Path $exclude -Value "$LogDir/"
 }
-if ($Merge) { Invoke-MergeQueue; if (-not (Write-LeftReport)) { exit 1 }; exit 0 }
+Write-StaleLockNotice
+if ($Merge) {
+    Invoke-MergeQueue
+    $clean = Write-LeftReport
+    $verified = if ($Verify) { Invoke-Verify } else { $true }
+    if (-not ($clean -and $verified)) { exit 1 }
+    exit 0
+}
 $OpenRound = Get-OpenRound
 if (-not $OpenRound) {
     Write-Host "slice-loop: no open round in $RoundsDir – start a round with the vibe-coding skill first"
@@ -803,3 +961,4 @@ while (-not (Test-AllDone)) {
     }
 }
 Close-Round
+if ($LinkLost) { exit 1 }

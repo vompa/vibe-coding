@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 STUB = r'''
@@ -99,6 +100,12 @@ def append_to_record(worktree, nr):
         if open(path, encoding="utf-8").readline().strip() == "Status: open":
             extra = [os.environ["STUB_RECORD_LINE"]] if os.environ.get("STUB_RECORD_LINE") else []
             def change(lines):
+                if option("STUB_GLUE", nr):  # a hand-made resolution that glued two bullets into one line
+                    at = lines.index("- First open question?")
+                    lines = lines[:at] + [lines[at] + lines[at + 1]] + lines[at + 2:]
+                if option("STUB_EXTEND", nr):  # a slice that legitimately adds to the end of a line
+                    at = lines.index("- First open question?")
+                    lines[at] += f" Answered in slice {nr}."
                 at = lines.index("## Manual test list")
                 lines = lines[:at] + [f"- Slice {nr} stub surprise"] + lines[at:]
                 return lines[:-1] + manual_block(nr, bad=bool(option("STUB_BAD_BLOCK", nr))) + extra + [""]
@@ -108,13 +115,20 @@ def append_to_record(worktree, nr):
 
 def write_checks(worktree, nr):
     """The checks proof /slice writes before SLICE-READY: "<exit code> <sha> <command>" per check of the baseline.
-    STUB_CHECKS=NN:missing|red|stale|incomplete spoils it."""
+    STUB_CHECKS=NN:missing|red|stale|incomplete spoils it; orphan adds a red line of an old commit (a stale run of another
+    session), rerun a red line followed by a green one of the same command, regress a green line followed by a red one."""
     mode = option("STUB_CHECKS", nr)
     if mode == "missing":
         return
     sha = git_out("rev-parse", "HEAD~1" if mode == "stale" else "HEAD", cwd=worktree)
     commands = ["baseline-check"] if mode == "incomplete" else ["baseline-check", "unit-tests"]
     lines = [f"{1 if mode == 'red' and c == 'unit-tests' else 0} {sha} {c}" for c in commands]
+    if mode == "orphan":
+        lines.append(f"1 {git_out('rev-parse', 'HEAD~1', cwd=worktree)} unit-tests")
+    if mode == "rerun":
+        lines.insert(1, f"1 {sha} unit-tests")
+    if mode == "regress":
+        lines.append(f"1 {sha} unit-tests")
     open(f".slice-loop/slice-{nr}.checks", "w", encoding="utf-8", newline="\n").write("\n".join(lines) + "\n")
 
 
@@ -130,18 +144,24 @@ def touch_shared_files(worktree, nr):
         edit(f"{worktree}/docs/findings.md", lambda lines: lines[:-1] + [f"| {option('STUB_FINDING', nr)} | found in slice {nr} |", ""])
 
 
-def link_packages(worktree):
+def link_packages(worktree, inner):
     """Like a slice session that links node_modules of its worktree to the main checkout's (a junction on Windows):
-    removing the worktree must not empty the link's target."""
+    removing the worktree must not empty the link's target. inner (STUB_LINK=inner or NN:inner) links to a folder inside
+    the worktree instead, which the removal takes away with the worktree: the loop must report the lost entries."""
     os.makedirs("node_modules", exist_ok=True)
     open("node_modules/keep.txt", "w", encoding="utf-8", newline="\n").write("package\n")
+    target = os.path.abspath("node_modules")
+    if inner:
+        target = os.path.abspath(f"{worktree}/cache/node_modules")
+        os.makedirs(target, exist_ok=True)
+        open(f"{target}/keep.txt", "w", encoding="utf-8", newline="\n").write("package\n")
     link = f"{worktree}/node_modules"
     if not os.path.lexists(link):
         if os.name == "nt":
             import _winapi
-            _winapi.CreateJunction(os.path.abspath("node_modules"), os.path.abspath(link))
+            _winapi.CreateJunction(target, os.path.abspath(link))
         else:
-            os.symlink(os.path.abspath("node_modules"), link, target_is_directory=True)
+            os.symlink(target, os.path.abspath(link), target_is_directory=True)
 
 
 def build_on_branch(nr):
@@ -150,8 +170,9 @@ def build_on_branch(nr):
     worktree = f".claude/worktrees/slice-{nr}"
     if not os.path.isdir(worktree):
         git("worktree", "add", "-q", "-b", f"slice-{nr}", worktree, "HEAD")
-    if os.environ.get("STUB_LINK") == "1":
-        link_packages(worktree)
+    link = option("STUB_LINK", nr) or os.environ.get("STUB_LINK")
+    if link:
+        link_packages(worktree, inner=link == "inner")
     if os.environ.get("STUB_NO_TICK") != nr:
         tick(f"{worktree}/{folder}/checklist.md", nr, keep_commit=True)
     append_to_record(worktree, nr)
@@ -206,6 +227,14 @@ else:
     sys.exit(2)
 '''
 
+# work/conventions.md: the baseline check the checks proof must list, and the full check chain -Verify runs (both shells
+# run these commands: git is the one program they share). The red variant adds a chain command that fails.
+BASELINE_LINE = "- Baseline check (before every slice): `baseline-check`, `unit-tests` ← test; not `| tail`\n"
+CHAIN_LINE = "- Full check chain (before the round closes): `git rev-parse --git-dir`, `git rev-parse --is-inside-work-tree` ← all green\n"
+CONVENTIONS = f"# Conventions\n{BASELINE_LINE}{CHAIN_LINE}"
+CONVENTIONS_RED = (f"# Conventions\n{BASELINE_LINE}- Full check chain (before the round closes): `git rev-parse --git-dir`, "
+                   "`git rev-parse --verify no-such-ref` ← the second one fails\n")
+CONVENTIONS_WITHOUT_CHAIN = f"# Conventions\n{BASELINE_LINE}"
 # One profile per plugin. Case: name, slices done before, options, env, rounds (None = default),
 # expected (exit code, ticked slices, build turns, close turns), and for the vibe-coding profile an optional dict of
 # git expectations: "prepared" (branches made before the run: nr, optional file, content, ready, message, record_line
@@ -215,7 +244,11 @@ else:
 # default none), "says" / "says_not" (a phrase that is / is not in the loop's output), "no_calls" (no claude call),
 # "record_has" (lines of work/rounds/R01-test.md), "results" (its number of "Result:" lines), "order" (lines it holds in
 # this order), "checklist_has" (lines of work/checklist.md), "file_has" (lines per file), "file_count" (path, line
-# prefix, number of such lines). "dry_run_ready" is what --dry-run prints when the first three slices are done.
+# prefix, number of such lines), "says_order" (phrases in the output, in this order), "slices" (this case's own slice
+# list), "squashed" (squash markers left by an earlier run: slice -> commit), "lock" (a full-suite lock left by an earlier
+# run: owner, age_minutes) and "lock_gone" (the lock must be gone at the end; without it a "lock" must still be there),
+# "holds" (files held by another process, or {"unlock": text} to unlock the worktrees at that output line).
+# "dry_run_ready" is what --dry-run prints when the first three slices are done.
 PROFILES = [
     {
         "plugin": "vibe-rebuild", "script": "rebuild-loop", "folder": "rebuild", "command": "/rebuild",
@@ -295,8 +328,15 @@ PROFILES = [
              {"prepared": [{"nr": "100", "checks": "red"}], "subjects": [], "branches": ["slice-100"],
               "says": "check red (exit 1): unit-tests", "no_calls": True}),
             ("merge leaves a slice whose checks ran on an older commit", 3, ["--merge"], {}, None, (1, 3, 0, 0),
-             {"prepared": [{"nr": "100", "checks": "stale"}], "subjects": [], "branches": ["slice-100"],
-              "says": "not on the tip", "no_calls": True}),
+             {"prepared": [{"nr": "100", "checks": "stale"}], "subjects": [], "branches": ["slice-100"],              "says": ["no check ran on the tip", " of slice-100 (2 stale line(s) ignored)"], "no_calls": True}),
+            # A stale line (another commit) is ignored when the tip has its own lines; of each command the last line counts.
+            ("merge ignores a stale red line of an old commit and squashes", 3, ["--merge"], {}, None, (0, 4, 0, 0),
+             {"prepared": [{"nr": "100", "checks": "orphan"}], "subjects": ["Slice 100 stub squash"], "no_calls": True}),
+            ("merge accepts a green rerun after a red run on the tip", 3, ["--merge"], {}, None, (0, 4, 0, 0),
+             {"prepared": [{"nr": "100", "checks": "rerun"}], "subjects": ["Slice 100 stub squash"], "no_calls": True}),
+            ("merge leaves a slice whose check went red after a green run", 3, ["--merge"], {}, None, (1, 3, 0, 0),
+             {"prepared": [{"nr": "100", "checks": "regress"}], "subjects": [], "branches": ["slice-100"],
+              "says": "check red (exit 1): unit-tests", "no_calls": True}),
             ("merge leaves a slice whose proof lacks a baseline check", 3, ["--merge"], {}, None, (1, 3, 0, 0),
              {"prepared": [{"nr": "100", "checks": "incomplete"}], "subjects": [], "branches": ["slice-100"],
               "says": "baseline check missing from .slice-loop/slice-100.checks: unit-tests", "no_calls": True}),
@@ -327,10 +367,20 @@ PROFILES = [
              {"STUB_WAIT_ALWAYS": "100", "SLICE_WAIT_SECONDS": "0", "SLICE_WAIT_MAX": "2"}, None, (1, 3, 1, 0),
              {"subjects": [], "says": "still waiting after 2 check-backs"}),
             # A worktree git will not remove is reported with its likely cause; a later --merge removes it.
-            ("a worktree left by the squash is removed by a later merge", 3, ["--yes", "--max-slices", "1"], {"STUB_LOCK": "100"},
-             None, (0, 4, 1, 0),
+            ("a worktree left by the squash is removed by a later merge", 3, ["--yes", "--max-slices", "1"],
+             {"STUB_LOCK": "100", "SLICE_WRITE_RETRIES": "2", "SLICE_WRITE_BACKOFF_SECONDS": "0"}, None, (0, 4, 1, 0),
              {"rerun": ["--merge"], "subjects": ["Slice 100 stub squash"], "branches": [],
-              "says": "a shell, editor or process still runs inside it"}),
+              "says": ["a shell, editor or process still runs inside it", "retrying in 0 s (attempt 2 of 2)"]}),
+            # The shell of the finished session lets go during the retries: the removal succeeds without a second run.
+            ("removing a worktree is retried until the shell inside it lets go", 3, ["--yes", "--max-slices", "1"],
+             {"STUB_LOCK": "100", "SLICE_WRITE_BACKOFF_SECONDS": "1"}, None, (0, 4, 1, 0),
+             {"holds": [{"unlock": "retrying"}], "subjects": ["Slice 100 stub squash"], "branches": [],
+              "says": "retrying in 1 s (attempt 1 of 5)", "says_not": "could not be removed"}),
+            # A squash marker of a branch that has commits after the squash: nothing for the queue to do.
+            ("merge leaves a squashed branch that moved since", 4, ["--merge"], {}, None, (0, 4, 0, 0),
+             {"prepared": [{"nr": "100"}], "squashed": {"100": "0" * 40}, "subjects": [], "branches": ["slice-100"],
+              "says": "[slice 100] already squashed; slice-100 has commits after the squash – nothing to do for the queue "
+                      "(squash them by hand or delete the branch)", "no_calls": True}),
             # The integration branch got a row after the branches were cut: it stays, and 101's squash keeps 100's ticks.
             ("merge resolves the checklist and keeps a row only the integration branch has", 3, ["--merge"], {}, None, (0, 5, 0, 0),
              {"prepared": [{"nr": "100"}, {"nr": "101"}], "main_row": "102",
@@ -343,7 +393,16 @@ PROFILES = [
               "no_calls": True}),
             # A worktree with node_modules linked to the main checkout: removing the worktree keeps the main packages.
             ("removing a worktree keeps the target of its linked folder", 3, ["--yes", "--max-slices", "1"], {"STUB_LINK": "1"},
-             None, (0, 4, 1, 0), {"subjects": ["Slice 100 stub squash"], "keeps": "node_modules/keep.txt"}),
+             None, (0, 4, 1, 0),
+             {"subjects": ["Slice 100 stub squash"], "keeps": "node_modules/keep.txt", "says_not": "lost entries"}),
+            # The link's target is inside the worktree and goes with it: the loss is reported, the run fails, the squash stays.
+            ("removing a worktree reports a linked folder that lost entries", 3, ["--yes", "--max-slices", "1"], {"STUB_LINK": "inner"},
+             None, (1, 4, 1, 0),
+             {"subjects": ["Slice 100 stub squash"], "branches": [],
+              "says": "link target", "says_order": ["lost entries during the removal of the worktree of slice-100 (before 1, now 0)"]}),
+            ("merge fails when a linked folder lost entries", 3, ["--merge"], {}, None, (1, 4, 0, 0),
+             {"prepared": [{"nr": "100", "link": "inner"}], "subjects": ["Slice 100 stub squash"], "branches": [],
+              "says": "restore it (for example npm ci)", "no_calls": True}),
             # Another process holds a file the queue writes (a scanner with it mapped): the write is retried until it is free.
             ("merge retries a write until another process frees the file", 3, ["--merge"], {"SLICE_WRITE_BACKOFF_SECONDS": "1"},
              None, (0, 4, 0, 0),
@@ -364,13 +423,62 @@ PROFILES = [
             ("a stop during the squash leaves a clean checkout", 3, ["--merge"], {}, None, (1, 3, 0, 0),
              {"prepared": [{"nr": "100"}], "failing_commit": True, "subjects": [], "branches": ["slice-100"],
               "says": "the squash commit failed – merge reset", "no_calls": True}),
+            # A hand-made resolution glued two bullets of the record into one line.
+            ("merge leaves a slice whose record has two lines glued into one", 3, ["--merge"], {}, None, (1, 3, 0, 0),
+             {"prepared": [{"nr": "100", "glue": True}], "subjects": [], "branches": ["slice-100"],
+              "says": "line glued to the next one in work/rounds/R01-test.md: - First open question?", "no_calls": True}),
+            ("merge squashes a slice that adds text to the end of a line of the record", 3, ["--merge"], {}, None, (0, 4, 0, 0),
+             {"prepared": [{"nr": "100", "extend": True}], "subjects": ["Slice 100 stub squash"], "says_not": "glued", "no_calls": True}),
+            # The full-suite lock: a stale one (its slice branch is gone, or it is old) is reported and kept; a live one is not reported.
+            ("a lock of a slice whose branch is gone is reported and kept", 3, ["--merge"], {}, None, (0, 3, 0, 0),
+             {"lock": {"owner": "slice 99 2026-10-27T08:00:00Z"},
+              "says": "stale lock .slice-loop/full-suite.lock (owner: slice 99 2026-10-27T08:00:00Z) – its slice branch is gone",
+              "no_calls": True}),
+            ("a lock older than an hour is reported and kept", 3, ["--merge"], {}, None, (0, 3, 0, 0),
+             {"lock": {"owner": "merge queue 2026-10-27T05:00:00Z", "age_minutes": 120},
+              "says": "stale lock .slice-loop/full-suite.lock (owner: merge queue 2026-10-27T05:00:00Z) – it is older than 60 minutes",
+              "no_calls": True}),
+            ("a lock of an existing slice branch is not reported", 3, ["--merge"], {}, None, (0, 4, 0, 0),
+             {"prepared": [{"nr": "100"}], "lock": {"owner": "slice 100 2026-10-27T08:00:00Z"}, "subjects": ["Slice 100 stub squash"],
+              "says_not": "stale lock", "no_calls": True}),
+            # -Verify: after a squash the full check chain runs on the integration branch under the lock.
+            ("verify runs the full check chain after a squash and frees the lock", 3, ["--merge", "--verify"], {}, None, (0, 4, 0, 0),
+             {"prepared": [{"nr": "100"}], "subjects": ["Slice 100 stub squash"], "lock_gone": True, "no_calls": True,
+              "says": ["[verify] git rev-parse --git-dir – green", "[verify] git rev-parse --is-inside-work-tree – green"]}),
+            ("verify with a red command exits non-zero and frees the lock", 3, ["--merge", "--verify"], {}, None, (1, 4, 0, 0),
+             {"prepared": [{"nr": "100"}], "main_change": {"work/conventions.md": CONVENTIONS_RED}, "lock_gone": True, "no_calls": True,
+              "subjects": ["Change on main", "Slice 100 stub squash"],
+              "says": ["[verify] git rev-parse --git-dir – green", "[verify] git rev-parse --verify no-such-ref – red (exit 128)",
+                       "full check chain red on main after the merge queue"]}),
+            ("verify without a squash runs nothing", 3, ["--merge", "--verify"], {}, None, (0, 3, 0, 0),
+             {"says_not": "[verify]", "lock_gone": True, "no_calls": True}),
+            ("verify without a full check chain line verifies nothing", 3, ["--merge", "--verify"], {}, None, (0, 4, 0, 0),
+             {"prepared": [{"nr": "100"}], "main_change": {"work/conventions.md": CONVENTIONS_WITHOUT_CHAIN},
+              "subjects": ["Change on main", "Slice 100 stub squash"], "says": "no full check chain in work/conventions.md – nothing verified",
+              "says_not": "[verify]", "lock_gone": True, "no_calls": True}),
+            ("verify skips and fails when the lock is held", 3, ["--merge", "--verify"], {}, None, (1, 4, 0, 0),
+             {"prepared": [{"nr": "100"}], "lock": {"owner": "slice 100 2026-10-27T08:00:00Z"}, "subjects": ["Slice 100 stub squash"],
+              "says": "full-suite.lock is held (owner: slice 100 2026-10-27T08:00:00Z)", "says_not": "[verify]", "no_calls": True}),
+            ("verify needs the merge option", 3, ["--verify"], {}, None, (1, 3, 0, 0), {"says": "erify needs ", "no_calls": True}),
+            # -Parallel: at most three slices per batch, and none that shares a file with one already in the batch.
+            ("parallel takes at most three slices per batch", 0, ["--yes", "--parallel"], {}, None, (0, 4, 4, 1),
+             {"slices": [{"nr": nr, "deps": "–"} for nr in ("200", "201", "202", "203")],
+              "subjects": [f"Slice {nr} stub squash" for nr in ("200", "201", "202", "203")], "results": 4,
+              "says_order": ["[slice 202] squashed", "[slice 203] planning"]}),
+            ("parallel keeps a slice that shares a file for the next batch", 0, ["--yes", "--parallel"], {}, None, (0, 3, 3, 1),
+             {"slices": [{"nr": "200", "deps": "–", "files": ["src/app.cs"]}, {"nr": "201", "deps": "–", "files": ["src/"]},
+                         {"nr": "202", "deps": "–", "files": ["docs/a.md"]}],
+              "subjects": [f"Slice {nr} stub squash" for nr in ("200", "202", "201")], "results": 3,
+              "says": "[slice 201] waits: shares src/app.cs with slice 200",
+              "says_order": ["[slice 202] squashed", "[slice 201] planning"]}),
             ("merge leaves a branch whose row is not ticked through Checks", 3, ["--merge"], {}, None, (0, 3, 0, 0),
              {"prepared": [{"nr": "100", "ready": False}], "subjects": [], "branches": ["slice-100"], "no_calls": True}),
         ],
     },
 ]
 # Options that start with "--" become PowerShell switches; a value after one (--max-slices 1) stays as it is.
-PWSH_FLAGS = {"--yes": "-Yes", "--parallel": "-Parallel", "--dry-run": "-DryRun", "--max-slices": "-MaxSlices", "--merge": "-Merge"}
+PWSH_FLAGS = {"--yes": "-Yes", "--parallel": "-Parallel", "--dry-run": "-DryRun", "--max-slices": "-MaxSlices", "--merge": "-Merge",
+              "--verify": "-Verify"}
 TEST_IDENTITY = (("user.name", "loop-test"), ("user.email", "loop-test@example.invalid"))
 
 
@@ -409,11 +517,11 @@ def init_git(repo: pathlib.Path) -> None:
 
 # Per-branch options of "prepared" and the stub variable each one sets for that slice.
 BRANCH_OPTIONS = {"append": "STUB_APPEND", "status": "STUB_STATUS", "finding": "STUB_FINDING", "checks": "STUB_CHECKS",
-                  "bad_block": "STUB_BAD_BLOCK"}
+                  "bad_block": "STUB_BAD_BLOCK", "glue": "STUB_GLUE", "extend": "STUB_EXTEND", "link": "STUB_LINK"}
 # Files every vibe-coding test repository starts with: the baseline check the queue requires in the checks proof, the
 # findings file the record names under ## Source, a status page with the round's row, a protocol appended to.
 WORK_FILES = {
-    "work/conventions.md": "# Conventions\n- Baseline check (before every slice): `baseline-check`, `unit-tests` ← test; not `| tail`\n",
+    "work/conventions.md": CONVENTIONS,
     "docs/findings.md": "# Findings\n| id | finding |\n|---|---|\n| F-01 | old |\n",
     "docs/status.md": "| Round | State | Slices |\n|---|---|---|\n| R01 | open | – |\n",
     "docs/protocol.md": "# Protocol\n",
@@ -423,7 +531,7 @@ WORK_FILES = {
 
 def record_text(status: str) -> str:
     return (f"Status: {status}\n\n# Round – test\n\n## Source\n`docs/findings.md`, marked \"done in slice NN\"\n\n"
-            "## Surprises\n\n## Manual test list\n")
+            "## Surprises\n\n- First open question?\n- Second open question\n\n## Manual test list\n")
 
 
 def prepare_branch(repo: pathlib.Path, stub: pathlib.Path, profile: dict, branch: dict) -> None:
@@ -497,6 +605,24 @@ def make_repo(base: pathlib.Path, profile: dict, done: int, rounds: list[tuple[s
     return repo
 
 
+def prepare_state(repo: pathlib.Path, expected: dict) -> None:
+    """State an earlier run left in .slice-loop/: "squashed" (slice nr -> the commit its squash marker names) and "lock"
+    (a full-suite lock: owner text, age_minutes)."""
+    if "squashed" not in expected and "lock" not in expected:
+        return
+    log_dir = repo / ".slice-loop"
+    log_dir.mkdir(exist_ok=True)
+    for nr, sha in expected.get("squashed", {}).items():
+        (log_dir / f"slice-{nr}.squashed").write_text(sha + "\n", encoding="utf-8", newline="\n")
+    if "lock" in expected:
+        lock = log_dir / "full-suite.lock"
+        lock.mkdir()
+        (lock / "owner").write_text(expected["lock"]["owner"] + "\n", encoding="utf-8", newline="\n")
+        then = time.time() - 60 * expected["lock"].get("age_minutes", 0)
+        for path in (lock / "owner", lock):
+            os.utime(path, (then, then))
+
+
 def command(shell: str, bin_dir: pathlib.Path, body: str) -> list[str]:
     # Full path: on Windows a bare "bash" would start WSL from System32 instead of the bash on PATH.
     executable = shutil.which(shell)
@@ -564,9 +690,32 @@ class Hold:
             self.free()
 
 
+def unlock_worktrees(repo: pathlib.Path) -> None:
+    """Whatever kept the slice worktrees (here: their lock) is gone."""
+    for line in git(repo, "worktree", "list", "--porcelain").splitlines():
+        if line.startswith("worktree ") and ".claude/worktrees/" in line:
+            subprocess.run(["git", "worktree", "unlock", line[9:]], cwd=repo, capture_output=True)
+
+
+class Unlock(Hold):
+    """A shell of the finished session that lets go of its worktree: the worktrees are unlocked at the first output line
+    containing the text of the spec {"unlock": text}."""
+
+    def __init__(self, repo: pathlib.Path, spec: dict):
+        self.repo, self.start, self.release = repo, spec["unlock"], None
+        self.held = self.done = False
+
+    def take(self) -> None:
+        unlock_worktrees(self.repo)
+        self.held = True
+
+    def free(self) -> None:
+        self.held, self.done = False, True
+
+
 def run_held(arguments: list[str], repo: pathlib.Path, env: dict, specs: list[dict]) -> subprocess.CompletedProcess:
     """Runs the loop while other processes hold files (Hold), reading its output as it comes to start and end each hold."""
-    holds = [Hold(repo, spec) for spec in specs]
+    holds = [Unlock(repo, spec) if "unlock" in spec else Hold(repo, spec) for spec in specs]
     for hold in holds:
         if not hold.start:
             hold.take()
@@ -640,6 +789,16 @@ def git_problems(repo: pathlib.Path, profile: dict, result: subprocess.Completed
             problems.append(f"output does not name {text!r}")
     if "says_not" in expected and expected["says_not"] in output:
         problems.append(f"output names {expected['says_not']!r}")
+    at = -1
+    for text in expected.get("says_order", []):
+        at = output.find(text, at + 1)
+        if at < 0:
+            problems.append(f"output lacks {text!r} after the lines before it")
+            break
+    if "lock" in expected or "lock_gone" in expected:
+        lock_there = (repo / ".slice-loop/full-suite.lock").exists()
+        if lock_there == expected.get("lock_gone", False):
+            problems.append(f"full-suite lock {'is still there' if lock_there else 'is gone'}")
     if expected.get("no_calls") and calls_log(repo):
         problems.append("claude was called")
     if "keeps" in expected and not (repo / expected["keeps"]).is_file():
@@ -700,15 +859,14 @@ def main() -> int:
                     if only not in name:
                         continue
                     git_expected = extra[0] if extra else {}
-                    repo = make_repo(base, profile, done, rounds, stub, git_expected.get("prepared", []), git_expected.get("main_row"),
-                                     git_expected.get("main_change"))
+                    repo = make_repo(base, dict(profile, slices=git_expected.get("slices", profile["slices"])), done, rounds, stub,
+                                     git_expected.get("prepared", []), git_expected.get("main_row"), git_expected.get("main_change"))
+                    prepare_state(repo, git_expected)
                     if git_expected.get("failing_commit"):
                         (repo / ".git/hooks/pre-commit").write_text("#!/bin/sh\nexit 1\n", encoding="utf-8", newline="\n")
                     result = run_case(shell, repo, bin_dir, profile, options, env, git_expected.get("holds"))
                     if "rerun" in git_expected:  # whatever kept the worktree is gone (here: its lock), then the queue runs again
-                        for line in git(repo, "worktree", "list", "--porcelain").splitlines():
-                            if line.startswith("worktree ") and ".claude/worktrees/" in line:
-                                subprocess.run(["git", "worktree", "unlock", line[9:]], cwd=repo, capture_output=True)
+                        unlock_worktrees(repo)
                         first = result
                         result = run_case(shell, repo, bin_dir, profile, git_expected["rerun"], env)
                         result.stdout, result.stderr = first.stdout + result.stdout, first.stderr + result.stderr
