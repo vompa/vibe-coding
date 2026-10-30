@@ -62,6 +62,7 @@ readonly PARALLEL_MAX="${SLICE_PARALLEL_MAX:-2}"
 readonly WATCH_SECONDS="${SLICE_WATCH_SECONDS:-60}"
 readonly WATCH_MAX="${SLICE_WATCH_MAX:-480}"
 readonly WATCH_ALIVE="$LOG_DIR/watch.alive"  # sign of life of a running --watch, written at every check
+readonly MERGE_LOCK="$LOG_DIR/merge.lock"  # taken (mkdir) by a running --merge queue; older than 60 minutes: its owner died
 readonly LOCK_DIR="$LOG_DIR/full-suite.lock"  # taken (mkdir) by whoever runs the full suite; holds a file "owner"
 readonly USAGE="use --yes, --parallel, --dry-run, --max-slices N, --merge, --verify and --watch (with --merge)"
 
@@ -71,6 +72,7 @@ dry_run=false
 merge_only=false
 verify=false
 watch=false
+merge_locked=false      # this run holds the queue lock; the exit trap removes it
 watching=false          # this run wrote the sign of life; the exit trap removes it
 squashed_count=0        # slices this run squashed
 link_lost=false         # a folder a link of a removed worktree pointed to lost entries
@@ -112,7 +114,7 @@ reset_merge() {
     sleep "$WRITE_BACKOFF"
   done
 }
-trap 'if $watching; then rm -f "$WATCH_ALIVE"; fi; if [[ -n "$merging" ]]; then reset_merge; fi' EXIT
+trap 'if $watching; then rm -f "$WATCH_ALIVE"; fi; if $merge_locked; then rm -r "$MERGE_LOCK"; fi; if [[ -n "$merging" ]]; then reset_merge; fi' EXIT
 trap 'exit 130' INT TERM
 
 # Leaves slice $1 behind for reason $2: its branch stays, the run goes on without it.
@@ -222,17 +224,6 @@ branch_ready() {
 tick_commit() {
   sed -E "/^\|[[:space:]]*$1([^0-9]|\$)/ s/(.*)☐/\1☑/" "$CHECKLIST_FILE" >"$LOG_DIR/checklist.tmp"
   replace_file "$LOG_DIR/checklist.tmp" "$CHECKLIST_FILE"
-}
-
-# Path of the squash message for slice $1: the file /slice wrote, else one written from the slice's name and source.
-squash_message_file() {
-  local nr=$1 file="$LOG_DIR/slice-$1.msg" name source
-  if [[ -f "$file" ]]; then echo "$file"; return; fi
-  file="$LOG_DIR/slice-$nr.fallback.msg"
-  name=$(slice_field "$nr" name)
-  source=$(slice_field "$nr" source)
-  if [[ -n "$source" ]]; then echo "Slice $nr: $name ($source)"; else echo "Slice $nr: $name"; fi >"$file"
-  echo "$file"
 }
 
 # Path of the worktree that has branch $1 checked out; nothing when none has.
@@ -631,12 +622,13 @@ overlap_files() {
 decision_lines() { tr -d '\r' | awk '/^## /{inside = ($0 ~ /^## Decisions([^[:alnum:]]|$)/); next} inside && NF' | LC_ALL=C sort -u; }
 
 # The first line the slice added under "## Decisions" of round record $1 that is neither a ruling ("Ruling: …") nor a
-# build decision ("Build decision (slice NN): …"); a leading "- " is allowed. Nothing when every added line fits.
+# build decision ("Build decision (slice NN): …"), each ending in "– <who>, <date>"; a leading "- " is allowed. Nothing
+# when every added line fits.
 decision_problem() {
   local record=$1 branch=$2 base
   base=$(git merge-base HEAD "$branch")
   LC_ALL=C comm -23 <(git show "$branch:$record" 2>/dev/null | decision_lines) <(git show "$base:$record" 2>/dev/null | decision_lines) \
-    | grep -vE '^(- )?(Ruling: |Build decision \(slice [0-9]{2,}\): )' | head -n 1 || true
+    | grep -vE '^(- )?(Ruling: |Build decision \(slice [0-9]{2,}\): ).* – .+, [0-9][^ ]*$' | head -n 1 || true
 }
 
 # Why slice $1 has not reported ready on its branch tip; nothing when it has. As its last step before SLICE-READY,
@@ -700,6 +692,7 @@ merge_slice() {
   [[ -z "$(git status --porcelain)" ]] || die "slice $nr: this checkout has uncommitted changes – commit or remove them, then run --merge"
   problem=$(ready_problem "$nr")
   if [[ -n "$problem" ]] && $merge_only; then not_ready "$nr" "$problem"; return 1; fi
+  if [[ -z "$problem" && ! -f "$LOG_DIR/slice-$nr.msg" ]]; then problem="no squash message: $LOG_DIR/slice-$nr.msg is missing"; fi
   [[ -n "$problem" ]] || problem=$(checks_problem "$nr")
   if [[ -z "$problem" ]]; then
     overlap=$(overlap_files "$nr" | tr '\n' ' ' | sed 's/ $//')
@@ -746,7 +739,7 @@ merge_slice() {
   git add "$CHECKLIST_FILE"
   git rev-parse "$branch" >"$LOG_DIR/squashed.tmp"
   if ! replace_file "$LOG_DIR/squashed.tmp" "$LOG_DIR/slice-$nr.squashed" && left_on_write "$nr"; then return 1; fi
-  git commit -q -F "$(squash_message_file "$nr")" || die "slice $nr: the squash commit failed – merge reset"
+  git commit -q -F "$LOG_DIR/slice-$nr.msg" || die "slice $nr: the squash commit failed – merge reset"
   merging=""
   squashed_count=$((squashed_count + 1))
   echo "[slice $nr] squashed onto $(git branch --show-current) ($(git rev-parse --short HEAD))" >&2
@@ -793,6 +786,20 @@ slice_reported() {
     return 0
   done < <(branch_numbers)
   return 1
+}
+
+# Takes the queue lock; fails while another queue holds it.
+take_merge_lock() {
+  if ! mkdir "$MERGE_LOCK" 2>/dev/null; then
+    if [[ -n "$(find "$MERGE_LOCK" -maxdepth 0 -mmin -60 2>/dev/null)" ]]; then
+      echo "slice-loop: another merge queue runs ($MERGE_LOCK; delete it if none runs) – this one does nothing" >&2
+      return 1
+    fi
+    echo "slice-loop: taking over $MERGE_LOCK, older than 60 minutes" >&2
+  fi
+  merge_locked=true
+  date -u +"merge queue %Y-%m-%dT%H:%M:%SZ" >"$MERGE_LOCK/owner"
+  touch "$MERGE_LOCK"
 }
 
 # Whether another --watch shows a sign of life. An older one has died: its file stays, and this run goes on.
@@ -1096,7 +1103,10 @@ main() {
       watching=true
       wait_for_ready_slice || exit 0
     fi
+    take_merge_lock || exit 0
     merge_queue
+    rm -r "$MERGE_LOCK"
+    merge_locked=false
     local clean=true
     report_left || clean=false
     if $verify; then verify_chain || clean=false; fi

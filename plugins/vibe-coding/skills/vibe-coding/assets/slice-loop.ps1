@@ -63,6 +63,7 @@ $ParallelMax = if ($env:SLICE_PARALLEL_MAX) { [int]$env:SLICE_PARALLEL_MAX } els
 $WatchSeconds = if ($env:SLICE_WATCH_SECONDS) { [double]$env:SLICE_WATCH_SECONDS } else { 60 }
 $WatchMax = if ($env:SLICE_WATCH_MAX) { [int]$env:SLICE_WATCH_MAX } else { 480 }
 $WatchAlive = "$LogDir/watch.alive"   # sign of life of a running -Watch, written at every check
+$MergeLock = "$LogDir/merge.lock"   # taken (mkdir) by a running -Merge queue; older than 60 minutes: its owner died
 $LockDir = "$LogDir/full-suite.lock"   # taken (mkdir) by whoever runs the full suite; holds a file "owner"
 $WriteFailed = ''   # the file Write-Utf8File gave up on
 $Merging = $false   # a squash merge is in progress in this checkout; Merge-Slice resets it on any way out
@@ -169,17 +170,6 @@ function Write-Utf8File([string]$Path, [string]$Text) {
 function Set-CommitTick([string]$Nr) {
     $text = [IO.File]::ReadAllText((Join-Path (Get-Location).Path $ChecklistFile))
     Write-Utf8File $ChecklistFile ([regex]::Replace($text, "(?m)^(\|\s*$Nr(?!\d)[^\r\n]*)☐", '$1☑'))
-}
-
-# Path of the squash message: the file /slice wrote, else one written from the slice's name and source.
-function Get-SquashMessageFile([string]$Nr) {
-    $file = Join-Path $LogDir "slice-$Nr.msg"
-    if (Test-Path $file) { return $file }
-    $slice = Get-Slices | Where-Object { $_.Nr -eq $Nr } | Select-Object -First 1
-    $file = Join-Path $LogDir "slice-$Nr.fallback.msg"
-    $text = if ($slice.Source) { "Slice ${Nr}: $($slice.Name) ($($slice.Source))" } else { "Slice ${Nr}: $($slice.Name)" }
-    Write-Utf8File $file "$text`n"
-    return $file
 }
 
 # Path of the worktree that has the branch checked out; nothing when none has.
@@ -614,12 +604,13 @@ function Get-Overlap([string]$Nr) {
 }
 
 # Lines the slice added under "## Decisions" of the round record that are neither a ruling ("Ruling: …") nor a build
-# decision ("Build decision (slice NN): …"); a leading "- " is allowed. Empty when every added line has one of the formats.
+# decision ("Build decision (slice NN): …"), each ending in "– <who>, <date>"; a leading "- " is allowed. Empty when every
+# added line has one of the formats.
 function Get-DecisionProblem([string]$Record, [string]$Branch) {
     $base = @(Get-GitLines @('merge-base', 'HEAD', $Branch))[0]
     $before = @(Get-DecisionLines @(Get-GitLines @('show', "${base}:$Record")))
     $added = @(Get-DecisionLines @(Get-GitLines @('show', "${Branch}:$Record")) | Where-Object { $before -cnotcontains $_ })
-    return @($added | Where-Object { $_ -cnotmatch '^(- )?(Ruling: |Build decision \(slice \d{2,}\): )' }) | Select-Object -First 1
+    return @($added | Where-Object { $_ -cnotmatch '^(- )?(Ruling: |Build decision \(slice \d{2,}\): ).* – .+, \d\S*$' }) | Select-Object -First 1
 }
 
 # The non-empty lines of the section "## Decisions".
@@ -671,6 +662,7 @@ function Merge-Slice([string]$Nr) {
     if (Get-GitLines @('status', '--porcelain')) { Stop-Loop "slice ${Nr}: this checkout has uncommitted changes – commit or remove them, then run -Merge" }
     $problem = Get-ReadyProblem $Nr
     if ($problem -and $Merge) { Add-NotReady $Nr $problem; return $false }
+    if (-not $problem -and -not (Test-Path -LiteralPath (Join-Path $LogDir "slice-$Nr.msg"))) { $problem = "no squash message: $LogDir/slice-$Nr.msg is missing" }
     if (-not $problem) { $problem = Get-ChecksProblem $Nr }
     if (-not $problem) {
         $overlap = @(Get-Overlap $Nr)
@@ -724,7 +716,7 @@ function Invoke-Squash([string]$Nr) {
     Set-CommitTick $Nr
     git add $ChecklistFile
     Write-Utf8File "$LogDir/slice-$Nr.squashed" "$(@(Get-GitLines @('rev-parse', $branch))[0])`n"
-    git commit -q -F (Get-SquashMessageFile $Nr)
+    git commit -q -F (Join-Path $LogDir "slice-$Nr.msg")
     if ($LASTEXITCODE -ne 0) { Stop-Loop "slice ${Nr}: the squash commit failed – merge reset" }
     $script:Merging = $false
     $script:Squashed++
@@ -776,6 +768,20 @@ function Test-SliceReported {
 }
 
 # Whether another -Watch shows a sign of life. An older one has died: its file stays, and this run goes on.
+# Takes the queue lock; $false while another queue holds it.
+function Enter-MergeLock {
+    try { New-Item -ItemType Directory -Path $MergeLock -ErrorAction Stop | Out-Null }
+    catch {
+        if (((Get-Date) - (Get-Item -LiteralPath $MergeLock).LastWriteTime).TotalMinutes -lt 60) {
+            [Console]::Error.WriteLine("slice-loop: another merge queue runs ($MergeLock; delete it if none runs) – this one does nothing")
+            return $false
+        }
+        [Console]::Error.WriteLine("slice-loop: taking over $MergeLock, older than 60 minutes")
+    }
+    Write-Utf8File "$MergeLock/owner" "merge queue $((Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'))`n"
+    return $true
+}
+
 function Test-WatchRunning {
     if (-not (Test-Path -LiteralPath $WatchAlive)) { return $false }
     return ((Get-Date) - (Get-Item -LiteralPath $WatchAlive).LastWriteTime).TotalMinutes -lt 60
@@ -1070,7 +1076,9 @@ if ($Merge) {
     }
     try {
         if ($Watch -and -not (Wait-ForReadySlice)) { exit 0 }
-        Invoke-MergeQueue
+        if (-not (Enter-MergeLock)) { exit 0 }
+        try { Invoke-MergeQueue }
+        finally { Remove-Item -LiteralPath $MergeLock -Recurse -Force -ErrorAction SilentlyContinue }
         $clean = Write-LeftReport
         $verified = if ($Verify) { Invoke-Verify } else { $true }
         if (-not ($clean -and $verified)) { exit 1 }

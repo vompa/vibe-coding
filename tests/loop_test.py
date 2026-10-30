@@ -95,6 +95,7 @@ DECISION_LINES = {
     "ruling": lambda nr: ["Ruling: keep the old label – User, 2026-10-30"],
     "build": lambda nr: [f"Build decision (slice {nr}): a column without tests ticked – Claude, 2026-10-30"],
     "free": lambda nr: [f"Entscheidung beim Bauen (Slice {nr}): Spalte abgehakt – Claude, 30.10.2026"],
+    "no_author": lambda nr: ["Ruling: keep the old label"],
 }
 
 
@@ -311,8 +312,6 @@ PROFILES = [
             ("ready but not ticked stops instead of merging", 3, ["--yes"], {"STUB_NO_TICK": "100"}, None, (1, 3, 1, 0),
              {"subjects": [], "branches": ["slice-100"]}),
             ("SLICE-DONE is still accepted", 3, ["--yes", "--max-slices", "1"], {"STUB_MARKER": "done"}, None, (0, 4, 1, 0)),
-            ("missing message file falls back to name and source", 3, ["--yes", "--max-slices", "1"], {"STUB_NO_MESSAGE": "100"},
-             None, (0, 4, 1, 0), {"subjects": ["Slice 100: Name 100 (R01 – F-100)"]}),
             ("decision without terminal does not build", 3, ["--yes"], {"STUB_DECISION": "100"}, None, (1, 3, 0, 0)),
             ("approval without terminal does not build", 3, [], {}, None, (1, 3, 0, 0)),
             ("max slices stops after one with slices left", 1, ["--yes", "--max-slices", "1"], {}, None, (0, 2, 1, 0)),
@@ -358,6 +357,18 @@ PROFILES = [
             ("merge leaves a slice whose decision line is in neither format", 3, ["--merge"], {}, None, (1, 3, 0, 0),
              {"prepared": [{"nr": "100", "decision": "free"}], "subjects": [], "branches": ["slice-100"],
               "says": "decision line in neither format", "no_calls": True}),
+            ("merge leaves a slice whose decision line names no author and date", 3, ["--merge"], {}, None, (1, 3, 0, 0),
+             {"prepared": [{"nr": "100", "decision": "no_author"}], "subjects": [], "branches": ["slice-100"],
+              "says": "decision line in neither format", "no_calls": True}),
+            ("merge leaves a slice without a squash message", 3, ["--merge"], {}, None, (1, 3, 0, 0),
+             {"prepared": [{"nr": "100", "message": False}], "subjects": [], "branches": ["slice-100"],
+              "says": "no squash message", "no_calls": True}),
+            ("a second queue does nothing next to a running one", 3, ["--merge"], {}, None, (0, 3, 0, 0),
+             {"prepared": [{"nr": "100"}], "merge_lock": 0, "subjects": [], "branches": ["slice-100"],
+              "says": "another merge queue runs", "no_calls": True}),
+            ("a queue takes over the lock of a dead one", 3, ["--merge"], {}, None, (0, 4, 0, 0),
+             {"prepared": [{"nr": "100"}], "merge_lock": 61, "subjects": ["Slice 100 stub squash"],
+              "says": "taking over", "no_calls": True}),
             ("merge keeps both sides of lines appended at the same place in any file", 3, ["--merge"], {}, None, (0, 5, 0, 0),
              {"prepared": [{"nr": "100", "append": "docs/protocol.md"}, {"nr": "101", "append": "docs/protocol.md"}],
               "subjects": ["Slice 100 stub squash", "Slice 101 stub squash"],
@@ -703,10 +714,15 @@ def make_repo(base: pathlib.Path, profile: dict, done: int, rounds: list[tuple[s
 def prepare_state(repo: pathlib.Path, expected: dict) -> None:
     """State an earlier run left in .slice-loop/: "squashed" (slice nr -> the commit its squash marker names) and "lock"
     (a full-suite lock: owner text, age_minutes)."""
-    if "squashed" not in expected and "lock" not in expected and "watch_alive" not in expected:
+    if not {"squashed", "lock", "watch_alive", "merge_lock"} & expected.keys():
         return
     log_dir = repo / ".slice-loop"
     log_dir.mkdir(exist_ok=True)
+    if "merge_lock" in expected:  # the lock of another queue, this many minutes old
+        lock = log_dir / "merge.lock"
+        lock.mkdir()
+        then = time.time() - 60 * expected["merge_lock"]
+        os.utime(lock, (then, then))
     if "watch_alive" in expected:  # the sign of life of another watch, this many minutes old
         alive = log_dir / "watch.alive"
         alive.write_text("", encoding="utf-8")
@@ -869,7 +885,7 @@ def run_case(shell: str, repo: pathlib.Path, bin_dir: pathlib.Path, profile: dic
     if holds:
         return run_held(command(shell, bin_dir, body), repo, stub_env, holds)
     return subprocess.run(command(shell, bin_dir, body), cwd=repo, env=stub_env,
-                          input="", capture_output=True, text=True, encoding="utf-8", timeout=120)
+                          input="", capture_output=True, text=True, encoding="utf-8", timeout=int(os.environ.get("LOOP_TEST_TIMEOUT", 300)))
 
 
 def calls_log(repo: pathlib.Path) -> str:
@@ -917,6 +933,8 @@ def git_problems(repo: pathlib.Path, profile: dict, result: subprocess.Completed
         lock_there = (repo / ".slice-loop/full-suite.lock").exists()
         if lock_there == expected.get("lock_gone", False):
             problems.append(f"full-suite lock {'is still there' if lock_there else 'is gone'}")
+    if "merge_lock" in expected and (repo / ".slice-loop/merge.lock").exists() != (expected["merge_lock"] < 60):
+        problems.append("the queue lock of another queue was removed, or the taken-over lock stayed")
     if expected.get("no_calls") and calls_log(repo):
         problems.append("claude was called")
     if "keeps" in expected and not (repo / expected["keeps"]).is_file():

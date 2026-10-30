@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.9.0 – 2026-10-30
+Shorter, from a review of the whole plugin: a slice session now loads about 240 lines instead of 350, and rules that came from single incidents no longer sit in every session's context.
+- **`/slice` split by path.** Round close, parallel sessions and quick fixes move to `.claude/slice/close.md`, `parallel.md` and `quick.md`, read only for that argument; marker lines are section 5. `references/round-close.md` is now the one source of the close steps and the manual test block format. Refresh all copies in target repositories together.
+- **Test guard.** No function may be defined twice in a loop script; `tests/loop_test.py` waits `LOOP_TEST_TIMEOUT` seconds per case (300).
+- **Single-incident rules move to the `work/session-hints.md` template:** pipes hiding exit codes, leftover child processes, waiting for another session's build, recording raised timeouts.
+- **Queue lock.** `.slice-loop/merge.lock` keeps two `-Merge` queues apart in one checkout: the second does nothing and exits 0; a lock older than 60 minutes counts as dead and is taken over.
+- **Stricter decision lines.** A line under `## Decisions` must end in `– <who>, <date>`, as a repository that allows names writes it, too.
+- **`.slice-loop/slice-NN.msg` is required.** The fallback message from name and source is gone; a slice without one is left behind.
+- **Removed:** progress percentages and the tool table in the skill; about 45 wording tests and the rising line limit in `tests/markers_test.py`.
+
 ## 1.8.0 – 2026-10-30
 More from round R05, after 1.7.0: two finished slices waited four hours because their reports never woke the orchestrating chat.
 - **`-Merge -Watch` / `--merge --watch`.** Waits until a slice reports ready on a new tip, runs the queue once and exits, so a background run squashes without the chat and its end wakes the chat. A slice left behind (`.slice-loop/slice-NN.left`) brings it back only with a new tip; a second watch next to a running one (`.slice-loop/watch.alive`, under 60 minutes old) exits at once. `SLICE_WATCH_SECONDS` (60), `SLICE_WATCH_MAX` (480). `/slice` section 7 has the orchestrator start it after starting sessions. Both loop scripts.

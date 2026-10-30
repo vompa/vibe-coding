@@ -36,7 +36,7 @@ A pointer file: one line per fact, the document it comes from after it (`← sou
 In a repository without rules the lines say `default` as their source: `main`, squash, `"User, <date>"`. Extend the repository's rules, never replace them.
 
 ## work/session-hints.md
-Repository-specific hints for slice sessions, grown round by round: the first round writes what the repository's rules and tooling already teach, later rounds append what the previous round learned and correct a bullet only where it contradicts `work/conventions.md` or the current `/slice`. `/slice` reads it in section 2 and the parallel prompts name it. The bullets below are an open list of examples, not a checklist: keep what applies, add what the repository needs.
+Repository-specific hints for slice sessions, grown round by round: the first round writes what the repository's rules and tooling already teach, later rounds append what the previous round learned and correct a bullet only where it contradicts `work/conventions.md` or the current `/slice`. `/slice` reads it in section 2. The bullets below are an open list of examples, not a checklist: keep what applies, add what the repository needs.
 ```
 # Hints for slice sessions
 Repository-specific experience for the sessions that work a slice. They add to `.claude/commands/slice.md` and `work/conventions.md`; every round appends what it learned.
@@ -45,6 +45,10 @@ Repository-specific experience for the sessions that work a slice. They add to `
 - <shell quirk: path rewriting, line endings, quoting of commit messages>
 - <the command that needs a long timeout or a background run, and where its log goes>
 - <files that must change together, or must never be touched by a slice>
+- Check commands never end in `| tail` or another pipe inside an `&&` chain: the pipe hides the exit code; write the output to a file and read its exit code.
+- Stopping a background check leaves its child processes (test runners, builds) running: find them by the worktree path in their command line and end them, or the next build finds its files locked.
+- Generated files you did not touch that show as changed or missing usually come from another session's build in this checkout: wait until no such build runs (at most 10 minutes), look again, leave them alone.
+- Every timeout or wait raised in a test goes into the protocol entry with its reason and the measured time.
 ```
 
 ## work/rounds/Rnn-<slug>.md
