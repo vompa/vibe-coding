@@ -114,7 +114,9 @@ reset_merge() {
     sleep "$WRITE_BACKOFF"
   done
 }
-trap 'if $watching; then rm -f "$WATCH_ALIVE"; fi; if $merge_locked; then rm -r "$MERGE_LOCK" || true; fi; if [[ -n "$merging" ]]; then reset_merge; fi' EXIT
+TMP_DIR=$(mktemp -d)  # working copies stay out of .slice-loop, so a held file there fails only at its own write
+readonly TMP_DIR
+trap 'rm -rf "$TMP_DIR"; if $watching; then rm -f "$WATCH_ALIVE"; fi; if $merge_locked; then rm -r "$MERGE_LOCK" || true; fi; if [[ -n "$merging" ]]; then reset_merge; fi' EXIT
 trap 'exit 130' INT TERM
 
 # Leaves slice $1 behind for reason $2: its branch stays, the run goes on without it.
@@ -222,8 +224,8 @@ branch_ready() {
 
 # Ticks the last open box of slice $1's row – its Commit column – keeping the file's line endings.
 tick_commit() {
-  sed -E "/^\|[[:space:]]*$1([^0-9]|\$)/ s/(.*)☐/\1☑/" "$CHECKLIST_FILE" >"$LOG_DIR/checklist.tmp"
-  replace_file "$LOG_DIR/checklist.tmp" "$CHECKLIST_FILE"
+  sed -E "/^\|[[:space:]]*$1([^0-9]|\$)/ s/(.*)☐/\1☑/" "$CHECKLIST_FILE" >"$TMP_DIR/checklist.tmp"
+  replace_file "$TMP_DIR/checklist.tmp" "$CHECKLIST_FILE"
 }
 
 # Path of the worktree that has branch $1 checked out; nothing when none has.
@@ -337,8 +339,8 @@ resolve_checklist() {
   for nr in "${order[@]}"; do
     if [[ -z "${ours_has[$nr]+set}" ]]; then out+=("${theirs[$nr]}"); fi
   done
-  printf '%s\n' "${out[@]}" >"$LOG_DIR/checklist.tmp"
-  replace_file "$LOG_DIR/checklist.tmp" "$CHECKLIST_FILE"
+  printf '%s\n' "${out[@]}" >"$TMP_DIR/checklist.tmp"
+  replace_file "$TMP_DIR/checklist.tmp" "$CHECKLIST_FILE"
 }
 
 # Table rows for the awk programs below: a row starts with "|", its key is its first cell, and a cell holds items
@@ -465,7 +467,7 @@ BEGIN {
 # Resolves the conflict hunks of file $1 by rule (mode $2: strict, or record for the open round record); fails and leaves
 # the file as it is on a real conflict.
 resolve_hunks() {
-  local file=$1 mode=$2 out="$LOG_DIR/resolved.tmp"
+  local file=$1 mode=$2 out="$TMP_DIR/resolved.tmp"
   awk -v mode="$mode" "$AWK_TABLE$AWK_RESOLVE" "$file" >"$out" || return 1
   replace_file "$out" "$file"
 }
@@ -490,7 +492,7 @@ END {
 }
 '
 order_manual_tests() {
-  local file=$1 out="$LOG_DIR/ordered.tmp"
+  local file=$1 out="$TMP_DIR/ordered.tmp"
   awk "$AWK_ORDER" "$file" >"$out"
   # Rewritten only when a block moved, so a file with CRLF line endings keeps them otherwise.
   if ! tr -d '\r' <"$file" | cmp -s - "$out"; then replace_file "$out" "$file"; fi
@@ -660,7 +662,7 @@ check_checklist() {
 # Why resolved file $1 lost something; nothing when it is fine. No conflict marker is left; the checklist keeps every
 # row and tick of both sides; any other file passes AWK_CHECK.
 resolution_problem() {
-  local file=$1 branch=$2 base ours="$LOG_DIR/ours.tmp" theirs="$LOG_DIR/theirs.tmp" before="$LOG_DIR/base.tmp"
+  local file=$1 branch=$2 base ours="$TMP_DIR/ours.tmp" theirs="$TMP_DIR/theirs.tmp" before="$TMP_DIR/base.tmp"
   if grep -qE '^(<<<<<<<|=======|>>>>>>>|[|]{7})' "$file"; then echo "a conflict marker is left"; return; fi
   if [[ "$file" == "$CHECKLIST_FILE" ]]; then check_checklist "$branch" || echo "a row or tick is missing"; return; fi
   base=$(git merge-base HEAD "$branch")
@@ -737,8 +739,8 @@ merge_slice() {
   fi
   if ! tick_commit "$nr" && left_on_write "$nr"; then return 1; fi
   git add "$CHECKLIST_FILE"
-  git rev-parse "$branch" >"$LOG_DIR/squashed.tmp"
-  if ! replace_file "$LOG_DIR/squashed.tmp" "$LOG_DIR/slice-$nr.squashed" && left_on_write "$nr"; then return 1; fi
+  git rev-parse "$branch" >"$TMP_DIR/squashed.tmp"
+  if ! replace_file "$TMP_DIR/squashed.tmp" "$LOG_DIR/slice-$nr.squashed" && left_on_write "$nr"; then return 1; fi
   git commit -q -F "$LOG_DIR/slice-$nr.msg" || die "slice $nr: the squash commit failed – merge reset"
   merging=""
   squashed_count=$((squashed_count + 1))
