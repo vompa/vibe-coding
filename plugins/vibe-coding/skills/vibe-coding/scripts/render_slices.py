@@ -4,10 +4,11 @@
 Usage: python3 render_slices.py <_slices.json> <output_dir> [--lang en|de]
 Entry fields (see references/templates.md, _slices.json):
   required: nr, slug, name, goal, deps, scope (list), non_goals
-  optional text (default: an en dash): round, source, model, ids
+  optional text (default: an en dash): round, source, model, check_level, ids
     (round also names the round record the prompt points to; without it the prompt
     points to the open round record in work/rounds/; model is the cheapest model tier
-    the slice needs – the loop and parallel sessions start the slice on it; ids is the
+    the slice needs – the loop and parallel sessions start the slice on it; check_level
+    (1–5) overrides the round's check level for this slice, a dash keeps it; ids is the
     range of finding ids reserved for new findings of the slice, e.g. "B84–B89")
   optional lists (rendered as "- item", an en dash when missing or empty):
     mirror (patterns to copy as file:line), files (paths or folder prefixes ending
@@ -33,6 +34,7 @@ TEMPLATES = {
 **Source:** {source}
 **Depends on:** {deps}
 **Model:** {model}
+**Check level:** {check_level}
 **Ids for new findings:** {ids}
 
 ## Scope
@@ -76,6 +78,7 @@ Implement slice {nr} "{name}" (this file).
 **Quelle:** {source}
 **Hängt ab von:** {deps}
 **Modell:** {model}
+**Prüfstufe:** {check_level}
 **IDs für neue Befunde:** {ids}
 
 ## Umfang
@@ -131,7 +134,7 @@ PHRASES = {
 }
 
 REQUIRED = ("nr", "slug", "name", "goal", "deps", "scope", "non_goals")
-OPTIONAL_TEXT = ("round", "source", "model", "ids")
+OPTIONAL_TEXT = ("round", "source", "model", "check_level", "ids")
 OPTIONAL_LISTS = ("mirror", "files", "not_building")
 EMPTY = "–"
 

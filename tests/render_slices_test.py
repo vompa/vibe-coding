@@ -46,6 +46,15 @@ def test_reserved_ids_are_rendered():
     code, files = render([MINIMAL])
     assert "**Ids for new findings:** –" in files["100-sweep.md"]
 
+def test_check_level_is_rendered():
+    """A slice may check more or less often than its round; a dash keeps the round's level."""
+    code, files = render([{**FULL, "check_level": 4}])
+    assert code == 0 and "**Check level:** 4" in files["05-labels.md"]
+    code, files = render([{**FULL, "check_level": "2"}], "de")
+    assert "**Prüfstufe:** 2" in files["05-labels.md"]
+    code, files = render([MINIMAL])
+    assert "**Check level:** –" in files["100-sweep.md"]
+
 def test_expected_files_are_rendered():
     """The files a slice expects to change: parallel slices that share one are not started together."""
     entry = {**FULL, "files": ["src/Calendar/EntryPreview.cs", "web/src/help/"]}

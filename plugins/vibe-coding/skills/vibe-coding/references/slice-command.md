@@ -21,7 +21,7 @@ work/_slices.json. A slice is done when its row in work/checklist.md has a ☑ a
   work/_slices.json), state (done / in progress / ready to merge / ready / blocked by …; "in progress" = not done,
   but a branch slice-NN exists or the row has a ☑; "ready to merge" = a branch slice-NN whose row is ticked
   through Checks),
-  then the number of open decisions in the round record, one line for a held .slice-loop/full-suite.lock
+  then the round's check level and its next milestone (section 4, step 1), the number of open decisions in the round record, one line for a held .slice-loop/full-suite.lock
   (owner, since when) and one line "Ready now: …" – the ready slices, each with the slices it shares a path of
   its field "files" with ("70 shares src/EntryPreview.cs with 69"). Two or more
   ready: offer parallel sessions (section 7). Stop there.
@@ -38,10 +38,11 @@ work/_slices.json. A slice is done when its row in work/checklist.md has a ☑ a
 
 ## 2. Read first, then check the baseline
 - work/conventions.md – integration branch, merge style, the commands (baseline check, checks for a
-  slice, full check chain), protocol file, documents that must change with a change, language,
+  slice, full check chain), check level, protocol file, documents that must change with a change, language,
   privacy rule
-- the open round record work/rounds/Rnn-*.md – source, brief, decisions so far, open decisions
-- work/slices/NN-*.md – goal, source, model, scope, patterns to mirror, NOT building, prompt,
+- the open round record work/rounds/Rnn-*.md – source, brief, decisions so far (a check level and milestones for
+  the round), open decisions
+- work/slices/NN-*.md – goal, source, model, check level, scope, patterns to mirror, NOT building, prompt,
   Definition of Done, non-goals
 - CLAUDE.md (and AGENTS.md when present) – the repository's hard rules
 - work/session-hints.md – the repository's hints for slice sessions, when it exists
@@ -87,12 +88,13 @@ Rules for plan and build (both paths):
   before the change (stash the change, or run it in a second worktree on the integration branch); a test made to fail
   by a wrong expectation is not red – say this in every brief to a subagent. Write that red run to the checks proof
   (section 4) with its exit code and the SHA it ran on; tick Tests red only with such a line, so test and code are not
-  written in one go. Run the type check and the single test file often, the full suite once at the end; refactor after green.
+  written in one go. Run the type check and the single test file often, the checks of your check level (section 4)
+  once at the end – a full suite once at the end only where the level asks for one; refactor after green.
 - A screen's behaviour is tested through the real input (click, key, focus) where the repository's test harness can,
   not only by setting view-model state: a click path that breaks stays green otherwise.
 - Generated outputs (screenshots, snapshots, generated clients): commit those the slice's change explains, reset the rest.
 - Check scope beyond the slice's own screen: a rule added to an endpoint, a service or a base class → search every
-  caller and run their tests, or the full suite before "green"; a change to a shared control or base → run its own tests
+  caller and run their tests, or (from check level 2) the full suite before "green"; a change to a shared control or base → run its own tests
   first, before changing it; a change to key bindings, focus or tab order → add the repository's focus-order tests. Every timeout or wait you raise in a test goes into
   the protocol entry (section 4) with its reason and the measured time.
 - New finding ids: take them from the slice's reserved range (field "ids" in work/_slices.json, column "New ids" of
@@ -130,8 +132,25 @@ Long reports of subagents go to work/_raw/ (git-ignored), not into the chat.
 Do 1–4 on slice-NN, so they land in the same commit as the code.
 1. Run the checks that work/conventions.md names for a slice (always including every command of the baseline
    check); check the Definition of Done in the slice file, including "no test weakened or skipped" and "no new
-   package without approval". A red test that is green when run alone or in a second unchanged run is load, not a
-   regression: note it under Surprises as "load, not a fault" (test, both runs) and go on. Check commands never end in `| tail` or another pipe inside an `&&`
+   package without approval".
+   Check level (how often and how thoroughly a slice is checked): 1 to 5, default 3. It comes from the line
+   "- Check level" of work/conventions.md; the round record may set another level and name its milestones under
+   Decisions, and the slice file's "Check level" sets one for this slice only (the most specific one wins). "Own
+   checks" are the smallest fitting tier of work/conventions.md's checks for a slice; "shared code" is a shared UI
+   control, style or the shell, middleware, a database trigger, or a new rule on an endpoint, service or base class.
+   The baseline check runs on every level.
+   1. Own checks without the scan tests; full suites stay out of the slice; the full check chain only at round close.
+   2. Own checks including the scan tests; the full suite of an area only when the slice touches shared code; the full
+      check chain only at round close.
+   3. (default) Like 2, plus `slice-loop -Merge -Verify` at the round's milestones and at round close, not after
+      every group.
+   4. Like 3, plus `-Merge -Verify` after every group, and after merging the integration branch (step 6a) the full
+      suites of the areas the integration branch changed since the old base.
+   5. The full check chain in every slice on the tip and after every merge of the integration branch; `-Merge -Verify`
+      after every group.
+   A red test is first re-run alone; the whole suite runs again only when it stays red. A red test that is green when run
+   alone or in a second unchanged run is load, not a regression: note it under Surprises as "load, not a fault" (test, both
+   runs) and go on. Check commands never end in `| tail` or another pipe inside an `&&`
    chain: the pipe hides the exit code, so write the output to a file and read its exit code.
    The run that proves the slice is the last one: on the final tip, after steps 2–5 and the merge of step 6a. A run
    before a later commit must be repeated, so earlier runs cover what you changed and the full set runs once, at the end.
@@ -189,8 +208,11 @@ Do 1–4 on slice-NN, so they land in the same commit as the code.
    without both arguments go on with step 6.
 6. Integrate: superpowers:finishing-a-development-branch (or by hand) – ONE squash commit on the
    integration branch named in work/conventions.md. Before the squash, in this order:
-   a. merge the integration branch into slice-NN and run the checks again after the merge, before the squash or SLICE-READY;
-      append these runs to the checks proof (the SHA of the merged tip);
+   a. merge the integration branch into slice-NN – note the old base (`git merge-base slice-NN <integration branch>`)
+      first – and, before the squash or SLICE-READY, repeat the baseline check and your own checks on the merged tip. Full
+      suites only when your check level asks for them (step 1) or `git diff --name-only <old base> <integration
+      branch>` lists a file the slice also changes; the interplay of slices is covered by `-Merge -Verify` as the
+      level asks; append these runs to the checks proof (the SHA of the merged tip);
    b. in the main checkout, `git merge --squash slice-NN`;
    c. check the resolved files before committing: `grep '^<<<<<<<'` finds nothing, every line of both sides
       (`git show HEAD:<file>` and `git show slice-NN:<file>`) is still present, and the number of `Result:`
@@ -270,8 +292,8 @@ Ready = not done, no branch slice-NN, every slice in "deps" done. When two or mo
 unasked and once per run; never in auto mode (the loop script starts the next run itself).
 - Offer, never start unasked: list the ready slices with name and kind (app, web, docs), name the ones that
   share a file (field "files" in work/_slices.json: equal paths or a folder prefix) – those run one after the
-  other, not side by side –, suggest at most three at once (parallel builds and test suites turn each other red
-  under load; four were almost too many), and ask which ones to start.
+  other, not side by side –, suggest at most two at once (three sessions on one machine made unrelated tests red
+  under load and queued at the full-suite lock), and ask which ones to start.
 - On a yes, start each chosen slice in its own session in this repository's main checkout, with
   your harness's tool for separate sessions if it has one (sharing this checkout, not a worktree of
   the harness: the slice creates its own worktree in section 3), on the slice's model: the field
@@ -290,7 +312,9 @@ unasked and once per run; never in auto mode (the loop script starts the next ru
   work/session-hints.md when it exists, the round record and the slice file itself, works only on its own branch
   and worktree, and ends with SLICE-READY: NN or SLICE-WAIT; the squash happens in the main checkout through the merge
   queue (`slice-loop --merge`) or the running loop.
-- After each group, `slice-loop -Merge -Verify` (`--merge --verify`) squashes and runs the full check chain once. A desktop
+- `slice-loop -Merge` (`--merge`) squashes the ready slices. Add `-Verify` (`--verify`) – the full check chain once on
+  the integration branch – as the check level asks (section 4, step 1): at the round's milestones on level 3, after every
+  group on levels 4 and 5; round close runs the chain on every level. A desktop
   harness may refuse to start sessions from background events; for long autonomous runs suggest `slice-loop -Parallel`.
 - Never two sessions on one slice: a slice with a branch slice-NN is in progress, not ready.
 

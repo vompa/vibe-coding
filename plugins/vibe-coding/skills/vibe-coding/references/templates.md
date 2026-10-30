@@ -18,7 +18,8 @@ A pointer file: one line per fact, the document it comes from after it (`← sou
 - Baseline check (before every slice): `<command>`, `<command>` – each command in its own backticks before the arrow; the merge queue requires each in the slice's checks proof ← <source>
 - Checks for a slice: one screen touched: `<its test classes plus the cross-page scan tests>`; shared code touched: `<full suite>`; a new rule on an endpoint, service or base class: `<tests of every caller, or the full suite>`; a shared control: `<its own tests first>`; key bindings, focus or tab order: `<the focus-order tests>`; never two full suites at once (the lock `.slice-loop/full-suite.lock/`, see /slice) ← <source>
 - Test worker limits under load: `<e.g. a full Vitest run with --maxWorkers=3>` – parallel slices and suites share the machine, unbounded workers time out ← <source>
-- Full check chain (round close): `<commands in order>` ← <source>
+- Check level: 3 – how often and how thoroughly a slice is checked, 1 to 5 (levels: /slice section 4, step 1); the round record may set another level and its milestones under Decisions, a slice file its own ← default
+- Full check chain (round close, and slice-loop -Merge -Verify as the check level asks): `<commands in order>` ← <source>
 - Decisions are recorded in: <file, section title format, fields it uses; fields that exist only for
   pull requests (number, URL) are left out because a slice lands as a local squash commit> ← <source>
 - Must change with a change: <documents, e.g. status page, help, ADR when a principle changed> ← <source>
@@ -79,6 +80,7 @@ Assumptions: [Assumption] <…>
 | NN | <name> | <ids> | <reserved range for new findings, e.g. B84–B89> |
 
 ## Decisions
+Ruling: check level <1–5> for this round (only when it differs from work/conventions.md); milestones: slice-loop -Merge -Verify after slice <NN>, <NN> and at round close – User, <date>
 Ruling: <decision> – User, <date>
 
 ## Surprises
@@ -147,7 +149,7 @@ Input for `scripts/render_slices.py` (`python3 scripts/render_slices.py work/_sl
   }
 ]
 ```
-Required: `nr`, `slug`, `name`, `goal`, `deps`, `scope`, `non_goals`. Optional text: `round`, `source`, `ids` (the range of finding ids reserved for new findings of the slice, e.g. `"B84–B89"`, so parallel slices never pick the same id; the same range goes into the `New ids` column of `## Slices`), `model` (the cheapest model tier that does the slice reliably – `haiku`, `sonnet` or `opus`, see `intake.md`; the loop passes it as `claude --model`, `/slice` starts parallel sessions on it, and a slice without it runs on the caller's default model – so set it on every entry). Optional lists: `mirror`, `files` (the paths or folder prefixes ending in `/` the slice expects to change; slices that share one are not started side by side – the loop's `-Parallel` keeps them apart and `/slice status` names them – so set it on every entry), `not_building`, `acceptance` (Given/When/Then, rendered as checkboxes in the Definition of Done), `manual` (rendered as `Manual:` checkboxes). Unknown fields are ignored. `nr` is a string of at least two digits and continues across rounds (after the highest number in `rebuild/_slices.json` when a rebuild repository continues here). `deps` lists slice numbers or `–`. `round` is the id of the round record. Set `round` on every entry in a vibe-coding repository – a slice without it is invisible to `/slice status` and to the round close. Keep `"nr"` and `"deps"` quoted in every entry: the loop reads them as text.
+Required: `nr`, `slug`, `name`, `goal`, `deps`, `scope`, `non_goals`. Optional text: `round`, `source`, `check_level` (1 to 5, only when this slice needs another check level than the round, rendered as "Check level"; for example 4 for a slice that changes a database trigger every other slice relies on), `ids` (the range of finding ids reserved for new findings of the slice, e.g. `"B84–B89"`, so parallel slices never pick the same id; the same range goes into the `New ids` column of `## Slices`), `model` (the cheapest model tier that does the slice reliably – `haiku`, `sonnet` or `opus`, see `intake.md`; the loop passes it as `claude --model`, `/slice` starts parallel sessions on it, and a slice without it runs on the caller's default model – so set it on every entry). Optional lists: `mirror`, `files` (the paths or folder prefixes ending in `/` the slice expects to change; slices that share one are not started side by side – the loop's `-Parallel` keeps them apart and `/slice status` names them – so set it on every entry), `not_building`, `acceptance` (Given/When/Then, rendered as checkboxes in the Definition of Done), `manual` (rendered as `Manual:` checkboxes). Unknown fields are ignored. `nr` is a string of at least two digits and continues across rounds (after the highest number in `rebuild/_slices.json` when a rebuild repository continues here). `deps` lists slice numbers or `–`. `round` is the id of the round record. Set `round` on every entry in a vibe-coding repository – a slice without it is invisible to `/slice status` and to the round close. Keep `"nr"` and `"deps"` quoted in every entry: the loop reads them as text.
 
 ## CLAUDE.md (only for a repository without one)
 Lean; an existing `CLAUDE.md` is never replaced, its facts go into `work/conventions.md` by pointer.

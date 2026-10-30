@@ -31,7 +31,7 @@
 # Optional field "files" of an entry in work/_slices.json: the repo-relative paths (or prefixes ending in "/") the slice
 # is expected to change.
 # Env: SLICE_PERMISSION_MODE (default: auto) – passed to claude --permission-mode.
-#      SLICE_PARALLEL_MAX (default: 3) – most slices in one --parallel batch.
+#      SLICE_PARALLEL_MAX (default: 2) – most slices in one --parallel batch (three sessions on one machine made unrelated tests red under load).
 #      SLICE_WAIT_SECONDS (default: 60), SLICE_WAIT_MAX (default: 30) – pause and number of check-backs on SLICE-WAIT.
 #      SLICE_WRITE_RETRIES (default: 5), SLICE_WRITE_BACKOFF_SECONDS (default: 2) – retries and pause when the queue
 #      cannot write a file or reset a merge because another process (scanner, indexer, editor) holds it, and when git
@@ -51,7 +51,7 @@ readonly WAIT_SECONDS="${SLICE_WAIT_SECONDS:-60}"
 readonly WAIT_MAX="${SLICE_WAIT_MAX:-30}"
 readonly WRITE_RETRIES="${SLICE_WRITE_RETRIES:-5}"
 readonly WRITE_BACKOFF="${SLICE_WRITE_BACKOFF_SECONDS:-2}"
-readonly PARALLEL_MAX="${SLICE_PARALLEL_MAX:-3}"
+readonly PARALLEL_MAX="${SLICE_PARALLEL_MAX:-2}"
 readonly LOCK_DIR="$LOG_DIR/full-suite.lock"  # taken (mkdir) by whoever runs the full suite; holds a file "owner"
 readonly USAGE="use --yes, --parallel, --dry-run, --max-slices N, --merge, --verify (with --merge)"
 

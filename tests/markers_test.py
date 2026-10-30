@@ -117,9 +117,9 @@ def test_debugging_starts_from_a_red_command():
 def test_review_has_two_axes_and_recheck_after_merge():
     section = _section(*SECTION_4)
     for phrase in ("two axes", "cites the plan line", "unrequested scope", "repository rule beats the general rule",
-                   "run the checks again after the merge"):
+                   "repeat the baseline check and your own checks"):
         assert phrase in section, phrase
-    assert section.index("merge the integration branch into slice-NN") < section.index("run the checks again after the merge") < section.index("git merge --squash slice-NN")
+    assert section.index("merge the integration branch into slice-NN") < section.index("repeat the baseline check and your own checks") < section.index("git merge --squash slice-NN")
 
 def test_adr_only_under_three_conditions():
     section = _section(*SECTION_4)
@@ -134,9 +134,11 @@ def test_command_stays_short_and_positive():
     1.4.0 moves it to 295: the hard list before SLICE-READY, the meaning of red, the wider check scope and the quick-fix
     path (section 8) came out of round R03.
     1.5.0 moves it to 310: the ready file, the red proof line, the order of the last checks run, stray child processes,
-    real input in screen tests, generated outputs and the fresh reviewer came out of round R04."""
+    real input in screen tests, generated outputs and the fresh reviewer came out of round R04.
+    1.6.0 moves it to 335: the check levels 1–5 and the scoped re-check after merging the integration branch came out
+    of round R05 (three parallel slices re-ran every full suite after each squash)."""
     text = (SKILL / "references/slice-command.md").read_text(encoding="utf-8")
-    assert len(text.splitlines()) <= 310, len(text.splitlines())
+    assert len(text.splitlines()) <= 335, len(text.splitlines())
     assert text.lower().count("never") <= 16, text.lower().count("never")
 
 def _skill_part(name, start, end=None):
@@ -351,7 +353,7 @@ def test_release_version_is_consistent():
     manifest = json.loads((ROOT / "plugins/vibe-coding/.claude-plugin/plugin.json").read_text(encoding="utf-8"))["version"]
     skill = re.search(r'^\s+version: "([^"]+)"', (SKILL / "SKILL.md").read_text(encoding="utf-8"), re.M).group(1)
     changelog = re.search(r"^## (\S+) – \d{4}-\d{2}-\d{2}", (ROOT / "plugins/vibe-coding/CHANGELOG.md").read_text(encoding="utf-8"), re.M).group(1)
-    assert manifest == skill == changelog == "1.5.1", (manifest, skill, changelog)
+    assert manifest == skill == changelog == "1.6.0", (manifest, skill, changelog)
 
 def test_marketplace_validation_is_not_strict_but_the_plugins_are():
     """slice-board carries no version on purpose (every commit is an update), so only the marketplace check tolerates warnings."""
@@ -420,10 +422,51 @@ def test_round_close_offers_to_clean_up_old_worktrees():
 
 def test_queue_verify_after_a_group():
     section = _section("## 7. Parallel slices")
-    assert "-Merge -Verify" in section and "full check chain" in section
+    assert "`slice-loop -Merge`" in section and "`-Verify`" in section and "full check chain" in section
 
 def test_foreign_builds_are_waited_out():
     assert "another session's build" in _section(*SECTION_2_)
+
+def test_check_levels_are_defined_where_the_checks_are():
+    """R05: three parallel slices re-ran every full suite after each squash; levels 1–5 decide how often (default 3)."""
+    section = _section(*SECTION_4)
+    for phrase in ("Check level", "1 to 5, default 3", '"- Check level"', "milestones", "Own checks",
+                   "full suites stay out of the slice", "only when the slice touches shared code", "database trigger",
+                   "at the round's milestones and at round close, not after every group",
+                   "the full suites of the areas the integration branch changed since the old base",
+                   "The full check chain in every slice on the tip", "re-run alone", "load, not a fault"):
+        assert phrase in section, phrase
+    assert "1. Own checks" in section and "3. (default)" in section and "5. The full check chain" in section
+
+def test_merge_of_the_integration_branch_rechecks_by_scope():
+    section = _section(*SECTION_4)
+    for phrase in ("note the old base", "repeat the baseline check and your own checks", "git diff --name-only <old base>",
+                   "a file the slice also changes"):
+        assert phrase in section, phrase
+
+def test_verify_follows_the_check_level_and_two_slices_at_most():
+    section = _section("## 7. Parallel slices")
+    for phrase in ("as the check level asks", "milestones on level 3", "after every group on levels 4 and 5",
+                   "at most two at once", "queued at the full-suite lock"):
+        assert phrase in section, phrase
+    assert "at most three" not in section
+
+def test_conventions_template_and_record_carry_the_check_level():
+    conventions = _skill_part("references/templates.md", "## work/conventions.md", "## work/session-hints.md")
+    assert "- Check level: 3 – " in conventions and "milestones under Decisions" in conventions
+    record = _skill_part("references/templates.md", "## work/rounds/Rnn-<slug>.md", "## work/_raw/intake-Rnn.md")
+    decisions = record.split("## Decisions", 1)[1].split("## Surprises", 1)[0]
+    assert "check level" in decisions and "milestones" in decisions
+    assert "`check_level`" in _skill_part("references/templates.md", "## work/_slices.json")
+    assert "**Check level.**" in _skill_part("SKILL.md", "## 2. Conventions", "## 3. Intake")
+    assert "Check level and milestones" in (SKILL / "references/intake.md").read_text(encoding="utf-8")
+
+def test_parallel_default_is_two_everywhere():
+    for script, line in (("assets/slice-loop.ps1", "else { 2 }"), ("assets/slice-loop.sh", '"${SLICE_PARALLEL_MAX:-2}"')):
+        text = (SKILL / script).read_text(encoding="utf-8")
+        assert line in text and "SLICE_PARALLEL_MAX (default: 2)" in text, script
+    board = (SKILL.parents[2] / "slice-board/hooks/register.tsx").read_text(encoding="utf-8")
+    assert "const MAX_PARALLEL = 2" in board
 
 SECTION_2_ = ("## 2. Read first", "## 3. Plan and build")
 

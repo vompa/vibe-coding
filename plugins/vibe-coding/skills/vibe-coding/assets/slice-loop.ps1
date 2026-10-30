@@ -27,7 +27,7 @@ pwsh .claude/scripts/slice-loop.ps1 -Merge           # only run the merge queue:
 pwsh .claude/scripts/slice-loop.ps1 -Merge -Verify   # after the queue, when it squashed a slice: run every command of the "- Full check chain" line in work/conventions.md on the integration branch, under .slice-loop/full-suite.lock (red: exit 1; -Verify needs -Merge)
 Optional field "files" of an entry in work/_slices.json: the repo-relative paths (or prefixes ending in "/") the slice is expected to change.
 Env: SLICE_PERMISSION_MODE (default: auto) – passed to claude --permission-mode.
-     SLICE_PARALLEL_MAX (default: 3) – most slices in one -Parallel batch.
+     SLICE_PARALLEL_MAX (default: 2) – most slices in one -Parallel batch (three sessions on one machine made unrelated tests red under load).
      SLICE_WAIT_SECONDS (default: 60), SLICE_WAIT_MAX (default: 30) – pause and number of check-backs on SLICE-WAIT.
      SLICE_WRITE_RETRIES (default: 5), SLICE_WRITE_BACKOFF_SECONDS (default: 2) – retries and pause when the queue
      cannot write a file or reset a merge because another process (scanner, indexer, editor) holds it, and when git
@@ -53,7 +53,7 @@ $WaitSeconds = if ($env:SLICE_WAIT_SECONDS) { [int]$env:SLICE_WAIT_SECONDS } els
 $WaitMax = if ($env:SLICE_WAIT_MAX) { [int]$env:SLICE_WAIT_MAX } else { 30 }
 $WriteRetries = if ($env:SLICE_WRITE_RETRIES) { [int]$env:SLICE_WRITE_RETRIES } else { 5 }
 $WriteBackoff = if ($env:SLICE_WRITE_BACKOFF_SECONDS) { [double]$env:SLICE_WRITE_BACKOFF_SECONDS } else { 2 }
-$ParallelMax = if ($env:SLICE_PARALLEL_MAX) { [int]$env:SLICE_PARALLEL_MAX } else { 3 }
+$ParallelMax = if ($env:SLICE_PARALLEL_MAX) { [int]$env:SLICE_PARALLEL_MAX } else { 2 }
 $LockDir = "$LogDir/full-suite.lock"   # taken (mkdir) by whoever runs the full suite; holds a file "owner"
 $WriteFailed = ''   # the file Write-Utf8File gave up on
 $Merging = $false   # a squash merge is in progress in this checkout; Merge-Slice resets it on any way out

@@ -479,11 +479,11 @@ PROFILES = [
              {"prepared": [{"nr": "100"}], "lock": {"owner": "slice 100 2026-10-27T08:00:00Z"}, "subjects": ["Slice 100 stub squash"],
               "says": "full-suite.lock is held (owner: slice 100 2026-10-27T08:00:00Z)", "says_not": "[verify]", "no_calls": True}),
             ("verify needs the merge option", 3, ["--verify"], {}, None, (1, 3, 0, 0), {"says": "erify needs ", "no_calls": True}),
-            # -Parallel: at most three slices per batch, and none that shares a file with one already in the batch.
-            ("parallel takes at most three slices per batch", 0, ["--yes", "--parallel"], {}, None, (0, 4, 4, 1),
+            # -Parallel: at most two slices per batch, and none that shares a file with one already in the batch.
+            ("parallel takes at most two slices per batch", 0, ["--yes", "--parallel"], {}, None, (0, 4, 4, 1),
              {"slices": [{"nr": nr, "deps": "–"} for nr in ("200", "201", "202", "203")],
               "subjects": [f"Slice {nr} stub squash" for nr in ("200", "201", "202", "203")], "results": 4,
-              "says_order": ["[slice 202] squashed", "[slice 203] planning"]}),
+              "says_order": ["[slice 201] squashed", "[slice 202] planning"]}),
             ("parallel keeps a slice that shares a file for the next batch", 0, ["--yes", "--parallel"], {}, None, (0, 3, 3, 1),
              {"slices": [{"nr": "200", "deps": "–", "files": ["src/app.cs"]}, {"nr": "201", "deps": "–", "files": ["src/"]},
                          {"nr": "202", "deps": "–", "files": ["docs/a.md"]}],
