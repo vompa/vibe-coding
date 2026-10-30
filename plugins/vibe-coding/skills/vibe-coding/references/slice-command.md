@@ -123,9 +123,10 @@ a stronger one, and only when work/conventions.md asks for it.
 As each step finishes, tick its column in the slice's row of work/checklist.md on slice-NN: Plan when
 the plan is approved, Tests red when the new tests fail for the right reason, Green when they pass.
 A column that does not apply (for example Tests red in a harness or docs-only slice) is ticked too,
-and the reason goes into the round record under Decisions, so the row has no ☐ left.
+and the reason goes into the round record under Decisions as a Build decision (section 4, step 2), so the row has no ☐ left.
 
-Keep me posted: one short status line at least every few minutes (what finished, what runs next).
+Keep me posted: one short status line at least every few minutes (what finished, what runs next); with `auto` or
+`parallel`, only the marker lines of section 6.
 Long reports of subagents go to work/_raw/ (git-ignored), not into the chat.
 
 ## 4. Close the slice
@@ -152,7 +153,7 @@ Do 1–4 on slice-NN, so they land in the same commit as the code.
    alone or in a second unchanged run is load, not a regression: note it under Surprises as "load, not a fault" (test, both
    runs) and go on. Check commands never end in `| tail` or another pipe inside an `&&`
    chain: the pipe hides the exit code, so write the output to a file and read its exit code.
-   The run that proves the slice is the last one: on the final tip, after steps 2–5 and the merge of step 6a. A run
+   The run that proves the slice is the last one: on the final tip, after steps 2–5 and the merge of step 6a when it runs. A run
    before a later commit must be repeated, so earlier runs cover what you changed and the full set runs once, at the end.
    Stopping a background check with the harness's stop tool leaves its child processes (test runners, builds) running:
    find them by the worktree path in their command line and end them, or the next build finds its files locked.
@@ -171,8 +172,10 @@ Do 1–4 on slice-NN, so they land in the same commit as the code.
    branch slice-MM exists and whose time is under 60 minutes old: retry every minute for at most 30 minutes. Any other
    lock (branch gone, older, or the wait ran out) is reported with owner and time (auto: `SLICE-OPEN: NN lock held by
    slice MM since <time>`); leave it untouched.
-2. Append to the round record: under Decisions the "Ruling: <decision> – User, <date>" lines (my
-   answers and changes), under Surprises what the plan did not foresee, under Deferred minors what
+2. Append to the round record: under Decisions one line per decision in one of two formats – "Ruling: <decision> –
+   User, <date>" for my answers and changes, "Build decision (slice NN): <decision> – Claude, <date>" for what you
+   decided while building (a column that does not apply, a point the code settled); the merge queue refuses a slice
+   that adds a line in another format there. Under Surprises what the plan did not foresee, under Deferred minors what
    you left out on purpose. Every question for me is a "NEEDS-DECISION: <question>" line under Open decisions,
    not only a note elsewhere. Under Manual test list insert the slice's block in slice-number order, in the
    format of section 5 (steps 1..n, one Expected: per step, one Closes: and one Result line per block).
@@ -203,16 +206,21 @@ Do 1–4 on slice-NN, so they land in the same commit as the code.
    3. .slice-loop/slice-NN.checks has a green line on the branch tip for every check and every baseline command;
    4. everything is committed on slice-NN (`git status` in the worktree is clean);
    5. .slice-loop/slice-NN.ready holds the tip's SHA – write it again after any later commit or merge on slice-NN.
-   Checks or anything else still running in the background when your turn ends: end with "SLICE-WAIT: NN <what
-   runs>" instead – not with SLICE-READY, and not with a sentence like "I wait for …" without the marker.
+   The orchestrating session reacts only to SLICE-READY, NEEDS-DECISION and SLICE-OPEN, so report nothing else: a
+   fault found or a decision needed is said at once with its marker; "suite still running" is no report – background
+   checks wake you anyway. Only when the harness ends your turn while checks still run, end with the one line
+   "SLICE-WAIT: NN <what runs>" and no status text – not with SLICE-READY, and not with "I wait for …" without the marker.
    without both arguments go on with step 6.
 6. Integrate: superpowers:finishing-a-development-branch (or by hand) – ONE squash commit on the
    integration branch named in work/conventions.md. Before the squash, in this order:
-   a. merge the integration branch into slice-NN – note the old base (`git merge-base slice-NN <integration branch>`)
-      first – and, before the squash or SLICE-READY, repeat the baseline check and your own checks on the merged tip. Full
-      suites only when your check level asks for them (step 1) or `git diff --name-only <old base> <integration
-      branch>` lists a file the slice also changes; the interplay of slices is covered by `-Merge -Verify` as the
-      level asks; append these runs to the checks proof (the SHA of the merged tip);
+   a. merge the integration branch into slice-NN only when needed: `git merge-tree --write-tree <integration branch>
+      slice-NN` reports a conflict, or `git diff --name-only <old base> <integration branch>` (old base: `git merge-base
+      slice-NN <integration branch>`) lists a file the slice also changes, documents (*.md) and work/ aside. Otherwise
+      keep your tip and its proof: the queue squashes a slice cut from an older integration branch as it is, and leaves
+      it behind ("integration branch moved and touches <files>") when such a file turns up later – then merge here.
+      After a merge, repeat the baseline check and your own checks on the merged tip before the squash or SLICE-READY;
+      full suites only when your check level asks for them (step 1) or the overlap lists a file; the interplay of
+      slices is covered by `-Merge -Verify` as the level asks; append these runs to the checks proof (the merged tip);
    b. in the main checkout, `git merge --squash slice-NN`;
    c. check the resolved files before committing: `grep '^<<<<<<<'` finds nothing, every line of both sides
       (`git show HEAD:<file>` and `git show slice-NN:<file>`) is still present, and the number of `Result:`
@@ -278,8 +286,8 @@ from the first column, exactly as written – no bullet, quote or code format, n
 - "NEEDS-DECISION: <question>" – one per open point, before the PLAN line
 - "SLICE-DONE: NN" – the slice is green, ticked and on the integration branch
 - "SLICE-READY: NN" – branch committed, checklist ticked through Checks, squash message and ready file written; waits for the merge queue
-- "SLICE-WAIT: NN <what runs>" – the turn ends while checks still run in the background: the slice is still running,
-  not done; the loop checks back in this session
+- "SLICE-WAIT: NN <what runs>" – the harness ends the turn while checks still run in the background: the slice is still
+  running, not done; one line, no report; the loop checks back in this session, an orchestrating chat does not answer it
 - "SLICE-OPEN: NN <reason>" – anything else that stops the slice
 - "ALL-DONE" – every slice of the round is done, the round is still open
 - "ROUND-DONE: Rnn" – the round is closed
@@ -316,6 +324,9 @@ unasked and once per run; never in auto mode (the loop script starts the next ru
   the integration branch – as the check level asks (section 4, step 1): at the round's milestones on level 3, after every
   group on levels 4 and 5; round close runs the chain on every level. A desktop
   harness may refuse to start sessions from background events; for long autonomous runs suggest `slice-loop -Parallel`.
+- The orchestrating session acts only on SLICE-READY (run the queue), NEEDS-DECISION (ask me) and SLICE-OPEN (look
+  at the reason); a SLICE-WAIT needs no answer. `-Merge` lists a slice whose session has not reported ready yet as
+  "not ready yet" and still exits 0; a non-zero exit means a slice was left behind for a real reason.
 - Never two sessions on one slice: a slice with a branch slice-NN is in progress, not ready.
 
 ## 8. Quick fix ("quick <finding>")

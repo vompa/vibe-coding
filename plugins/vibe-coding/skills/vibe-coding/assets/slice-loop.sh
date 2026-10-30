@@ -6,9 +6,12 @@
 # the branch tip. Only proof lines of the branch tip count (lines of other commits are stale runs and ignored); of each
 # command the last line on the tip counts. Conflicts are resolved by rule and checked: work/checklist.md by the union of
 # ticks, and in any text file a hunk where both sides only added lines (both kept) or changed rows of one table (merged
-# per row key, e.g. the status row of a round). A real conflict, a missing proof, a duplicate finding id, a line glued to
-# the next one in the round record or a malformed manual test block leaves that slice behind with its branch; the queue
-# goes on, lists every slice left behind and exits non-zero. Removing the worktree of a squashed slice is retried, and
+# per row key, e.g. the status row of a round). A slice cut from an older integration branch is squashed as it is,
+# unless the integration branch changed since then a file the slice changes too (documents *.md and work/ aside). That
+# overlap, a real conflict, a missing proof, a duplicate finding id, a line glued to the next one in the round record, a
+# decision line in neither format ("Ruling: …", "Build decision (slice NN): …") or a malformed manual test block leaves
+# that slice behind with its branch; the queue goes on, lists every slice left behind and exits non-zero. A slice whose
+# session has not reported ready on its tip yet is listed as not ready yet and does not fail --merge. Removing the worktree of a squashed slice is retried, and
 # the entries of every folder a link in the worktree points to are counted before and after: fewer afterwards is
 # reported and makes the run exit non-zero (the squash stays done). A stale .slice-loop/full-suite.lock (its slice
 # branch is gone, or it is older than 60 minutes) is reported at the start, never removed; so is a work/conventions.md
@@ -67,6 +70,7 @@ built=0
 round=""
 declare -A left_nrs=()  # slices the merge queue left behind in this run
 left_lines=()           # "slice NN: <reason>", in the order they were left
+not_ready_lines=()      # "slice NN: <reason>" for slices --merge found not ready yet (their session still checks)
 write_failed=""         # the file replace_file gave up on
 merging=""              # a squash merge is in progress in this checkout; the exit trap resets it
 
@@ -108,9 +112,20 @@ leave_slice() {
   left_lines+=("slice $1: $2")
 }
 
-# Lists every slice left behind and fails when there is one, or when a removed worktree's link target lost entries
-# (that was reported where it happened).
+# Slice $1 is left for a later --merge (reason $2): its session has not reported ready on its tip yet. Not a problem
+# of the slice.
+not_ready() {
+  echo "[slice $1] not ready yet: $2 – left for a later --merge" >&2
+  not_ready_lines+=("slice $1: $2")
+}
+
+# Lists every slice not ready yet and every slice left behind; fails when one was left behind, or when a removed
+# worktree's link target lost entries (that was reported where it happened). Not ready yet alone is no failure.
 report_left() {
+  if (( ${#not_ready_lines[@]} > 0 )); then
+    echo "slice-loop: ${#not_ready_lines[@]} slice(s) not ready yet – their sessions still check; run --merge again after SLICE-READY:" >&2
+    printf '  %s\n' "${not_ready_lines[@]}" >&2
+  fi
   if (( ${#left_lines[@]} > 0 )); then
     echo "slice-loop: ${#left_lines[@]} slice(s) left behind – fix them on their branch, then run --merge again:" >&2
     printf '  %s\n' "${left_lines[@]}" >&2
@@ -580,6 +595,28 @@ checks_problem() {
   done < <(check_commands '- Baseline check')
 }
 
+# The files the integration branch (checked out here) changed since slice-$1 last took it in that the slice changes too,
+# one per line: the slice's checks never ran on them together. Documents (*.md) and work/ are left out – the queue
+# merges those by its rules. Nothing when the slice's tip already holds the integration branch.
+overlap_files() {
+  local base
+  base=$(git merge-base HEAD "slice-$1")
+  LC_ALL=C comm -12 <(git diff --name-only "$base" HEAD | LC_ALL=C sort) <(git diff --name-only "$base" "slice-$1" | LC_ALL=C sort) \
+    | grep -vE '^work/|\.md$' || true
+}
+
+# The non-empty lines of the section "## Decisions" on stdin, sorted.
+decision_lines() { tr -d '\r' | awk '/^## /{inside = ($0 ~ /^## Decisions([^[:alnum:]]|$)/); next} inside && NF' | LC_ALL=C sort -u; }
+
+# The first line the slice added under "## Decisions" of round record $1 that is neither a ruling ("Ruling: …") nor a
+# build decision ("Build decision (slice NN): …"); a leading "- " is allowed. Nothing when every added line fits.
+decision_problem() {
+  local record=$1 branch=$2 base
+  base=$(git merge-base HEAD "$branch")
+  LC_ALL=C comm -23 <(git show "$branch:$record" 2>/dev/null | decision_lines) <(git show "$base:$record" 2>/dev/null | decision_lines) \
+    | grep -vE '^(- )?(Ruling: |Build decision \(slice [0-9]{2,}\): )' | head -n 1 || true
+}
+
 # Why slice $1 has not reported ready on its branch tip; nothing when it has. As its last step before SLICE-READY,
 # /slice writes the tip's SHA to .slice-loop/slice-NN.ready: a session still running its last checks has no such file,
 # or one of an older tip, and its worktree is not taken away under it.
@@ -636,11 +673,16 @@ left_on_write() {
 # the record's manual test list is put in slice order and the slice's block checked, and no finding id may be defined twice.
 # A file it cannot write leaves the slice behind, too; any other way out of the merge (a stop, a signal) resets it.
 merge_slice() {
-  local nr=$1 branch="slice-$1" record conflicts file problem
+  local nr=$1 branch="slice-$1" record conflicts file problem overlap
   local -a real=()
   [[ -z "$(git status --porcelain)" ]] || die "slice $nr: this checkout has uncommitted changes – commit or remove them, then run --merge"
   problem=$(ready_problem "$nr")
+  if [[ -n "$problem" ]] && $merge_only; then not_ready "$nr" "$problem"; return 1; fi
   [[ -n "$problem" ]] || problem=$(checks_problem "$nr")
+  if [[ -z "$problem" ]]; then
+    overlap=$(overlap_files "$nr" | tr '\n' ' ' | sed 's/ $//')
+    [[ -z "$overlap" ]] || problem="integration branch moved and touches $overlap – merge it on the slice branch"
+  fi
   if [[ -n "$problem" ]]; then leave_slice "$nr" "$problem"; return 1; fi
   record=$(open_round_file)  # read before the merge: a conflict at its first line would hide "Status: open"
   write_failed=""
@@ -662,7 +704,7 @@ merge_slice() {
       if [[ -n "$problem" ]]; then reset_and_leave "$nr" "the rule-based resolution of $file failed its check ($problem)"; return 1; fi
       git add "$file"
     done <<<"$conflicts"
-    if (( ${#real[@]} )); then reset_and_leave "$nr" "merge conflict in ${real[*]}"; return 1; fi
+    if (( ${#real[@]} )); then reset_and_leave "$nr" "merge conflict in ${real[*]} – merge the integration branch on the slice branch"; return 1; fi
   fi
   if [[ -n "$record" ]]; then
     if ! order_manual_tests "$record" && left_on_write "$nr"; then return 1; fi
@@ -673,6 +715,10 @@ merge_slice() {
     if [[ -n "$problem" ]]; then reset_and_leave "$nr" "manual test block of slice $nr in $record: ${problem%; }"; return 1; fi
     problem=$(new_duplicate_ids "$record" | tr '\n' ',' | sed 's/,$//; s/,/, /g')
     if [[ -n "$problem" ]]; then reset_and_leave "$nr" "finding id defined twice: $problem"; return 1; fi
+    problem=$(decision_problem "$record" "$branch")
+    if [[ -n "$problem" ]]; then
+      reset_and_leave "$nr" "decision line in neither format ('Ruling: …' or 'Build decision (slice $nr): …') in $record: $problem"; return 1
+    fi
   fi
   if ! tick_commit "$nr" && left_on_write "$nr"; then return 1; fi
   git add "$CHECKLIST_FILE"

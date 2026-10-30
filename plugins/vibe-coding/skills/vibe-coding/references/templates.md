@@ -1,6 +1,6 @@
 # Templates
 
-Text in `<angle brackets>` is filled in the repository's language. What the scripts and the `/slice` command read stays as written: the first line `Status: open|closed`, `Ruling:`, `NEEDS-DECISION:`, the checklist rows, the field names of `_slices.json` and the line keys `- Baseline check` and `- Full check chain` of `work/conventions.md` – keep these two keys in English in any language and put your own words in brackets after them (`- Baseline check (Basisprüfung, vor jeder Slice): …`); the merge queue reads only these keys, and a translated key silently drops the baseline from the checks proof. Backticks before the `←` are commands the scripts run: none in the label. Examples inside the templates are open lists, not checklists: drop what does not apply, add what does.
+Text in `<angle brackets>` is filled in the repository's language. What the scripts and the `/slice` command read stays as written: the first line `Status: open|closed`, `Ruling:` and `Build decision (slice NN):` (the only two formats of a line under `## Decisions`; the merge queue refuses a slice that adds another), `NEEDS-DECISION:`, the checklist rows, the field names of `_slices.json` and the line keys `- Baseline check` and `- Full check chain` of `work/conventions.md` – keep these two keys in English in any language and put your own words in brackets after them (`- Baseline check (Basisprüfung, vor jeder Slice): …`); the merge queue reads only these keys, and a translated key silently drops the baseline from the checks proof. Backticks before the `←` are commands the scripts run: none in the label. Examples inside the templates are open lists, not checklists: drop what does not apply, add what does.
 
 ## work/conventions.md
 A pointer file: one line per fact, the document it comes from after it (`← source`). Long rules stay in their document; this file never copies them. Created once per repository from `CLAUDE.md`, `AGENTS.md`, the README, working-method and contribution documents that `CLAUDE.md` links, protocol or changelog files, the CI workflow, formatter configuration and `git log`. The user confirms it once.
@@ -82,6 +82,7 @@ Assumptions: [Assumption] <…>
 ## Decisions
 Ruling: check level <1–5> for this round (only when it differs from work/conventions.md); milestones: slice-loop -Merge -Verify after slice <NN>, <NN> and at round close – User, <date>
 Ruling: <decision> – User, <date>
+Build decision (slice NN): <what the session decided while building, e.g. a column that does not apply> – Claude, <date>
 
 ## Surprises
 <what a plan did not foresee>

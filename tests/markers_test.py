@@ -136,9 +136,11 @@ def test_command_stays_short_and_positive():
     1.5.0 moves it to 310: the ready file, the red proof line, the order of the last checks run, stray child processes,
     real input in screen tests, generated outputs and the fresh reviewer came out of round R04.
     1.6.0 moves it to 335: the check levels 1–5 and the scoped re-check after merging the integration branch came out
-    of round R05 (three parallel slices re-ran every full suite after each squash)."""
+    of round R05 (three parallel slices re-ran every full suite after each squash).
+    1.7.0 moves it to 345: merging the integration branch only on overlap, the two decision formats and the quiet
+    SLICE-WAIT came out of the same round."""
     text = (SKILL / "references/slice-command.md").read_text(encoding="utf-8")
-    assert len(text.splitlines()) <= 335, len(text.splitlines())
+    assert len(text.splitlines()) <= 345, len(text.splitlines())
     assert text.lower().count("never") <= 16, text.lower().count("never")
 
 def _skill_part(name, start, end=None):
@@ -353,7 +355,7 @@ def test_release_version_is_consistent():
     manifest = json.loads((ROOT / "plugins/vibe-coding/.claude-plugin/plugin.json").read_text(encoding="utf-8"))["version"]
     skill = re.search(r'^\s+version: "([^"]+)"', (SKILL / "SKILL.md").read_text(encoding="utf-8"), re.M).group(1)
     changelog = re.search(r"^## (\S+) – \d{4}-\d{2}-\d{2}", (ROOT / "plugins/vibe-coding/CHANGELOG.md").read_text(encoding="utf-8"), re.M).group(1)
-    assert manifest == skill == changelog == "1.6.0", (manifest, skill, changelog)
+    assert manifest == skill == changelog == "1.7.0", (manifest, skill, changelog)
 
 def test_marketplace_validation_is_not_strict_but_the_plugins_are():
     """slice-board carries no version on purpose (every commit is an update), so only the marketplace check tolerates warnings."""
@@ -440,7 +442,7 @@ def test_check_levels_are_defined_where_the_checks_are():
 
 def test_merge_of_the_integration_branch_rechecks_by_scope():
     section = _section(*SECTION_4)
-    for phrase in ("note the old base", "repeat the baseline check and your own checks", "git diff --name-only <old base>",
+    for phrase in ("old base: `git merge-base", "repeat the baseline check and your own checks", "git diff --name-only <old base>",
                    "a file the slice also changes"):
         assert phrase in section, phrase
 
@@ -467,6 +469,40 @@ def test_parallel_default_is_two_everywhere():
         assert line in text and "SLICE_PARALLEL_MAX (default: 2)" in text, script
     board = (SKILL.parents[2] / "slice-board/hooks/register.tsx").read_text(encoding="utf-8")
     assert "const MAX_PARALLEL = 2" in board
+
+def test_integration_branch_is_merged_only_when_needed():
+    """R05: every squash made the other slices re-merge and rerun everything; the queue squashes an older tip as it is."""
+    section = _section(*SECTION_4)
+    for phrase in ("only when needed", "git merge-tree --write-tree", "keep your tip and its proof",
+                   "integration branch moved and touches <files>", "documents (*.md) and work/ aside"):
+        assert phrase in section, phrase
+    for script in ("assets/slice-loop.ps1", "assets/slice-loop.sh"):
+        text = (SKILL / script).read_text(encoding="utf-8")
+        assert "integration branch moved and touches" in text and "merge it on the slice branch" in text, script
+
+def test_not_ready_yet_does_not_fail_the_queue():
+    for script in ("assets/slice-loop.ps1", "assets/slice-loop.sh"):
+        text = (SKILL / script).read_text(encoding="utf-8")
+        assert "not ready yet" in text and "Not ready yet alone is no failure" in text, script
+    assert '"not ready yet" and still exits 0' in _section("## 7. Parallel slices")
+
+def test_round_record_has_two_decision_formats():
+    section = _section(*SECTION_4)
+    for phrase in ('"Ruling: <decision> – User, <date>"', '"Build decision (slice NN): <decision> – Claude, <date>"',
+                   "refuses a slice that adds a line in another format"):
+        assert phrase in section, phrase
+    record = _skill_part("references/templates.md", "## work/rounds/Rnn-<slug>.md", "## work/_raw/intake-Rnn.md")
+    assert "Build decision (slice NN):" in record.split("## Decisions", 1)[1].split("## Surprises", 1)[0]
+    for script in ("assets/slice-loop.ps1", "assets/slice-loop.sh"):
+        assert "decision line in neither format" in (SKILL / script).read_text(encoding="utf-8"), script
+
+def test_slice_wait_is_one_quiet_line():
+    section = _section(*SECTION_4)
+    for phrase in ("reacts only to SLICE-READY, NEEDS-DECISION and SLICE-OPEN", '"suite still running" is no report',
+                   "background checks wake you anyway", "no status text"):
+        assert phrase in section, phrase
+    assert "one line, no report" in _section(*SECTION_6)
+    assert "a SLICE-WAIT needs no answer" in _section("## 7. Parallel slices")
 
 SECTION_2_ = ("## 2. Read first", "## 3. Plan and build")
 

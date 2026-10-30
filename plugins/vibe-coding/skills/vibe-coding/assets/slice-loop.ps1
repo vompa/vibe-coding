@@ -7,9 +7,12 @@ checkout, with the message from .slice-loop/slice-NN.msg, once .slice-loop/slice
 session wrote it last, at SLICE-READY) and .slice-loop/slice-NN.checks proves green checks on that tip. Only proof lines of the branch tip count (lines of other commits are stale runs and ignored); of each
 command the last line on the tip counts. Conflicts are resolved by rule and checked: work/checklist.md by the union of
 ticks, and in any text file a hunk where both sides only added lines (both kept) or changed rows of one table (merged
-per row key, e.g. the status row of a round). A real conflict, a missing proof, a duplicate finding id, a line glued to
-the next one in the round record or a malformed manual test block leaves that slice behind with its branch; the queue
-goes on, lists every slice left behind and exits non-zero. Removing the worktree of a squashed slice is retried, and
+per row key, e.g. the status row of a round). A slice cut from an older integration branch is squashed as it is,
+unless the integration branch changed since then a file the slice changes too (documents *.md and work/ aside). That
+overlap, a real conflict, a missing proof, a duplicate finding id, a line glued to the next one in the round record, a
+decision line in neither format ("Ruling: …", "Build decision (slice NN): …") or a malformed manual test block leaves
+that slice behind with its branch; the queue goes on, lists every slice left behind and exits non-zero. A slice whose
+session has not reported ready on its tip yet is listed as not ready yet and does not fail -Merge. Removing the worktree of a squashed slice is retried, and
 the entries of every folder a link in the worktree points to are counted before and after: fewer afterwards is
 reported and makes the run exit non-zero (the squash stays done). A stale .slice-loop/full-suite.lock (its slice
 branch is gone, or it is older than 60 minutes) is reported at the start, never removed; so is a work/conventions.md
@@ -63,6 +66,7 @@ $Usage = 'use -Yes, -Parallel, -DryRun, -MaxSlices N, -Merge, -Verify (with -Mer
 $SliceCap = 0   # 0 = no cap
 $Built = 0
 $LeftBehind = [ordered]@{}  # slices the merge queue left behind in this run: number -> reason
+$NotReady = [ordered]@{}    # slices -Merge found not ready yet (their session still checks): number -> reason
 
 function Stop-Loop([string]$Message) {
     [Console]::Error.WriteLine("slice-loop: $Message")
@@ -75,9 +79,19 @@ function Add-LeftSlice([string]$Nr, [string]$Reason) {
     $script:LeftBehind[$Nr] = $Reason
 }
 
-# Lists every slice left behind; $false when there is one, or when a removed worktree's link target lost entries
-# (that was reported where it happened).
+# A slice -Merge leaves for a later run: its session has not reported ready on its tip yet. Not a problem of the slice.
+function Add-NotReady([string]$Nr, [string]$Reason) {
+    Write-Host "[slice $Nr] not ready yet: $Reason – left for a later -Merge"
+    $script:NotReady[$Nr] = $Reason
+}
+
+# Lists every slice not ready yet and every slice left behind; $false when one was left behind, or when a removed
+# worktree's link target lost entries (that was reported where it happened). Not ready yet alone is no failure.
 function Write-LeftReport {
+    if ($script:NotReady.Count -gt 0) {
+        Write-Host "slice-loop: $($script:NotReady.Count) slice(s) not ready yet – their sessions still check; run -Merge again after SLICE-READY:"
+        foreach ($nr in $script:NotReady.Keys) { Write-Host "  slice ${nr}: $($script:NotReady[$nr])" }
+    }
     if ($script:LeftBehind.Count -gt 0) {
         [Console]::Error.WriteLine("slice-loop: $($script:LeftBehind.Count) slice(s) left behind – fix them on their branch, then run -Merge again:")
         foreach ($nr in $script:LeftBehind.Keys) { [Console]::Error.WriteLine("  slice ${nr}: $($script:LeftBehind[$nr])") }
@@ -571,6 +585,35 @@ function Get-ChecksProblem([string]$Nr) {
     return ''
 }
 
+# The files the integration branch (checked out here) changed since slice-NN last took it in that the slice changes too:
+# the slice's checks never ran on them together. Documents (*.md) and work/ are left out – the queue merges those by its
+# rules. Nothing when the slice's tip already holds the integration branch.
+function Get-Overlap([string]$Nr) {
+    $base = @(Get-GitLines @('merge-base', 'HEAD', "slice-$Nr"))[0]
+    $integration = @(Get-GitLines @('diff', '--name-only', $base, 'HEAD'))
+    if (-not $integration) { return }
+    $slice = @(Get-GitLines @('diff', '--name-only', $base, "slice-$Nr"))
+    $integration | Where-Object { $slice -ccontains $_ -and -not $_.StartsWith('work/') -and -not $_.EndsWith('.md') }
+}
+
+# Lines the slice added under "## Decisions" of the round record that are neither a ruling ("Ruling: …") nor a build
+# decision ("Build decision (slice NN): …"); a leading "- " is allowed. Empty when every added line has one of the formats.
+function Get-DecisionProblem([string]$Record, [string]$Branch) {
+    $base = @(Get-GitLines @('merge-base', 'HEAD', $Branch))[0]
+    $before = @(Get-DecisionLines @(Get-GitLines @('show', "${base}:$Record")))
+    $added = @(Get-DecisionLines @(Get-GitLines @('show', "${Branch}:$Record")) | Where-Object { $before -cnotcontains $_ })
+    return @($added | Where-Object { $_ -cnotmatch '^(- )?(Ruling: |Build decision \(slice \d{2,}\): )' }) | Select-Object -First 1
+}
+
+# The non-empty lines of the section "## Decisions".
+function Get-DecisionLines([string[]]$Lines) {
+    $inside = $false
+    foreach ($line in $Lines) {
+        if ($line.StartsWith('## ')) { $inside = $line -match '^## Decisions\b'; continue }
+        if ($inside -and $line.Trim()) { $line.TrimEnd() }
+    }
+}
+
 # Why the slice has not reported ready on its branch tip; empty when it has. As its last step before SLICE-READY,
 # /slice writes the tip's SHA to .slice-loop/slice-NN.ready: a session still running its last checks has no such file,
 # or one of an older tip, and its worktree is not taken away under it.
@@ -610,7 +653,12 @@ function Reset-AndLeave([string]$Nr, [string]$Reason) {
 function Merge-Slice([string]$Nr) {
     if (Get-GitLines @('status', '--porcelain')) { Stop-Loop "slice ${Nr}: this checkout has uncommitted changes – commit or remove them, then run -Merge" }
     $problem = Get-ReadyProblem $Nr
+    if ($problem -and $Merge) { Add-NotReady $Nr $problem; return $false }
     if (-not $problem) { $problem = Get-ChecksProblem $Nr }
+    if (-not $problem) {
+        $overlap = @(Get-Overlap $Nr)
+        if ($overlap) { $problem = "integration branch moved and touches $($overlap -join ' ') – merge it on the slice branch" }
+    }
     if ($problem) { Add-LeftSlice $Nr $problem; return $false }
     $script:WriteFailed = ''
     $script:Merging = $true
@@ -642,7 +690,7 @@ function Invoke-Squash([string]$Nr) {
             if ($problem) { Reset-AndLeave $Nr "the rule-based resolution of $file failed its check ($problem)"; return $false }
             git add $file
         }
-        if ($real) { Reset-AndLeave $Nr "merge conflict in $($real -join ' ')"; return $false }
+        if ($real) { Reset-AndLeave $Nr "merge conflict in $($real -join ' ') – merge the integration branch on the slice branch"; return $false }
     }
     if ($record) {
         Sort-ManualTests $record
@@ -653,6 +701,8 @@ function Invoke-Squash([string]$Nr) {
         if ($problem) { Reset-AndLeave $Nr "manual test block of slice $Nr in ${record}: $problem"; return $false }
         $duplicates = @(Get-NewDuplicateIds $record)
         if ($duplicates) { Reset-AndLeave $Nr "finding id defined twice: $($duplicates -join ', ')"; return $false }
+        $decision = Get-DecisionProblem $record $branch
+        if ($decision) { Reset-AndLeave $Nr "decision line in neither format ('Ruling: …' or 'Build decision (slice $Nr): …') in ${record}: $decision"; return $false }
     }
     Set-CommitTick $Nr
     git add $ChecklistFile
