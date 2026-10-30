@@ -1,25 +1,30 @@
 # Round close
 
-A round ends with `/slice close` (the loop runs `/slice close auto` once after the last slice). This file is the reference for the skill and for anyone changing the command: `slice-command.md` section 5 repeats the steps and the list format, because the command runs in the target repository, where this file does not exist. Keep both in step.
+Read by `/slice close` (the loop runs `/slice close auto` once after the last slice) and by slices for the block format. The skill copies this file to `.claude/slice/close.md` in the target repository. Only the open round; never ask in auto mode.
 
 ## Steps
-1. **Precondition.** Exactly one round record has the first line `Status: open`. Every slice whose `round` field in `work/_slices.json` names that round is done (a `☑` and no `☐` in its checklist row). The working tree is clean and the integration branch is checked out. Otherwise stop with `ROUND-OPEN: Rnn <reason>` and name what is missing.
+1. **Precondition.** Exactly one round record has the first line `Status: open`. Every slice whose `round` field in `work/_slices.json` names that round is done (a `☑` and no `☐` in its checklist row). The working tree is clean and the integration branch is checked out. Otherwise list what is missing and end with `ROUND-OPEN: Rnn <reason>`.
 2. **Full check chain** from `work/conventions.md`, run on the integration branch (not in a slice worktree). Red → change nothing, end with `ROUND-OPEN: Rnn <failing check>`; fixing it is a slice of its own, decided by the user.
-3. **Manual test list** into the round record (format below).
+3. **Manual test list** into the round record (format below). First validate the drafted blocks against the format; a block that breaks it is not repaired: end with `ROUND-OPEN: Rnn manual test list: <slice and problem>`. Then add the slices that have no block yet, taking the items from the `manual` fields of this round's slices.
 4. **Close the record.** Set the first line to `Status: closed`; commit the record in the commit language and style of `work/conventions.md` (`Round Rnn closed: <slug>`); never push.
-5. **Report.** List the open decisions (`NEEDS-DECISION:` lines under `## Open decisions`), give the handover message (below) and end with `ROUND-DONE: Rnn`.
+5. **Report.** List as bullets in the closing message the open decisions – the entries under `## Open decisions`, plus every place outside that section that leaves a decision to the user ("user decides", "<name> decides", "<Name> entscheidet", "decision pending", "to be decided") –, never as lines starting with `NEEDS-DECISION:` (that marker belongs to plan runs); the next round inherits them. Then give the handover message (below).
+6. **Leftovers.** List the worktrees (`git worktree list`) and the branches `slice-*`, `agent-*` and `worktree-*` whose work is on the integration branch, with their tip SHA. Outside auto mode offer to remove the safe ones – only without changes (clean worktree, no commit missing from the integration branch); tip SHAs go into the closing message first, links (junctions, symlinks such as `node_modules`) are removed first because git follows them and empties their target, then `git worktree remove`, then the branch. In auto mode only list them.
+
+End with `ROUND-DONE: Rnn`.
 
 ## Manual test list
-Under `## Manual test list` in the round record: one block per slice that has a manual check. Slice close drafts the items; round close completes them, adds the slices that have none yet, and takes the missing items from the `manual` fields of the slice files.
+Under `## Manual test list` in the round record: one block per slice that has a manual check, in slice-number order, without indentation. Each slice inserts its own block before the squash; the merge queue keeps the blocks in slice order and refuses to squash a slice whose block breaks the format.
 ```
 ### Slice NN – <name>
 Start: <command from work/conventions.md>
 1. <what to click or type>
+Expected: <what must be visible or happen>
 2. <next step>
 Expected: <what must be visible or happen>
 Closes: <finding or AC ids>
 Result: ☐
 ```
+- The format, enforced: steps numbered `1.` to `n.` without gaps, exactly one `Expected:` line after each step, exactly one `Closes:` and one `Result:` line per block, one block per slice.
 - One action per numbered step. `Expected:` names something observable (text, colour, count, state), never just "works".
 - `Closes:` uses the ids of the round record, so every answer can be given per id.
 - `Result:` is ticked by the human, or replaced by what they saw. The checklist stays agent-only; the loop never reads this list.

@@ -2,7 +2,7 @@
 import json, pathlib, subprocess, sys, tempfile
 SCRIPT = pathlib.Path(__file__).resolve().parent.parent / "plugins/vibe-coding/skills/vibe-coding/scripts/render_slices.py"
 FULL = {"nr": "05", "slug": "labels", "name": "Field labels", "goal": "Every field has a label.", "round": "R01",
-        "source": "W-Muster 1, W1, W6", "deps": "–", "model": "haiku", "scope": ["Login", "Join"],
+        "source": "W-Muster 1, W1, W6", "deps": "–", "model": "haiku", "ids": "B84–B89", "scope": ["Login", "Join"],
         "mirror": ["Views/CustomerContactForm.axaml:40-58 FormField usage"], "not_building": ["New controls"],
         "acceptance": ["Given the login screen When a screen reader reads field 1 Then it hears the label, not the placeholder"],
         "manual": ["Login: Tab through the form, every field is announced with its label"], "non_goals": "Colours"}
@@ -36,6 +36,34 @@ def test_german_headings():
     text = files["05-labels.md"]
     assert code == 0 and "## Muster übernehmen" in text and "## NICHT bauen" in text and "**Hängt ab von:** –" in text
     assert "**Modell:** haiku" in text
+
+def test_reserved_ids_are_rendered():
+    """The range of finding ids a slice may give new findings (parallel slices never pick the same id)."""
+    code, files = render([FULL])
+    assert code == 0 and "**Ids for new findings:** B84–B89" in files["05-labels.md"]
+    code, files = render([FULL], "de")
+    assert "**IDs für neue Befunde:** B84–B89" in files["05-labels.md"]
+    code, files = render([MINIMAL])
+    assert "**Ids for new findings:** –" in files["100-sweep.md"]
+
+def test_check_level_is_rendered():
+    """A slice may check more or less often than its round; a dash keeps the round's level."""
+    code, files = render([{**FULL, "check_level": 4}])
+    assert code == 0 and "**Check level:** 4" in files["05-labels.md"]
+    code, files = render([{**FULL, "check_level": "2"}], "de")
+    assert "**Prüfstufe:** 2" in files["05-labels.md"]
+    code, files = render([MINIMAL])
+    assert "**Check level:** –" in files["100-sweep.md"]
+
+def test_expected_files_are_rendered():
+    """The files a slice expects to change: parallel slices that share one are not started together."""
+    entry = {**FULL, "files": ["src/Calendar/EntryPreview.cs", "web/src/help/"]}
+    code, files = render([entry])
+    assert code == 0 and "## Files expected to change\n- src/Calendar/EntryPreview.cs\n- web/src/help/" in files["05-labels.md"]
+    code, files = render([entry], "de")
+    assert "## Voraussichtlich geänderte Dateien\n- src/Calendar/EntryPreview.cs" in files["05-labels.md"]
+    code, files = render([MINIMAL])
+    assert "## Files expected to change\n–" in files["100-sweep.md"]
 
 def test_missing_required_field_fails():
     code, files = render([{k: v for k, v in MINIMAL.items() if k != "goal"}])

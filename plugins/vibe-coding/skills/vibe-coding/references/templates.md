@@ -1,6 +1,6 @@
 # Templates
 
-Text in `<angle brackets>` is filled in the repository's language. What the scripts and the `/slice` command read stays as written: the first line `Status: open|closed`, `Ruling:`, `NEEDS-DECISION:`, the checklist rows and the field names of `_slices.json`. Examples inside the templates are open lists, not checklists: drop what does not apply, add what does.
+Text in `<angle brackets>` is filled in the repository's language. What the scripts and the `/slice` command read stays as written: the first line `Status: open|closed`, `Ruling:` and `Build decision (slice NN):` (the only two formats of a line under `## Decisions`; the merge queue refuses a slice that adds another), `NEEDS-DECISION:`, the checklist rows, the field names of `_slices.json` and the line keys `- Baseline check` and `- Full check chain` of `work/conventions.md` – keep these two keys in English in any language and put your own words in brackets after them (`- Baseline check (Basisprüfung, vor jeder Slice): …`); the merge queue reads only these keys, and a translated key silently drops the baseline from the checks proof. Backticks before the `←` are commands the scripts run: none in the label. Examples inside the templates are open lists, not checklists: drop what does not apply, add what does.
 
 ## work/conventions.md
 A pointer file: one line per fact, the document it comes from after it (`← source`). Long rules stay in their document; this file never copies them. Created once per repository from `CLAUDE.md`, `AGENTS.md`, the README, working-method and contribution documents that `CLAUDE.md` links, protocol or changelog files, the CI workflow, formatter configuration and `git log`. The user confirms it once.
@@ -15,9 +15,11 @@ A pointer file: one line per fact, the document it comes from after it (`← sou
 - Build: `<command>` ← <source>
 - Test: `<command per project>` ← <source>
 - Lint / format check: `<command>` ← <source>
-- Baseline check (before every slice): `<command>` ← <source>
-- Checks for a slice: one screen touched: `<its test classes plus the cross-page scan tests>`; shared code touched: `<full suite>`; never two full suites at once (the lock `.slice-loop/full-suite.lock/`, see /slice) ← <source>
-- Full check chain (round close): `<commands in order>` ← <source>
+- Baseline check (before every slice): `<command>`, `<command>` – each command in its own backticks before the arrow; the merge queue requires each in the slice's checks proof ← <source>
+- Checks for a slice: one screen touched: `<its test classes plus the cross-page scan tests>`; shared code touched: `<full suite>`; a new rule on an endpoint, service or base class: `<tests of every caller, or the full suite>`; a shared control: `<its own tests first>`; key bindings, focus or tab order: `<the focus-order tests>`; never two full suites at once (the lock `.slice-loop/full-suite.lock/`, see /slice) ← <source>
+- Test worker limits under load: `<e.g. a full Vitest run with --maxWorkers=3>` – parallel slices and suites share the machine, unbounded workers time out ← <source>
+- Check level: 3 – how often and how thoroughly a slice is checked, 1 to 5 (levels: /slice section 4, step 1); the round record may set another level and its milestones under Decisions, a slice file its own ← default
+- Full check chain (round close, and slice-loop -Merge -Verify as the check level asks): `<commands in order>` ← <source>
 - Decisions are recorded in: <file, section title format, fields it uses; fields that exist only for
   pull requests (number, URL) are left out because a slice lands as a local squash commit> ← <source>
 - Must change with a change: <documents, e.g. status page, help, ADR when a principle changed> ← <source>
@@ -34,7 +36,7 @@ A pointer file: one line per fact, the document it comes from after it (`← sou
 In a repository without rules the lines say `default` as their source: `main`, squash, `"User, <date>"`. Extend the repository's rules, never replace them.
 
 ## work/session-hints.md
-Repository-specific hints for slice sessions, grown round by round: the first round writes what the repository's rules and tooling already teach, later rounds append what the previous round learned and change no existing bullet. `/slice` reads it in section 2 and the parallel prompts name it. The bullets below are an open list of examples, not a checklist: keep what applies, add what the repository needs.
+Repository-specific hints for slice sessions, grown round by round: the first round writes what the repository's rules and tooling already teach, later rounds append what the previous round learned and correct a bullet only where it contradicts `work/conventions.md` or the current `/slice`. `/slice` reads it in section 2. The bullets below are an open list of examples, not a checklist: keep what applies, add what the repository needs.
 ```
 # Hints for slice sessions
 Repository-specific experience for the sessions that work a slice. They add to `.claude/commands/slice.md` and `work/conventions.md`; every round appends what it learned.
@@ -43,6 +45,10 @@ Repository-specific experience for the sessions that work a slice. They add to `
 - <shell quirk: path rewriting, line endings, quoting of commit messages>
 - <the command that needs a long timeout or a background run, and where its log goes>
 - <files that must change together, or must never be touched by a slice>
+- Check commands never end in `| tail` or another pipe inside an `&&` chain: the pipe hides the exit code; write the output to a file and read its exit code.
+- Stopping a background check leaves its child processes (test runners, builds) running: find them by the worktree path in their command line and end them, or the next build finds its files locked.
+- Generated files you did not touch that show as changed or missing usually come from another session's build in this checkout: wait until no such build runs (at most 10 minutes), look again, leave them alone.
+- Every timeout or wait raised in a test goes into the protocol entry with its reason and the measured time.
 ```
 
 ## work/rounds/Rnn-<slug>.md
@@ -53,7 +59,7 @@ Status: open
 # Round Rnn – <slug>
 
 ## Source
-<tracked findings file (path) and its marking format ("done in slice NN" in the file's own style), notes from <date>, or the idea in one sentence;
+<tracked findings file as `path` in backticks (the merge queue checks it for duplicate ids) and its marking format ("done in slice NN" in the file's own style), notes from <date>, or the idea in one sentence;
 concept documents by path – referenced, not copied>
 
 ## Brief          (ideas only, ≤ 1 page)
@@ -73,12 +79,14 @@ Assumptions: [Assumption] <…>
 | F-02 | <…> | <…> | M | reopens F-01 |
 
 ## Slices
-| Slice | Name | Findings / ACs |
-|---|---|---|
-| NN | <name> | <ids> |
+| Slice | Name | Findings / ACs | New ids |
+|---|---|---|---|
+| NN | <name> | <ids> | <reserved range for new findings, e.g. B84–B89> |
 
 ## Decisions
+Ruling: check level <1–5> for this round (only when it differs from work/conventions.md); milestones: slice-loop -Merge -Verify after slice <NN>, <NN> and at round close – User, <date>
 Ruling: <decision> – User, <date>
+Build decision (slice NN): <what the session decided while building, e.g. a column that does not apply> – Claude, <date>
 
 ## Surprises
 <what a plan did not foresee>
@@ -90,10 +98,23 @@ Ruling: <decision> – User, <date>
 NEEDS-DECISION: <question>
 NEEDS-DECISION: <question> (from Rnn)
 
-## Manual test list    (drafted per slice, completed at round close; format: round-close.md)
+## Manual test list    (one block per slice in slice order, completed at round close; format: round-close.md)
 ### Slice NN – <name>
+Start: <command>
+1. <action>
+Expected: <observable result>
+Closes: <ids>
+Result: ☐
 ```
-`size` is S, M or L (see `intake.md`). Finding ids continue the repository's own scheme; `F-NN` otherwise.
+`size` is S, M or L (see `intake.md`). Finding ids continue the repository's own scheme; `F-NN` otherwise. Every question for the user is a `NEEDS-DECISION:` line under `## Open decisions` – never only a note under Deferred minors or Surprises.
+
+## work/_raw/intake-Rnn.md
+The collect-mode file (SKILL.md, section 3): while the user collects points for the next round, each point is written here the moment it is named, so nothing lives only in chat. `work/_raw/` is git-ignored; on "done" the rows move into the intake table of the new round record.
+```
+| id | where | observed → expected | source |
+|---|---|---|---|
+| F-NN | <screen, file> | <what happens> → <what should happen> | <chat, <date>> |
+```
 
 ## work/checklist.md
 ```
@@ -115,6 +136,7 @@ Input for `scripts/render_slices.py` (`python3 scripts/render_slices.py work/_sl
     "deps": "–", "model": "sonnet",
     "scope": ["Shared MessageBar component", "Replace the bars on the order and customer screens"],
     "mirror": ["src/components/Dialog.tsx:12 – how shared components take their variants"],
+    "files": ["src/components/MessageBar.tsx", "src/screens/order/", "src/screens/customer/"],
     "not_building": ["Toast notifications"],
     "acceptance": [
       "Given a failed save When the order screen shows the error Then the bar is red, names the field and can be dismissed",
@@ -132,7 +154,7 @@ Input for `scripts/render_slices.py` (`python3 scripts/render_slices.py work/_sl
   }
 ]
 ```
-Required: `nr`, `slug`, `name`, `goal`, `deps`, `scope`, `non_goals`. Optional text: `round`, `source`, `model` (the cheapest model tier that does the slice reliably – `haiku`, `sonnet` or `opus`, see `intake.md`; the loop passes it as `claude --model`, `/slice` starts parallel sessions on it, and a slice without it runs on the caller's default model – so set it on every entry). Optional lists: `mirror`, `not_building`, `acceptance` (Given/When/Then, rendered as checkboxes in the Definition of Done), `manual` (rendered as `Manual:` checkboxes). Unknown fields are ignored. `nr` is a string of at least two digits and continues across rounds (after the highest number in `rebuild/_slices.json` when a rebuild repository continues here). `deps` lists slice numbers or `–`. `round` is the id of the round record. Set `round` on every entry in a vibe-coding repository – a slice without it is invisible to `/slice status` and to the round close. Keep `"nr"` and `"deps"` quoted in every entry: the loop reads them as text.
+Required: `nr`, `slug`, `name`, `goal`, `deps`, `scope`, `non_goals`. Optional text: `round`, `source`, `check_level` (1 to 5, only when this slice needs another check level than the round, rendered as "Check level"; for example 4 for a slice that changes a database trigger every other slice relies on), `ids` (the range of finding ids reserved for new findings of the slice, e.g. `"B84–B89"`, so parallel slices never pick the same id; the same range goes into the `New ids` column of `## Slices`), `model` (the cheapest model tier that does the slice reliably – `haiku`, `sonnet` or `opus`, see `intake.md`; the loop passes it as `claude --model`, `/slice` starts parallel sessions on it, and a slice without it runs on the caller's default model – so set it on every entry). Optional lists: `mirror`, `files` (the paths or folder prefixes ending in `/` the slice expects to change; slices that share one are not started side by side – the loop's `-Parallel` keeps them apart and `/slice status` names them – so set it on every entry), `not_building`, `acceptance` (Given/When/Then, rendered as checkboxes in the Definition of Done), `manual` (rendered as `Manual:` checkboxes). Unknown fields are ignored. `nr` is a string of at least two digits and continues across rounds (after the highest number in `rebuild/_slices.json` when a rebuild repository continues here). `deps` lists slice numbers or `–`. `round` is the id of the round record. Set `round` on every entry in a vibe-coding repository – a slice without it is invisible to `/slice status` and to the round close. Keep `"nr"` and `"deps"` quoted in every entry: the loop reads them as text.
 
 ## CLAUDE.md (only for a repository without one)
 Lean; an existing `CLAUDE.md` is never replaced, its facts go into `work/conventions.md` by pointer.

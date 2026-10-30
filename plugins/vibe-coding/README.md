@@ -21,6 +21,7 @@ These files appear in your repository. The round-start commit on its integration
 CLAUDE.md                     only if the repository has none
 .gitignore  .gitattributes    lines for work/_raw/, .slice-loop/ and *.sh added, nothing else touched
 .claude/commands/slice.md     the /slice command – next slice, a given slice, status, close
+.claude/slice/                close.md, parallel.md, quick.md – read by /slice only for that argument
 .claude/scripts/slice-loop.*  runs the slices one after another in fresh sessions
 work/
   conventions.md              how this repository works – branch, commands, rules – each fact with the document it comes from
@@ -57,7 +58,7 @@ Before it writes anything the working tree must be clean, the integration branch
 3. **Slicing** → `work/_slices.json`, `work/slices/`. Grouped by screen or theme, shared components first, vertical slices of about one session each with an independent test, trivial items in a sweep slice, MVP first for ideas. Every UI finding gets a manual check item. A coverage check makes sure every finding id or acceptance criterion lands in a slice.
 4. **Handover.** You confirm the conventions and the slice map; the git identity is checked (a private one is never used silently); then one commit on the integration branch, `Round Rnn: <slug> – N slices`, in your commit language and style. Nothing is pushed. The final message tells you how to start.
 
-Long steps are announced and status lines start with an overall percentage. Agent reports go to files, not into the chat.
+Long steps are announced. Agent reports go to files, not into the chat. Say that you collect points first ("I'll collect", "ich sammle") and each point is written at once to `work/_raw/intake-Rnn.md`; on "done" they become the next round's intake.
 
 ## Running a round
 
@@ -69,9 +70,10 @@ Open a terminal in the repository, run `claude --model <model>` with the model o
 | `/slice 07` | exactly slice 07 |
 | `/slice 07 plan` | stops after the plan; your next message approves it, answers its open questions or asks for changes |
 | `/slice 07 direct` | without superpowers, even if it is installed |
-| `/slice NN parallel` | for sessions that run side by side: builds, tests and commits the slice on its branch `slice-NN`, writes the squash message to `.slice-loop/slice-NN.msg` and stops with `SLICE-READY: NN`; the merge queue (below) does the squash |
-| `/slice status` | one table: model, done, in progress, ready, blocked; open decisions; what is ready next |
+| `/slice NN parallel` | for sessions that run side by side: builds, tests and commits the slice on its branch `slice-NN`, writes the squash message to `.slice-loop/slice-NN.msg`, the checks proof to `.slice-loop/slice-NN.checks` and, as the very last write, the branch tip's SHA to `.slice-loop/slice-NN.ready`, and stops with `SLICE-READY: NN`; the merge queue (below) does the squash. A parallel session is started with the short prompt `/slice NN parallel auto` plus the slice's goal and acceptance cases – the command reads conventions and session hints itself |
+| `/slice status` | one table: model, done, in progress, ready, blocked; open decisions; what is ready now and which ready slices share a file |
 | `/slice close` | closes the round (see below) |
+| `/slice quick <finding>` | a small fix outside a slice, for example after the round is closed: finding recorded in `work/quick-fixes.md`, failing test first, full check chain, one commit, protocol entry; ends with `QUICK-DONE:` |
 
 If the superpowers plugin is installed, `/slice` uses it (worktree, `writing-plans`, `subagent-driven-development`, `finishing-a-development-branch`); otherwise it follows the slice prompt. Each slice lands as **one squash commit on the integration branch**; task commits stay on the branch `slice-NN` (in auto mode, which the loop uses, the merged branch and its own worktree are removed after the squash). The commit carries the plan, the checklist tick, the round-record entries (decisions, surprises, deferred minors, manual check items), the repository's own protocol entry and the documents your conventions list as "must change with a change". Nothing is pushed. Start a fresh session and type `/slice` again for the next slice; `/slice` proposes `close` after the last one.
 
@@ -88,20 +90,26 @@ The loop checks that a round is open, then for each ready slice starts a fresh h
 |---|---|
 | *(none)* | asks for every plan |
 | `-Yes` / `--yes` | approves plans automatically; still stops when a plan reports an open decision (`NEEDS-DECISION`), a slice stays red, or a slice reports done without being ticked |
-| `-Parallel` / `--parallel` | builds slices that are ready at the same time side by side, each in its own worktree; each ends with `SLICE-READY` and the merge queue squashes them one after another (experimental) |
-| `-Merge` / `--merge` | only runs the merge queue: squashes every `slice-NN` branch whose checklist row is ticked through Checks, lowest number first, then exits; starts no session and needs no open round |
+| `-Parallel` / `--parallel` | builds slices that are ready at the same time side by side, each in its own worktree; each ends with `SLICE-READY` and the merge queue squashes them one after another. Headless – the way for long autonomous runs, since a desktop harness may refuse to start sessions from background events |
+| `-Merge` / `--merge` | only runs the merge queue: squashes every `slice-NN` branch whose checklist row is ticked through Checks, lowest number first, retries removing worktrees an earlier squash left, then exits; starts no session and needs no open round |
+| `-Merge -Verify` / `--merge --verify` | after the queue squashed at least one slice, runs the `Full check chain` of `work/conventions.md` on the integration branch under the full-suite lock; red exits non-zero |
+| `-Merge -Watch` / `--merge --watch` | waits until a slice reports ready on a new tip, runs the queue once, then exits – as a background command it wakes the chat that started it. A slice left behind brings it back only with a new tip; next to a running watch it exits at once (`SLICE_WATCH_SECONDS`, `SLICE_WATCH_MAX`) |
 | `-DryRun` / `--dry-run` | only lists the slices that are ready now |
 | `-MaxSlices N` / `--max-slices N` | stops after N built slices if slices are left (exit 0; run it again to continue) |
 
 Good to know:
 
 - Every turn of a slice runs on the slice's `model` from `work/_slices.json` (`claude --model`), never on your default model; a slice without the field runs on the default.
+- `-Parallel` starts at most two slices at once (`SLICE_PARALLEL_MAX`; three sessions on one machine made unrelated tests red under load) and never two whose `files` in `work/_slices.json` share a path; the second waits for a later batch.
+- **Orchestrating from a chat instead?** Run that chat on Opus at low effort (`claude --model opus --effort low`); `.claude/slice/parallel.md` says why and how.
+- **Check levels.** `- Check level` in `work/conventions.md` (1 to 5, default 3; levels in `/slice` section 4) tells the slice sessions how often and how thoroughly to check; a round or a slice may set its own. They are instructions to the session: the script itself only knows `-Verify`.
 - Headless sessions can't answer permission prompts, so they run with `--permission-mode auto`; set `SLICE_PERMISSION_MODE` to choose another mode.
 - Logs go to `.slice-loop/` in the repository, which the script keeps out of git.
 - Approvals need a terminal. Without one (for example in CI) the script stops instead of approving silently.
 - The script never pushes and never installs anything.
-- Under the hood `/slice` prints marker lines the script reads (`PLAN:`, `NEEDS-DECISION:`, `SLICE-DONE:`, `SLICE-READY:`, `SLICE-OPEN:`, `ALL-DONE`, `ROUND-DONE:`, `ROUND-OPEN:`); `/slice NN plan auto` is what the script sends.
-- **Merge queue.** A slice that ends with `SLICE-READY: NN` is squashed by the script in the main checkout, one branch after another: clean tree, `git merge --squash`, the Commit column ticked, `git commit -F .slice-loop/slice-NN.msg`, then the merged worktree and branch are removed. A conflict in `work/checklist.md` or the open round record is resolved by rule (both sides kept, ticks united) and checked; a conflict anywhere else resets the merge, keeps the branch and stops with the files named.
+- Under the hood `/slice` prints marker lines the script reads (`PLAN:`, `NEEDS-DECISION:`, `SLICE-DONE:`, `SLICE-READY:`, `SLICE-WAIT:`, `SLICE-OPEN:`, `ALL-DONE`, `ROUND-DONE:`, `ROUND-OPEN:`); `/slice NN plan auto` is what the script sends. `SLICE-WAIT: NN <what runs>` means the session ended its turn while checks still run: the script counts the slice as running and checks back in the same session (`SLICE_WAIT_SECONDS`, `SLICE_WAIT_MAX`). A file another process holds (a scanner or indexer) is retried (`SLICE_WRITE_RETRIES`, `SLICE_WRITE_BACKOFF_SECONDS`); if it stays held, the slice is left behind with its merge reset.
+- **Merge queue.** A slice that ends with `SLICE-READY: NN` is squashed in the main checkout, one branch after another, when `.slice-loop/slice-NN.ready` names the branch tip and `.slice-loop/slice-NN.checks` holds a green line on that tip for each check and each `Baseline check` command. Conflicts in the checklist and in lines both sides only added are resolved by rule and then checked; a real conflict, a missing proof, a duplicate id, a malformed manual test block or decision line, or an integration branch that changed a file the slice changes too leaves the slice behind with its reason, and the queue goes on and exits non-zero at the end. A slice still checking is only listed as "not ready yet", and worktrees that could not be removed are named in the closing report and retried on the next `-Merge`.
+- **Finding ids.** Each slice gets a reserved range for the findings it discovers (`ids` in `work/_slices.json`, `New ids` in the round record), and adds them to the findings file named in the round record, so parallel slices never pick the same id.
 - **Full-suite lock.** Before a full test suite `/slice` creates `.slice-loop/full-suite.lock/` in the main checkout and removes it right after, so two sessions never run a full suite at once. A lock held by a live slice makes the session wait; any other lock is reported with its owner and time, never removed.
 - **Session hints and check scope.** `work/session-hints.md` holds hints for slice sessions, grown round by round; `/slice` reads it. The `Checks for a slice` line of `work/conventions.md` says which tests run when one screen changed and which when shared code changed.
 
@@ -110,8 +118,9 @@ Good to know:
 `/slice close` (the loop runs it for you) needs every slice of the round done, a clean working tree and the integration branch checked out. It then:
 
 1. runs the full check chain from `work/conventions.md` – red changes nothing and ends with `ROUND-OPEN`;
-2. writes the **manual test list** into the round record: per slice the start command, the steps, what you should see, the finding ids it closes and `Result: ☐`;
-3. sets `Status: closed` and commits the record as `Round Rnn closed: <slug>` on the integration branch. Nothing is pushed.
+2. writes the **manual test list** into the round record: per slice in slice order the start command, the numbered steps each with what you should see (`Expected:`), the finding ids it closes and `Result: ☐` – a drafted block that breaks this format stops the close with `ROUND-OPEN` instead of being repaired silently; the open decisions it lists include phrases such as "user decides" found outside `## Open decisions`;
+3. sets `Status: closed` and commits the record as `Round Rnn closed: <slug>` on the integration branch. Nothing is pushed;
+4. lists leftover worktrees and `slice-*`, `agent-*`, `worktree-*` branches with their tip SHA and offers to remove the ones without changes (links first).
 
 Try the build with that list. Tick `Result:` or write what you saw, answer the open decisions – in chat or in the round record. Your notes are the findings list of the next round: ask for the next round with the skill, and it reads and updates `work/conventions.md` instead of discovering it again, inherits the open decisions as `(from Rnn)`, and continues the slice numbering. One round is open at a time.
 

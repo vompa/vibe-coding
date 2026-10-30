@@ -1,12 +1,12 @@
 ---
 description: Work the current round slice by slice – next slice, a given slice, status, or close the round
-argument-hint: "[status | NN | close] [plan] [auto | parallel] [direct]"
+argument-hint: "[status | NN | close | quick <finding>] [plan] [auto | parallel] [direct]"
 ---
 You work the open round of this repository slice by slice. Arguments: "$ARGUMENTS".
 Answer me in the language of CLAUDE.md or README.md.
 "auto" means a script drives this session headless: nobody can answer questions mid-run.
 Never stop to ask in auto mode – decide on the documented default, or end with the marker
-lines of section 6 so the script can ask me.
+lines of section 5 so the script can ask me.
 Everything specific to this repository comes from work/ and CLAUDE.md; this command never needs editing.
 
 ## 1. Decide what to do
@@ -20,36 +20,39 @@ work/_slices.json. A slice is done when its row in work/checklist.md has a ☑ a
   Show one table for the slices of the open round: slice, name, model (field "model" in
   work/_slices.json), state (done / in progress / ready to merge / ready / blocked by …; "in progress" = not done,
   but a branch slice-NN exists or the row has a ☑; "ready to merge" = a branch slice-NN whose row is ticked
-  through Checks),
-  then the number of open decisions in the round record, one line for a held .slice-loop/full-suite.lock
-  (owner, since when) and one line "Ready next: …". Two or more
-  ready: offer parallel sessions (section 7). Stop there.
-- "close" → section 5.
+  through Checks), then the round's check level and its next milestone (section 4, step 1), the number of open
+  decisions in the round record, one line for a held .slice-loop/full-suite.lock (owner, since when) and one line
+  "Ready now: …" – the ready slices, each with the slices it shares a path of its field "files" with ("70 shares
+  src/EntryPreview.cs with 69"). Two or more ready: offer parallel sessions (.claude/slice/parallel.md). Stop there.
+- "close" → read and follow .claude/slice/close.md.
+- "quick" → read and follow .claude/slice/quick.md.
 - a number NN (two or more digits) → work on slice NN. Already done: say so and stop. A slice it
   depends on (field "deps") is not done: say which one and ask before going on
   (auto: print "SLICE-OPEN: NN blocked by <deps>" and stop).
 - nothing → pick the lowest-numbered slice of the open round that is not done and whose
   dependencies are all done. Say which one and why; if others are ready too, offer them parallel
-  sessions first (section 7), then go on with yours. Slices are left but none is ready:
+  sessions first (.claude/slice/parallel.md), then go on with yours. Slices are left but none is ready:
   show the status table and stop. Every slice of the round is done: say "All slices of Rnn done",
   propose "/slice close" (auto: print "ALL-DONE") and stop.
 
 ## 2. Read first, then check the baseline
 - work/conventions.md – integration branch, merge style, the commands (baseline check, checks for a
-  slice, full check chain), protocol file, documents that must change with a change, language,
+  slice, full check chain), check level, protocol file, documents that must change with a change, language,
   privacy rule
-- the open round record work/rounds/Rnn-*.md – source, brief, decisions so far, open decisions
-- work/slices/NN-*.md – goal, source, model, scope, patterns to mirror, NOT building, prompt,
+- the open round record work/rounds/Rnn-*.md – source, brief, decisions so far (a check level and milestones for
+  the round), open decisions
+- work/slices/NN-*.md – goal, source, model, check level, scope, patterns to mirror, NOT building, prompt,
   Definition of Done, non-goals
 - CLAUDE.md (and AGENTS.md when present) – the repository's hard rules
 - work/session-hints.md – the repository's hints for slice sessions, when it exists
 - what the slice's Source names: the findings file or concept document (the round record only
   references it), work/research.md when the slice cites it
 Before you change anything the working tree must be clean and the integration branch checked out;
-otherwise say what to do (auto: "SLICE-OPEN: NN <reason>"). Then run the baseline check from
-work/conventions.md (a full suite takes the lock of section 4). Red → change nothing and ask whether to fix that first
-(auto: "SLICE-OPEN: NN baseline red: <check>" and stop). No baseline check listed: only a slice
-that creates the checks itself may go on; otherwise stop ("SLICE-OPEN: NN no baseline check").
+otherwise say what to do (auto: "SLICE-OPEN: NN <reason>"). Then create the slice's worktree (recipe in section 3)
+and run the baseline check from work/conventions.md there, before your first change (a full suite takes the lock of
+section 4): a build in the main checkout also picks up files of other slices' worktrees. Red → change nothing and ask
+whether to fix that first (auto: "SLICE-OPEN: NN baseline red: <check>" and stop). No baseline check listed: only a
+slice that creates the checks itself may go on; otherwise stop ("SLICE-OPEN: NN no baseline check").
 
 ## 3. Plan and build the slice
 A branch slice-NN or a worktree for it may exist already (normal after a red slice and a re-run):
@@ -78,13 +81,25 @@ Rules for plan and build (both paths):
   from code and docs; only decisions are asked. An unambiguous task skips the round.
 - Seams: the plan names the seams the tests hit; the review focus says per seam what the test catches and what it misses.
 - Tests: expected values come from an independent source, not computed like the code (that is tautological).
-  Red counts when the test checks exactly the fault or requirement. Run the type check and the single test file
-  often, the full suite once at the end; refactor after green.
+  Red counts when the test checks exactly the fault or requirement. Red means the new test fails against the code
+  before the change (stash the change, or run it in a second worktree on the integration branch); a test made to fail
+  by a wrong expectation is not red – say this in every brief to a subagent. Write that red run to the checks proof
+  (section 4) with its exit code and the SHA it ran on; tick Tests red only with such a line, so test and code are not
+  written in one go. Run the type check and the single test file often, the checks of your check level (section 4)
+  once at the end – a full suite once at the end only where the level asks for one; refactor after green.
+- A fault: start with a command that shows it red, before any hypothesis.
+- A screen's behaviour is tested through the real input (click, key, focus) where the repository's test harness can,
+  not only by setting view-model state: a click path that breaks stays green otherwise.
+- Generated outputs (screenshots, snapshots, generated clients): commit those the slice's change explains, reset the rest.
+- Check scope beyond the slice's own screen: a rule added to an endpoint, a service or a base class → search every
+  caller and run their tests, or (from check level 2) the full suite before "green"; a change to a shared control or base → run its own tests
+  first, before changing it; a change to key bindings, focus or tab order → add the repository's focus-order tests.
+- New finding ids: take them from the slice's reserved range (field "ids" in work/_slices.json, column "New ids" of
+  "## Slices"). Without one, read the ids used on the integration branch (round record and findings file) and take
+  the next free ones; after the merge of step 6a, renumber your own new ids that collide.
 - Stop only for a real blocker: a missing dependency, a contradiction to the plan, or an ambiguity that would
   produce wrong code under a wrong assumption. Trivia the code answers, style questions (follow existing patterns)
-  and anything a test can settle go on; no "subagent or inline?" question after the plan.
-Debugging (a slice that fixes a fault): start with a command that shows the fault red, before any hypothesis; list
-three to five ranked hypotheses before testing one; put the regression test at a fitting seam – a missing seam is itself a finding.
+  and anything a test can settle go on.
 
 "plan" in the arguments → stop right after the plan is saved and shown. End with the line
 "PLAN: <path of the plan file>", plus one line "NEEDS-DECISION: <question>" for each point that
@@ -96,39 +111,68 @@ Without "plan" and with "auto": go on with the plan's assumptions; a point that 
 the run with its NEEDS-DECISION line and nothing built.
 
 The slice's model is the field "model" of its entry in work/_slices.json: the cheapest model that does
-this slice reliably, and the model this session was started on (by the loop or by section 7). Subagents
-of this slice (explorers, implementers) run on that model or a cheaper one; only a reviewing pass may use
-a stronger one, and only when work/conventions.md asks for it.
+this slice reliably, and the model this session was started on. Subagents of this slice (explorers,
+implementers) run on that model or a cheaper one; only a reviewing pass may use a stronger one, and only
+when work/conventions.md asks for it.
 
 As each step finishes, tick its column in the slice's row of work/checklist.md on slice-NN: Plan when
 the plan is approved, Tests red when the new tests fail for the right reason, Green when they pass.
 A column that does not apply (for example Tests red in a harness or docs-only slice) is ticked too,
-and the reason goes into the round record under Decisions, so the row has no ☐ left.
+and the reason goes into the round record under Decisions as a Build decision (section 4, step 2), so the row has no ☐ left.
 
-Keep me posted: one short status line at least every few minutes (what finished, what runs next).
+Keep me posted: one short status line at least every few minutes (what finished, what runs next); with `auto` or
+`parallel`, only the marker lines of section 5.
 Long reports of subagents go to work/_raw/ (git-ignored), not into the chat.
 
 ## 4. Close the slice
 Do 1–4 on slice-NN, so they land in the same commit as the code.
-1. Run the checks that work/conventions.md names for a slice; check the Definition of Done in the
-   slice file, including "no test weakened or skipped" and "no new package without approval".
-   A red test that is green when run alone or in a second unchanged run is load, not a regression: note it
-   under Surprises and go on. Check commands never end in `| tail` or another pipe inside an `&&` chain:
-   the pipe hides the exit code, so write the output to a file and read its exit code.
-   Review on two axes, kept apart: specification (every finding cites the plan line; ask about unrequested
+1. Run the checks that work/conventions.md names for a slice (always including every command of the baseline
+   check); check the Definition of Done in the slice file, including "no test weakened or skipped" and "no new
+   package without approval".
+   Check level (how often and how thoroughly a slice is checked): 1 to 5, default 3. It comes from the line
+   "- Check level" of work/conventions.md; the round record may set another level and name its milestones under
+   Decisions, and the slice file's "Check level" sets one for this slice only (the most specific one wins). "Own
+   checks" are the smallest fitting tier of work/conventions.md's checks for a slice; "shared code" is a shared UI
+   control, style or the shell, middleware, a database trigger, or a new rule on an endpoint, service or base class.
+   The baseline check runs on every level.
+   1. Own checks without the scan tests; full suites stay out of the slice; the full check chain only at round close.
+   2. Own checks including the scan tests; the full suite of an area only when the slice touches shared code; the full
+      check chain only at round close.
+   3. (default) Like 2, plus `slice-loop -Merge -Verify` at the round's milestones and at round close, not after
+      every group.
+   4. Like 3, plus `-Merge -Verify` after every group, and after merging the integration branch (step 6a) the full
+      suites of the areas the integration branch changed since the old base.
+   5. The full check chain in every slice on the tip and after every merge of the integration branch; `-Merge -Verify`
+      after every group.
+   A red test is first re-run alone; the whole suite runs again only when it stays red. A red test that is green when run
+   alone or in a second unchanged run is load, not a regression: note it under Surprises as "load, not a fault" (test, both
+   runs) and go on.
+   The run that proves the slice is the last one: on the final tip, after steps 2–5 and the merge of step 6a when it runs. A run
+   before a later commit must be repeated, so earlier runs cover what you changed and the full set runs once, at the end.
+   Checks proof: write each check you run to .slice-loop/slice-NN.checks in the main checkout (the parent of
+   `git rev-parse --git-common-dir`), one line per check: `<exit code> <commit SHA> <command>` – the command exactly
+   as work/conventions.md writes it, the SHA of `git rev-parse HEAD` on slice-NN when it ran. Always append; the merge
+   queue reads only the lines with the branch tip, the last one per command, so a stale run cannot wipe the proof. A
+   filtered test run that selected no tests proves nothing: correct the filter and write no proof line for that run.
+   Review the whole branch diff with a fresh, read-only reviewer (a subagent that did not write the code), on two axes, kept apart: specification (every finding cites the plan line; ask about unrequested
    scope) and standards (the repository rule beats the general rule; what tools enforce stays out).
    Full-suite lock (also for the baseline check of section 2): before a command that work/conventions.md names a full
-   suite, take .slice-loop/full-suite.lock in the main checkout (the parent of `git rev-parse --git-common-dir`) with
-   `mkdir` (PowerShell: `New-Item -ItemType Directory` without `-Force`), which fails when it exists, and write `owner`
-   inside: `slice NN` and an ISO-8601 time. Remove it right after the suite, red or green. A lock held by a slice whose
-   branch slice-MM exists and whose time is under 60 minutes old: retry every minute for at most 30 minutes. Any other
-   lock (branch gone, older, or the wait ran out) is reported with owner and time (auto: `SLICE-OPEN: NN lock held by
-   slice MM since <time>`); leave it untouched.
-2. Append to the round record: under Decisions the "Ruling: <decision> – User, <date>" lines (my
-   answers and changes), under Surprises what the plan did not foresee, under Deferred minors what
-   you left out on purpose; under Manual test list a draft of the slice's manual check items.
+   suite, take .slice-loop/full-suite.lock in the main checkout with `mkdir` (PowerShell: `New-Item -ItemType Directory`
+   without `-Force`), which fails when it exists, and write `owner` inside: `slice NN` and an ISO-8601 time. Remove it
+   right after the suite, red or green. A lock held by a slice whose branch slice-MM exists and whose time is under 60
+   minutes old: retry every minute for at most 30 minutes. Any other lock (branch gone, older, or the wait ran out) is
+   reported with owner and time (auto: `SLICE-OPEN: NN lock held by slice MM since <time>`); leave it untouched.
+2. Append to the round record: under Decisions one line per decision in one of two formats – "Ruling: <decision> –
+   User, <date>" for my answers and changes, "Build decision (slice NN): <decision> – Claude, <date>" for what you
+   decided while building (a column that does not apply, a point the code settled); the merge queue refuses a slice
+   that adds a line in another format there. Under Surprises what the plan did not foresee, under Deferred minors what
+   you left out on purpose. Every question for me is a "NEEDS-DECISION: <question>" line under Open decisions,
+   not only a note elsewhere. Under Manual test list insert the slice's block in slice-number order, in the
+   format of .claude/slice/close.md (one Expected: per step). A step of an earlier slice's block that your change makes
+   wrong gets "(superseded by slice NN: <what holds now>)" at the end of its Expected: line, so I do not test what no
+   longer applies.
    When "## Source" names a tracked findings file, mark the slice's ids there as "done in slice NN" in the
-   marking format the record names, before the squash.
+   marking format the record names, before the squash, and add new findings there in the file's own format.
    Decisions are recorded as "User, <date>" unless work/conventions.md allows names. No absolute
    paths, user or machine names in any file; personal names only where work/conventions.md allows.
 3. Write the entry that work/conventions.md names for the decision protocol, if it names one, in
@@ -143,23 +187,37 @@ Do 1–4 on slice-NN, so they land in the same commit as the code.
    loop stops with "reported done but not ticked". Pass the message with `git commit -F <file>` (a file or
    a heredoc), never inline: Git Bash rewrites a leading `/` into a path.
    With `auto` or `parallel`, do 6a, then stop here: write the squash message (commit language and style of
-   work/conventions.md, naming the slice and its ids) to .slice-loop/slice-NN.msg in the main checkout (the parent
-   of `git rev-parse --git-common-dir`), do not merge, leave Commit at ☐ and end with the last line
-   SLICE-READY: NN; the merge queue does the squash. without both arguments go on with step 6.
+   work/conventions.md, naming the slice and its ids) to .slice-loop/slice-NN.msg in the main checkout, leave Commit at
+   ☐, do not merge. Before SLICE-READY, all of these hold: the row is ticked through Checks, the worktree is clean, and
+   the checks proof has a green line on the tip for every check and every baseline command. As the very last write, put
+   the tip's SHA (`git rev-parse HEAD`) into .slice-loop/slice-NN.ready in the main checkout – again after any later
+   commit or merge – and end with the last line SLICE-READY: NN. The merge queue squashes only a slice whose ready file
+   names its tip, so it leaves a session alone while its last checks run.
+   The orchestrating session reacts only to SLICE-READY, NEEDS-DECISION and SLICE-OPEN, so report nothing else: a
+   fault found or a decision needed is said at once with its marker; "suite still running" is no report – background
+   checks wake you anyway. Only when the harness ends your turn while checks or a subagent still run, end with the one line
+   "SLICE-WAIT: NN <what runs>" and no status text – not with SLICE-READY, and not with "I wait for …" without the marker.
+   Without both arguments go on with step 6.
 6. Integrate: superpowers:finishing-a-development-branch (or by hand) – ONE squash commit on the
    integration branch named in work/conventions.md. Before the squash, in this order:
-   a. merge the integration branch into slice-NN and run the checks again after the merge, before the squash or SLICE-READY;
+   a. merge the integration branch into slice-NN only when needed: `git merge-tree --write-tree <integration branch>
+      slice-NN` reports a conflict, or `git diff --name-only <old base> <integration branch>` (old base: `git merge-base
+      slice-NN <integration branch>`) lists a file the slice also changes, documents (*.md) and work/ aside. Otherwise
+      keep your tip and its proof: the queue squashes a slice cut from an older integration branch as it is, and leaves
+      it behind ("integration branch moved and touches <files>") when such a file turns up later – then merge here.
+      After a merge, repeat the baseline check and your own checks on the merged tip before the squash or SLICE-READY;
+      full suites only when your check level asks for them (step 1) or the overlap lists a file; the interplay of
+      slices is covered by `-Merge -Verify` as the level asks; append these runs to the checks proof (the merged tip);
    b. in the main checkout, `git merge --squash slice-NN`;
-   c. check the resolved files before committing: `grep '^<<<<<<<'` finds nothing, every line of both sides
-      (`git show HEAD:<file>` and `git show slice-NN:<file>`) is still present, and the number of `Result:`
-      lines equals ours plus theirs minus the merge base;
+   c. check the resolved files before committing: `grep '^<<<<<<<'` finds nothing and every line of both sides
+      (`git show HEAD:<file>` and `git show slice-NN:<file>`) is still present, every `Result:` line too;
    d. commit in a separate command with `git commit -F <file>`, the message in the commit language and style
       of work/conventions.md, naming the slice and its finding or AC ids; resolving and committing never run
-      in one command. Never push. Run the merge in the checkout of the integration branch so its
-      work/checklist.md shows the tick. If the branch moved or the merge conflicts in work/checklist.md or the round record,
-   keep every tick and entry from both sides. In auto mode take this option without asking, then
-   remove the merged slice-NN branch and its own worktree, nothing else.
-7. Two or more slices are ready now: offer parallel sessions for them (section 7) before the lines below.
+      in one command. Never push. If the merge conflicts in work/checklist.md or the round record, keep every tick and
+      entry from both sides; lines both sides only added keep both, a table row both changed becomes one row with both
+      changes. In auto mode take this option without asking, then remove the merged slice-NN branch and its own
+      worktree, nothing else.
+7. Two or more slices are ready now: offer parallel sessions for them (.claude/slice/parallel.md) before the lines below.
 End with exactly three lines:
 - "Slice NN done" (or what is still open and why)
 - "Ready next: …" (e.g. "07, 08, 09 – can run in parallel in separate sessions"; all done: "none –
@@ -168,61 +226,17 @@ End with exactly three lines:
   (auto: instead "SLICE-DONE: NN" when everything is green, ticked and on the integration branch,
   else "SLICE-OPEN: NN <reason>")
 
-## 5. Close the round ("close")
-Only the open round; none → section 1. Never ask in auto mode.
-1. Every slice whose field "round" names this round must be done. Otherwise list the missing ones
-   and end with "ROUND-OPEN: Rnn <reason>". Likewise when the working tree is not clean or the
-   integration branch is not checked out.
-2. Run the full check chain from work/conventions.md on the integration branch. Red → change nothing
-   and end with "ROUND-OPEN: Rnn <failing check>".
-3. Write the manual test list into the round record under "## Manual test list": complete the
-   drafted items, take missing items from the "manual" fields of this round's slices, and add the
-   slices that have none yet, one block per slice with a manual check. One action per step;
-   "Expected" names something observable; I tick "Result" or write what I saw. Write each block
-   without indentation, in this form:
-```
-### Slice NN – <name>
-Start: <command from work/conventions.md>
-1. <what to click or type>
-Expected: <what must be visible or happen>
-Closes: <finding or AC ids>
-Result: ☐
-```
-4. Set the first line of the round record to "Status: closed". Commit the round record in the commit
-   language and style of work/conventions.md ("Round Rnn closed: <slug>"); never push.
-5. List the open decisions – the entries under "## Open decisions" in the round record – as bullets
-   in your closing message, never as lines starting with "NEEDS-DECISION:" (that marker belongs to
-   plan runs, section 6): the next round inherits them. Tell me where the manual test list is and
-   how to report: answer in chat or add to the round record; the next round starts from my notes. End with "ROUND-DONE: Rnn".
-
-## 6. Marker lines
+## 5. Marker lines
 The loop script (.claude/scripts/slice-loop.*) reads these lines. Print each on a line of its own,
 from the first column, exactly as written – no bullet, quote or code format, nothing before it:
 - "PLAN: <path of the plan file>" – last line of a "plan" run
 - "NEEDS-DECISION: <question>" – one per open point, before the PLAN line
 - "SLICE-DONE: NN" – the slice is green, ticked and on the integration branch
-- "SLICE-READY: NN" – branch committed, checklist ticked through Checks, squash message written; waits for the merge queue
+- "SLICE-READY: NN" – branch committed, checklist ticked through Checks, squash message and ready file written; waits for the merge queue
+- "SLICE-WAIT: NN <what runs>" – the harness ends the turn while checks still run in the background: the slice is still
+  running, not done; one line, no report; the loop checks back in this session, an orchestrating chat does not answer it
 - "SLICE-OPEN: NN <reason>" – anything else that stops the slice
 - "ALL-DONE" – every slice of the round is done, the round is still open
 - "ROUND-DONE: Rnn" – the round is closed
 - "ROUND-OPEN: Rnn <reason>" – the round could not be closed
-
-## 7. Parallel slices
-Ready = not done, no branch slice-NN, every slice in "deps" done. When two or more slices are ready
-(not counting the one this session works on), offer to start one separate session per ready slice,
-unasked and once per run; never in auto mode (the loop script starts the next run itself).
-- Offer, never start unasked: list the ready slices with name and kind (app, web, docs), say that
-  slices touching the same files collide when merged, suggest at most three at once (parallel builds
-  and test suites turn each other red under load; four were almost too many), and ask which ones to start.
-- On a yes, start each chosen slice in its own session in this repository's main checkout, with
-  your harness's tool for separate sessions if it has one (sharing this checkout, not a worktree of
-  the harness: the slice creates its own worktree in section 3), on the slice's model: the field
-  "model" of its entry in work/_slices.json goes into that tool's model parameter, never the model of
-  this session. Without such a tool, print one ready-to-paste prompt per slice instead, each headed
-  by the command line that starts it: `claude --model <model of the slice>`.
-- Each prompt carries: "/slice NN parallel"; the round, the slice's name, model, goal, scope, not-building list
-  and acceptance cases from work/_slices.json; that other slices run in parallel sessions, so the merge
-  in section 4 may conflict in work/checklist.md, the round record and the documents that change with
-  a change, and every tick and entry of both sides stays; that the squash happens in the main checkout through the merge queue (`slice-loop --merge`) or the running loop; that it reads work/session-hints.md when it exists; that it touches only its own branch and
-  worktree, never pushes, and ends with SLICE-READY: NN.
-- Never two sessions on one slice: a slice with a branch slice-NN is in progress, not ready.
+- "QUICK-DONE: <commit>" – a quick fix (.claude/slice/quick.md) is committed on the integration branch

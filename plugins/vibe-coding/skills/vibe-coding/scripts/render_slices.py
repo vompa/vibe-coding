@@ -4,12 +4,16 @@
 Usage: python3 render_slices.py <_slices.json> <output_dir> [--lang en|de]
 Entry fields (see references/templates.md, _slices.json):
   required: nr, slug, name, goal, deps, scope (list), non_goals
-  optional text (default: an en dash): round, source, model
+  optional text (default: an en dash): round, source, model, check_level, ids
     (round also names the round record the prompt points to; without it the prompt
     points to the open round record in work/rounds/; model is the cheapest model tier
-    the slice needs – the loop and parallel sessions start the slice on it)
+    the slice needs – the loop and parallel sessions start the slice on it; check_level
+    (1–5) overrides the round's check level for this slice, a dash keeps it; ids is the
+    range of finding ids reserved for new findings of the slice, e.g. "B84–B89")
   optional lists (rendered as "- item", an en dash when missing or empty):
-    mirror (patterns to copy as file:line), not_building,
+    mirror (patterns to copy as file:line), files (paths or folder prefixes ending
+    in "/" the slice expects to change; parallel slices sharing one are not started
+    together), not_building,
     acceptance (Given/When/Then, rendered as checkboxes in the Definition of Done),
     manual (manual check items, rendered as "Manual: ..." checkboxes there)
 Unknown fields are ignored.
@@ -30,12 +34,17 @@ TEMPLATES = {
 **Source:** {source}
 **Depends on:** {deps}
 **Model:** {model}
+**Check level:** {check_level}
+**Ids for new findings:** {ids}
 
 ## Scope
 {scope}
 
 ## Patterns to mirror
 {mirror}
+
+## Files expected to change
+{files}
 
 ## NOT building
 {not_building}
@@ -69,12 +78,17 @@ Implement slice {nr} "{name}" (this file).
 **Quelle:** {source}
 **Hängt ab von:** {deps}
 **Modell:** {model}
+**Prüfstufe:** {check_level}
+**IDs für neue Befunde:** {ids}
 
 ## Umfang
 {scope}
 
 ## Muster übernehmen
 {mirror}
+
+## Voraussichtlich geänderte Dateien
+{files}
 
 ## NICHT bauen
 {not_building}
@@ -120,8 +134,8 @@ PHRASES = {
 }
 
 REQUIRED = ("nr", "slug", "name", "goal", "deps", "scope", "non_goals")
-OPTIONAL_TEXT = ("round", "source", "model")
-OPTIONAL_LISTS = ("mirror", "not_building")
+OPTIONAL_TEXT = ("round", "source", "model", "check_level", "ids")
+OPTIONAL_LISTS = ("mirror", "files", "not_building")
 EMPTY = "–"
 
 
