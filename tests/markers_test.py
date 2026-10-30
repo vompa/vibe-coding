@@ -138,9 +138,10 @@ def test_command_stays_short_and_positive():
     1.6.0 moves it to 335: the check levels 1–5 and the scoped re-check after merging the integration branch came out
     of round R05 (three parallel slices re-ran every full suite after each squash).
     1.7.0 moves it to 345: merging the integration branch only on overlap, the two decision formats and the quiet
-    SLICE-WAIT came out of the same round."""
+    SLICE-WAIT came out of the same round.
+    1.8.0 moves it to 355: the watch, superseded manual steps and filtered runs without tests, same round."""
     text = (SKILL / "references/slice-command.md").read_text(encoding="utf-8")
-    assert len(text.splitlines()) <= 345, len(text.splitlines())
+    assert len(text.splitlines()) <= 355, len(text.splitlines())
     assert text.lower().count("never") <= 16, text.lower().count("never")
 
 def _skill_part(name, start, end=None):
@@ -350,12 +351,28 @@ def test_conventions_keys_stay_english():
         text = (SKILL / script).read_text(encoding="utf-8")
         assert "no '- Baseline check' line in" in text and "no '- Full check chain' line in" in text, script
 
+def test_r05_watch_scaffold_and_stale_rules():
+    """R05 after 1.7.0: reports that never woke the chat, parallel scaffolds, stale hints, stale manual steps, empty filters."""
+    parallel = " ".join(_section("## 7. Parallel slices", "## 8. Quick fix").split())
+    for phrase in ("`slice-loop -Merge -Watch`", "as a background command", "end the turn without text", "registration files", "scaffold"):
+        assert phrase in parallel, phrase
+    section = " ".join(_section(*SECTION_4).split())
+    for phrase in ("selected no tests proves nothing", "(superseded by slice NN:", "checks or a subagent still run"):
+        assert phrase in section, phrase
+    intake = _skill_part("references/intake.md", "## Both", "## Size classes")
+    assert "the registration files too" in intake and "A scaffold lands first" in intake
+    for name, start, end in (("SKILL.md", "**Session hints.**", "**Extend"), ("references/templates.md", "## work/session-hints.md", "```")):
+        assert "correct a bullet only where it contradicts" in _skill_part(name, start, end), name
+    for script in ("assets/slice-loop.ps1", "assets/slice-loop.sh"):
+        text = (SKILL / script).read_text(encoding="utf-8")
+        assert "watch.alive" in text and "left something to clean up" in text, script
+
 def test_release_version_is_consistent():
     import json
     manifest = json.loads((ROOT / "plugins/vibe-coding/.claude-plugin/plugin.json").read_text(encoding="utf-8"))["version"]
     skill = re.search(r'^\s+version: "([^"]+)"', (SKILL / "SKILL.md").read_text(encoding="utf-8"), re.M).group(1)
     changelog = re.search(r"^## (\S+) – \d{4}-\d{2}-\d{2}", (ROOT / "plugins/vibe-coding/CHANGELOG.md").read_text(encoding="utf-8"), re.M).group(1)
-    assert manifest == skill == changelog == "1.7.0", (manifest, skill, changelog)
+    assert manifest == skill == changelog == "1.8.0", (manifest, skill, changelog)
 
 def test_marketplace_validation_is_not_strict_but_the_plugins_are():
     """slice-board carries no version on purpose (every commit is an update), so only the marketplace check tolerates warnings."""
@@ -502,7 +519,7 @@ def test_slice_wait_is_one_quiet_line():
                    "background checks wake you anyway", "no status text"):
         assert phrase in section, phrase
     assert "one line, no report" in _section(*SECTION_6)
-    assert "a SLICE-WAIT needs no answer" in _section("## 7. Parallel slices")
+    assert "A SLICE-WAIT, or any other turn end without one of these markers, gets no answer" in _section("## 7. Parallel slices")
 
 SECTION_2_ = ("## 2. Read first", "## 3. Plan and build")
 

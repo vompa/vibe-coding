@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.8.0 – 2026-10-30
+More from round R05, after 1.7.0: two finished slices waited four hours because their reports never woke the orchestrating chat.
+- **`-Merge -Watch` / `--merge --watch`.** Waits until a slice reports ready on a new tip, runs the queue once and exits, so a background run squashes without the chat and its end wakes the chat. A slice left behind (`.slice-loop/slice-NN.left`) brings it back only with a new tip; a second watch next to a running one (`.slice-loop/watch.alive`, under 60 minutes old) exits at once. `SLICE_WATCH_SECONDS` (60), `SLICE_WATCH_MAX` (480). `/slice` section 7 has the orchestrator start it after starting sessions. Both loop scripts.
+- **Registration files and scaffolds.** `files` also names the shell, resource lists and route tables, and a slice that builds a scaffold others use lands first: two slices had been judged independent, then collided in four shared files with two scaffolds, and later pairs collided in the same files.
+- **Session hints may be corrected.** A bullet that contradicts `work/conventions.md` or the current `/slice` is corrected; hints told sessions to repeat every check after a merge, against the check levels.
+- **No answer to a turn end without a marker.** 30 `SLICE-WAIT` turns each drew a status report despite 1.7.0; the rule now says to end the turn without text, and sessions use the marker while a subagent runs too.
+- **Superseded manual test steps** get "(superseded by slice NN: …)" on their Expected: line.
+- **A filtered run without tests is no proof.** Two slices' filters selected nothing.
+- **The closing report names leftovers.** Squashed slices whose worktree or folder could not be removed are listed at the end. Git drops its worktree entry even when files inside are held, so the retries stop there and the folder is named.
+
 ## 1.7.0 – 2026-10-30
 More from round R05: the merge queue and the orchestrating chat caused work and reports nobody needed.
 - **"Not ready yet" no longer fails `-Merge`.** A slice whose session has not written `.slice-loop/slice-NN.ready` for its tip (it is still checking) is listed as "not ready yet" and the queue exits 0 for it; a non-zero exit now means a real problem – a conflict, a missing or red proof, a malformed record, a lost link target. In the build loop, where the session has ended, a missing ready file still leaves the slice behind. Both loop scripts.

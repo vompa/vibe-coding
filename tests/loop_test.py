@@ -436,6 +436,34 @@ PROFILES = [
              {"STUB_LOCK": "100", "SLICE_WRITE_BACKOFF_SECONDS": "1"}, None, (0, 4, 1, 0),
              {"holds": [{"unlock": "retrying"}], "subjects": ["Slice 100 stub squash"], "branches": [],
               "says": "retrying in 1 s (attempt 1 of 5)", "says_not": "could not be removed"}),
+            # What a removal leaves is said in the closing report, not only among the retries.
+            ("the report names a worktree the squash could not remove", 3, ["--yes", "--max-slices", "1"],
+             {"STUB_LOCK": "100", "SLICE_WRITE_RETRIES": "0"}, None, (0, 4, 1, 0),
+             {"subjects": ["Slice 100 stub squash"], "branches": ["slice-100"],
+              "says": ["1 squashed slice(s) left something to clean up", "slice-100 kept"]}),
+            # --watch: an orchestrating chat may not be woken by a session's report (R05: two slices waited four hours).
+            ("watch squashes a slice that has reported ready and exits", 3, ["--merge", "--watch"], {"SLICE_WATCH_SECONDS": "0"}, None,
+             (0, 4, 0, 0), {"prepared": [{"nr": "100"}], "subjects": ["Slice 100 stub squash"], "no_calls": True,
+                            "says": "watching for SLICE-READY"}),
+            ("watch ends after its last check when no slice reports ready", 3, ["--merge", "--watch"],
+             {"SLICE_WATCH_SECONDS": "0", "SLICE_WATCH_MAX": "2"}, None, (0, 3, 0, 0),
+             {"prepared": [{"nr": "100", "ready_file": "missing"}], "subjects": [], "branches": ["slice-100"], "no_calls": True,
+              "says": "no slice reported ready after 2 check(s)", "says_not": "not ready yet"}),
+            ("watch squashes a slice that reports ready while it waits", 3, ["--merge", "--watch"],
+             {"SLICE_WATCH_SECONDS": "1", "SLICE_WATCH_MAX": "30"}, None, (0, 4, 0, 0),
+             {"prepared": [{"nr": "100", "ready_file": "missing"}], "holds": [{"report_ready": "100"}],
+              "subjects": ["Slice 100 stub squash"], "no_calls": True}),
+            # A slice left behind wakes the orchestrator once; only a new tip brings it back.
+            ("watch does not wake again for a slice it already left behind", 3, ["--merge", "--watch"],
+             {"SLICE_WATCH_SECONDS": "0", "SLICE_WATCH_MAX": "1"}, None, (0, 3, 0, 0),
+             {"prepared": [{"nr": "100", "checks": "red"}], "rerun": ["--merge", "--watch"], "subjects": [], "branches": ["slice-100"],
+              "no_calls": True, "says": ["check red (exit 1): unit-tests", "no slice reported ready after 1 check(s)"]}),
+            ("a second watch does not squash next to a running one", 3, ["--merge", "--watch"], {"SLICE_WATCH_SECONDS": "0"}, None,
+             (0, 3, 0, 0), {"prepared": [{"nr": "100"}], "watch_alive": 0, "subjects": [], "branches": ["slice-100"], "no_calls": True,
+                            "says": "already watching"}),
+            ("a watch whose predecessor died long ago goes on", 3, ["--merge", "--watch"], {"SLICE_WATCH_SECONDS": "0"}, None,
+             (0, 4, 0, 0), {"prepared": [{"nr": "100"}], "watch_alive": 61, "subjects": ["Slice 100 stub squash"], "no_calls": True,
+                            "says_not": "already watching"}),
             # A squash marker of a branch that has commits after the squash: nothing for the queue to do.
             ("merge leaves a squashed branch that moved since", 4, ["--merge"], {}, None, (0, 4, 0, 0),
              {"prepared": [{"nr": "100"}], "squashed": {"100": "0" * 40}, "subjects": [], "branches": ["slice-100"],
@@ -544,7 +572,7 @@ PROFILES = [
 ]
 # Options that start with "--" become PowerShell switches; a value after one (--max-slices 1) stays as it is.
 PWSH_FLAGS = {"--yes": "-Yes", "--parallel": "-Parallel", "--dry-run": "-DryRun", "--max-slices": "-MaxSlices", "--merge": "-Merge",
-              "--verify": "-Verify"}
+              "--verify": "-Verify", "--watch": "-Watch"}
 TEST_IDENTITY = (("user.name", "loop-test"), ("user.email", "loop-test@example.invalid"))
 
 
@@ -675,10 +703,15 @@ def make_repo(base: pathlib.Path, profile: dict, done: int, rounds: list[tuple[s
 def prepare_state(repo: pathlib.Path, expected: dict) -> None:
     """State an earlier run left in .slice-loop/: "squashed" (slice nr -> the commit its squash marker names) and "lock"
     (a full-suite lock: owner text, age_minutes)."""
-    if "squashed" not in expected and "lock" not in expected:
+    if "squashed" not in expected and "lock" not in expected and "watch_alive" not in expected:
         return
     log_dir = repo / ".slice-loop"
     log_dir.mkdir(exist_ok=True)
+    if "watch_alive" in expected:  # the sign of life of another watch, this many minutes old
+        alive = log_dir / "watch.alive"
+        alive.write_text("", encoding="utf-8")
+        then = time.time() - 60 * expected["watch_alive"]
+        os.utime(alive, (then, then))
     for nr, sha in expected.get("squashed", {}).items():
         (log_dir / f"slice-{nr}.squashed").write_text(sha + "\n", encoding="utf-8", newline="\n")
     if "lock" in expected:
@@ -780,9 +813,27 @@ class Unlock(Hold):
         self.held, self.done = False, True
 
 
+class ReportReady(Hold):
+    """A slice session that reports ready while the watch waits: at the watch's first line it writes the ready file of
+    slice {"report_ready": nr} with the branch tip, as /slice does last before SLICE-READY."""
+
+    def __init__(self, repo: pathlib.Path, spec: dict):
+        self.repo, self.nr, self.start, self.release = repo, spec["report_ready"], "watching for SLICE-READY", None
+        self.held = self.done = False
+
+    def take(self) -> None:
+        tip = git(self.repo, "rev-parse", f"slice-{self.nr}").strip()
+        (self.repo / f".slice-loop/slice-{self.nr}.ready").write_text(tip + "\n", encoding="utf-8", newline="\n")
+        self.held = True
+
+    def free(self) -> None:
+        self.held, self.done = False, True
+
+
 def run_held(arguments: list[str], repo: pathlib.Path, env: dict, specs: list[dict]) -> subprocess.CompletedProcess:
     """Runs the loop while other processes hold files (Hold), reading its output as it comes to start and end each hold."""
-    holds = [Unlock(repo, spec) if "unlock" in spec else Hold(repo, spec) for spec in specs]
+    kinds = {"unlock": Unlock, "report_ready": ReportReady}
+    holds = [next((kind for key, kind in kinds.items() if key in spec), Hold)(repo, spec) for spec in specs]
     for hold in holds:
         if not hold.start:
             hold.take()

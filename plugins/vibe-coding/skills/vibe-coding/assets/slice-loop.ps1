@@ -28,10 +28,12 @@ pwsh .claude/scripts/slice-loop.ps1 -DryRun          # only print the slices tha
 pwsh .claude/scripts/slice-loop.ps1 -MaxSlices 3     # stop after 3 built slices if slices are left (exit 0; run again to continue)
 pwsh .claude/scripts/slice-loop.ps1 -Merge           # only run the merge queue: squash every slice-NN branch ticked through Checks, retry removing worktrees an earlier squash left, then exit (starts no session, needs no open round)
 pwsh .claude/scripts/slice-loop.ps1 -Merge -Verify   # after the queue, when it squashed a slice: run every command of the "- Full check chain" line in work/conventions.md on the integration branch, under .slice-loop/full-suite.lock (red: exit 1; -Verify needs -Merge)
+pwsh .claude/scripts/slice-loop.ps1 -Merge -Watch    # wait until a slice reports ready on a new tip, run the queue once, then exit (a background command, so it wakes the chat that started it; -Watch needs -Merge). A slice left behind brings it back only with a new tip; a second watch next to a running one exits at once
 Optional field "files" of an entry in work/_slices.json: the repo-relative paths (or prefixes ending in "/") the slice is expected to change.
 Env: SLICE_PERMISSION_MODE (default: auto) – passed to claude --permission-mode.
      SLICE_PARALLEL_MAX (default: 2) – most slices in one -Parallel batch (three sessions on one machine made unrelated tests red under load).
      SLICE_WAIT_SECONDS (default: 60), SLICE_WAIT_MAX (default: 30) – pause and number of check-backs on SLICE-WAIT.
+     SLICE_WATCH_SECONDS (default: 60), SLICE_WATCH_MAX (default: 480) – pause and number of checks of -Watch.
      SLICE_WRITE_RETRIES (default: 5), SLICE_WRITE_BACKOFF_SECONDS (default: 2) – retries and pause when the queue
      cannot write a file or reset a merge because another process (scanner, indexer, editor) holds it, and when git
      cannot remove the worktree of a squashed slice (a shell of the finished session may still stand in it).
@@ -42,6 +44,7 @@ param(
     [switch]$DryRun,
     [switch]$Merge,
     [switch]$Verify,
+    [switch]$Watch,
     [string]$MaxSlices
 )
 $ErrorActionPreference = 'Stop'
@@ -57,16 +60,20 @@ $WaitMax = if ($env:SLICE_WAIT_MAX) { [int]$env:SLICE_WAIT_MAX } else { 30 }
 $WriteRetries = if ($env:SLICE_WRITE_RETRIES) { [int]$env:SLICE_WRITE_RETRIES } else { 5 }
 $WriteBackoff = if ($env:SLICE_WRITE_BACKOFF_SECONDS) { [double]$env:SLICE_WRITE_BACKOFF_SECONDS } else { 2 }
 $ParallelMax = if ($env:SLICE_PARALLEL_MAX) { [int]$env:SLICE_PARALLEL_MAX } else { 2 }
+$WatchSeconds = if ($env:SLICE_WATCH_SECONDS) { [double]$env:SLICE_WATCH_SECONDS } else { 60 }
+$WatchMax = if ($env:SLICE_WATCH_MAX) { [int]$env:SLICE_WATCH_MAX } else { 480 }
+$WatchAlive = "$LogDir/watch.alive"   # sign of life of a running -Watch, written at every check
 $LockDir = "$LogDir/full-suite.lock"   # taken (mkdir) by whoever runs the full suite; holds a file "owner"
 $WriteFailed = ''   # the file Write-Utf8File gave up on
 $Merging = $false   # a squash merge is in progress in this checkout; Merge-Slice resets it on any way out
 $Squashed = 0       # slices this run squashed
 $LinkLost = $false  # a folder a link of a removed worktree pointed to lost entries
-$Usage = 'use -Yes, -Parallel, -DryRun, -MaxSlices N, -Merge, -Verify (with -Merge)'
+$Usage = 'use -Yes, -Parallel, -DryRun, -MaxSlices N, -Merge, -Verify and -Watch (with -Merge)'
 $SliceCap = 0   # 0 = no cap
 $Built = 0
 $LeftBehind = [ordered]@{}  # slices the merge queue left behind in this run: number -> reason
 $NotReady = [ordered]@{}    # slices -Merge found not ready yet (their session still checks): number -> reason
+$CleanUp = [ordered]@{}     # squashed slices whose worktree or folder could not be removed: number -> what is left
 
 function Stop-Loop([string]$Message) {
     [Console]::Error.WriteLine("slice-loop: $Message")
@@ -77,6 +84,8 @@ function Stop-Loop([string]$Message) {
 function Add-LeftSlice([string]$Nr, [string]$Reason) {
     Write-Host "[slice $Nr] left behind: $Reason – slice-$Nr kept"
     $script:LeftBehind[$Nr] = $Reason
+    # -Watch comes back to this slice only with a new tip.
+    if ($Watch) { Set-Content -LiteralPath (Join-Path $LogDir "slice-$Nr.left") -Value @(Get-GitLines @('rev-parse', "slice-$Nr"))[0] -Encoding utf8 }
 }
 
 # A slice -Merge leaves for a later run: its session has not reported ready on its tip yet. Not a problem of the slice.
@@ -95,6 +104,10 @@ function Write-LeftReport {
     if ($script:LeftBehind.Count -gt 0) {
         [Console]::Error.WriteLine("slice-loop: $($script:LeftBehind.Count) slice(s) left behind – fix them on their branch, then run -Merge again:")
         foreach ($nr in $script:LeftBehind.Keys) { [Console]::Error.WriteLine("  slice ${nr}: $($script:LeftBehind[$nr])") }
+    }
+    if ($script:CleanUp.Count -gt 0) {
+        Write-Host "slice-loop: $($script:CleanUp.Count) squashed slice(s) left something to clean up:"
+        foreach ($nr in $script:CleanUp.Keys) { Write-Host "  slice ${nr}: $($script:CleanUp[$nr])" }
     }
     return $script:LeftBehind.Count -eq 0 -and -not $script:LinkLost
 }
@@ -210,15 +223,19 @@ function Remove-SliceBranch([string]$Nr) {
         for ($attempt = 0; ; $attempt++) {
             git worktree remove $path *> $null
             if ($LASTEXITCODE -eq 0) { break }
+            # Git drops its entry even when files inside are held: there is nothing left to retry, only a folder.
+            if (-not (Get-WorktreeOf $branch)) { break }
             if ($attempt -ge $WriteRetries) {
                 Write-Host ("[slice $Nr] worktree $path could not be removed – most likely a shell, editor or process still runs inside it " +
                     "(or it is locked); close it and run -Merge again to retry. $path and $branch are kept")
+                $script:CleanUp[$Nr] = "$path and $branch kept – close what runs inside it, then run -Merge again"
                 return
             }
             Write-Host "slice-loop: could not remove the worktree of slice-$Nr (a shell or process still runs inside it?) – retrying in $WriteBackoff s (attempt $($attempt + 1) of $WriteRetries)"
             Start-Sleep -Seconds $WriteBackoff
         }
         Test-LinkTargets $Nr $held
+        if (Test-Path -LiteralPath $path) { $script:CleanUp[$Nr] = "folder $path remains – close what holds it and delete it" }
     }
     Remove-Item -LiteralPath (Join-Path $LogDir "slice-$Nr.squashed") -ErrorAction SilentlyContinue
     # -D: a squash merge leaves the branch unmerged in git's eyes; the squash commit made just now is the proof.
@@ -741,13 +758,47 @@ function Invoke-RetryRemoval([string]$Nr) {
     }
 }
 
+# The number of every slice-NN branch, lowest first.
+function Get-SliceNumbers {
+    Get-GitLines @('for-each-ref', '--format=%(refname:short)', 'refs/heads/slice-*') |
+        Where-Object { $_ -match '^slice-\d{2,}$' } | ForEach-Object { $_ -replace '^slice-', '' } | Sort-Object { [int]$_ }
+}
+
+# Whether a slice has reported ready on a tip the queue has not left behind yet.
+function Test-SliceReported {
+    foreach ($nr in Get-SliceNumbers) {
+        if ((Test-Done $nr) -or (Get-ReadyProblem $nr)) { continue }
+        $left = Join-Path $LogDir "slice-$nr.left"
+        if ((Test-Path -LiteralPath $left) -and (Get-Content -LiteralPath $left -Raw).Trim() -ceq @(Get-GitLines @('rev-parse', "slice-$nr"))[0]) { continue }
+        return $true
+    }
+    return $false
+}
+
+# Whether another -Watch shows a sign of life. An older one has died: its file stays, and this run goes on.
+function Test-WatchRunning {
+    if (-not (Test-Path -LiteralPath $WatchAlive)) { return $false }
+    return ((Get-Date) - (Get-Item -LiteralPath $WatchAlive).LastWriteTime).TotalMinutes -lt 60
+}
+
+# -Watch: waits until a slice has reported ready; $false after the last check. The queue then runs once and the script
+# ends, so the chat that started it in the background is woken even when a session's own report never reached it.
+function Wait-ForReadySlice {
+    Write-Host "slice-loop: watching for SLICE-READY every $WatchSeconds s, at most $WatchMax check(s)"
+    for ($check = 1; $check -le $WatchMax; $check++) {
+        Set-Content -LiteralPath $WatchAlive -Value '' -NoNewline
+        if (Test-SliceReported) { return $true }
+        if ($check -lt $WatchMax) { Start-Sleep -Seconds $WatchSeconds }
+    }
+    Write-Host "slice-loop: no slice reported ready after $WatchMax check(s) – start the watch again while sessions run"
+    return $false
+}
+
 # The merge queue alone (-Merge): every slice-NN branch, lowest number first; one not ticked through Checks is left,
 # one that conflicts or lacks its proof is left behind and the queue goes on.
 function Invoke-MergeQueue {
-    $branches = Get-GitLines @('for-each-ref', '--format=%(refname:short)', 'refs/heads/slice-*') |
-        Where-Object { $_ -match '^slice-\d{2,}$' } | Sort-Object { [int]($_ -replace '^slice-', '') }
-    foreach ($branch in $branches) {
-        $nr = $branch -replace '^slice-', ''
+    foreach ($nr in Get-SliceNumbers) {
+        $branch = "slice-$nr"
         if (Test-Done $nr) { Invoke-RetryRemoval $nr; continue }
         if (Test-BranchReady $nr) { [void](Merge-Slice $nr) }
         else { Write-Host "[slice $nr] not ready to merge: its row on $branch is not ticked through Checks – left as it is" }
@@ -1000,6 +1051,7 @@ if ($PSBoundParameters.ContainsKey('MaxSlices') -and -not ([int]::TryParse($MaxS
     Stop-Loop "-MaxSlices needs a positive integer ($Usage)"
 }
 if ($Verify -and -not $Merge) { Stop-Loop "-Verify needs -Merge ($Usage)" }
+if ($Watch -and -not $Merge) { Stop-Loop "-Watch needs -Merge ($Usage)" }
 if (-not ((Test-Path $SlicesFile) -and (Test-Path $ChecklistFile))) {
     Stop-Loop "run from the repo root (needs $SlicesFile and $ChecklistFile)"
 }
@@ -1012,11 +1064,19 @@ if ((Test-Path $exclude) -and -not (Select-String -Path $exclude -Pattern "^$Log
 Write-StaleLockNotice
 Write-BaselineNotice
 if ($Merge) {
-    Invoke-MergeQueue
-    $clean = Write-LeftReport
-    $verified = if ($Verify) { Invoke-Verify } else { $true }
-    if (-not ($clean -and $verified)) { exit 1 }
-    exit 0
+    if ($Watch -and (Test-WatchRunning)) {
+        Write-Host "slice-loop: already watching ($WatchAlive is under 60 minutes old; delete it if no watch runs)"
+        exit 0
+    }
+    try {
+        if ($Watch -and -not (Wait-ForReadySlice)) { exit 0 }
+        Invoke-MergeQueue
+        $clean = Write-LeftReport
+        $verified = if ($Verify) { Invoke-Verify } else { $true }
+        if (-not ($clean -and $verified)) { exit 1 }
+        exit 0
+    }
+    finally { if ($Watch) { Remove-Item -LiteralPath $WatchAlive -ErrorAction SilentlyContinue } }
 }
 $OpenRound = Get-OpenRound
 if (-not $OpenRound) {

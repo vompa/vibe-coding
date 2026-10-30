@@ -5,7 +5,7 @@ license: MIT
 compatibility: Designed for Claude Code with file access and subagents; render script needs Python 3.10+; the slice-loop needs the claude CLI plus PowerShell 7 or bash; uses the superpowers plugin when installed.
 metadata:
   author: vompa
-  version: "1.7.0"
+  version: "1.8.0"
 ---
 
 # Vibe Coding – run everyday coding work in rounds of slices
@@ -80,7 +80,7 @@ Write `work/conventions.md` from `references/templates.md`: one line per fact wi
 
 - **Check scope per slice.** Ask the user for the split and record it on the `Checks for a slice` line: one screen touched → its test classes plus the cross-page scan tests; shared code touched → the full suite; never two full suites at once. Name the widenings too: a new rule on an endpoint, service or base class → the tests of every caller (found by search) or the full suite; a shared control → its own tests first; key bindings, focus or tab order → the repository's focus-order tests by name.
 - **Check level.** Write `- Check level: 3` (the default) unless the user picks another level from 1 to 5; the levels are defined in `/slice` section 4, step 1, where the checks are. A round may set its own level and its milestones – the slices after which `slice-loop -Merge -Verify` runs the full check chain – as a Ruling under `## Decisions`; a slice may set `check_level` in `_slices.json` (section 4).
-- **Session hints.** The first round also creates `work/session-hints.md` from `references/templates.md` (what the repository's rules and tooling already teach slice sessions); later rounds append what the previous round learned and change no existing bullet.
+- **Session hints.** The first round also creates `work/session-hints.md` from `references/templates.md` (what the repository's rules and tooling already teach slice sessions); later rounds append what the previous round learned and correct a bullet only where it contradicts `work/conventions.md` or the current `/slice` – the hints go into every slice's start, so a stale bullet overrules the newer rule.
 - **Extend, never replace.** Pointers, not copies: long rules stay in their document, `conventions.md` names the owner of each fact. Conflicts between documents are listed under `## Conflicts between documents`, never resolved silently.
 - **Privacy rule for names.** When the repository does not say, ask once whether files may name people (a private repository may); otherwise decisions are "User, <date>". Record the answer.
 - **No `CLAUDE.md`?** Create the lean one from `references/templates.md` plus `conventions.md` with defaults (`main`, squash, "User, <date>", source `default`). An existing `CLAUDE.md` is never replaced or reformatted.

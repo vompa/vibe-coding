@@ -36,7 +36,7 @@ A pointer file: one line per fact, the document it comes from after it (`← sou
 In a repository without rules the lines say `default` as their source: `main`, squash, `"User, <date>"`. Extend the repository's rules, never replace them.
 
 ## work/session-hints.md
-Repository-specific hints for slice sessions, grown round by round: the first round writes what the repository's rules and tooling already teach, later rounds append what the previous round learned and change no existing bullet. `/slice` reads it in section 2 and the parallel prompts name it. The bullets below are an open list of examples, not a checklist: keep what applies, add what the repository needs.
+Repository-specific hints for slice sessions, grown round by round: the first round writes what the repository's rules and tooling already teach, later rounds append what the previous round learned and correct a bullet only where it contradicts `work/conventions.md` or the current `/slice`. `/slice` reads it in section 2 and the parallel prompts name it. The bullets below are an open list of examples, not a checklist: keep what applies, add what the repository needs.
 ```
 # Hints for slice sessions
 Repository-specific experience for the sessions that work a slice. They add to `.claude/commands/slice.md` and `work/conventions.md`; every round appends what it learned.

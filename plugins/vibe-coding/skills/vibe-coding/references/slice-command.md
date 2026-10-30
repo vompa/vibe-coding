@@ -161,7 +161,8 @@ Do 1–4 on slice-NN, so they land in the same commit as the code.
    `git rev-parse --git-common-dir`), one line per check: `<exit code> <commit SHA> <command>` – the command exactly
    as work/conventions.md writes it, the SHA of `git rev-parse HEAD` on slice-NN when it ran. Always append, so a stale
    run of an old session cannot wipe the proof. The merge queue reads only the lines with the branch tip, the last one
-   per command; it squashes when each of them is green and every baseline command is listed.
+   per command; it squashes when each of them is green and every baseline command is listed. A filtered test run that
+   selected no tests proves nothing: read the test count, correct the filter, and write no proof line for that run.
    Review the whole branch diff with a fresh, read-only reviewer (a subagent that did not write the code), on two axes, kept apart: specification (every finding cites the plan line; ask about unrequested
    scope) and standards (the repository rule beats the general rule; what tools enforce stays out). The review
    also checks that every raised timeout or wait in a test is recorded with its reason.
@@ -178,7 +179,9 @@ Do 1–4 on slice-NN, so they land in the same commit as the code.
    that adds a line in another format there. Under Surprises what the plan did not foresee, under Deferred minors what
    you left out on purpose. Every question for me is a "NEEDS-DECISION: <question>" line under Open decisions,
    not only a note elsewhere. Under Manual test list insert the slice's block in slice-number order, in the
-   format of section 5 (steps 1..n, one Expected: per step, one Closes: and one Result line per block).
+   format of section 5 (steps 1..n, one Expected: per step, one Closes: and one Result line per block). A step of an
+   earlier slice's block that your change makes wrong gets "(superseded by slice NN: <what holds now>)" at the end of its
+   Expected: line, so I do not test what no longer applies.
    When "## Source" names a tracked findings file, mark the slice's ids there as "done in slice NN" in the
    marking format the record names, before the squash, and add new findings there in the file's own format.
    Decisions are recorded as "User, <date>" unless work/conventions.md allows names. No absolute
@@ -208,7 +211,7 @@ Do 1–4 on slice-NN, so they land in the same commit as the code.
    5. .slice-loop/slice-NN.ready holds the tip's SHA – write it again after any later commit or merge on slice-NN.
    The orchestrating session reacts only to SLICE-READY, NEEDS-DECISION and SLICE-OPEN, so report nothing else: a
    fault found or a decision needed is said at once with its marker; "suite still running" is no report – background
-   checks wake you anyway. Only when the harness ends your turn while checks still run, end with the one line
+   checks wake you anyway. Only when the harness ends your turn while checks or a subagent still run, end with the one line
    "SLICE-WAIT: NN <what runs>" and no status text – not with SLICE-READY, and not with "I wait for …" without the marker.
    without both arguments go on with step 6.
 6. Integrate: superpowers:finishing-a-development-branch (or by hand) – ONE squash commit on the
@@ -299,8 +302,9 @@ Ready = not done, no branch slice-NN, every slice in "deps" done. When two or mo
 (not counting the one this session works on), offer to start one separate session per ready slice,
 unasked and once per run; never in auto mode (the loop script starts the next run itself).
 - Offer, never start unasked: list the ready slices with name and kind (app, web, docs), name the ones that
-  share a file (field "files" in work/_slices.json: equal paths or a folder prefix) – those run one after the
-  other, not side by side –, suggest at most two at once (three sessions on one machine made unrelated tests red
+  share a file (field "files" in work/_slices.json: equal paths or a folder prefix; registration files such as the
+  shell, the app's resource list or a route table count) – those run one after the
+  other, not side by side, and a slice that builds a scaffold others use lands first –, suggest at most two at once (three sessions on one machine made unrelated tests red
   under load and queued at the full-suite lock), and ask which ones to start.
 - On a yes, start each chosen slice in its own session in this repository's main checkout, with
   your harness's tool for separate sessions if it has one (sharing this checkout, not a worktree of
@@ -320,12 +324,16 @@ unasked and once per run; never in auto mode (the loop script starts the next ru
   work/session-hints.md when it exists, the round record and the slice file itself, works only on its own branch
   and worktree, and ends with SLICE-READY: NN or SLICE-WAIT; the squash happens in the main checkout through the merge
   queue (`slice-loop --merge`) or the running loop.
+- Right after starting sessions, the orchestrating session starts `slice-loop -Merge -Watch` (`--merge --watch`) as a
+  background command: it waits for a slice to report ready, squashes, and its end wakes the chat, also when a session's
+  own report does not arrive (two slices once waited four hours). When it ends, start the next slices and the watch again.
 - `slice-loop -Merge` (`--merge`) squashes the ready slices. Add `-Verify` (`--verify`) – the full check chain once on
   the integration branch – as the check level asks (section 4, step 1): at the round's milestones on level 3, after every
   group on levels 4 and 5; round close runs the chain on every level. A desktop
   harness may refuse to start sessions from background events; for long autonomous runs suggest `slice-loop -Parallel`.
 - The orchestrating session acts only on SLICE-READY (run the queue), NEEDS-DECISION (ask me) and SLICE-OPEN (look
-  at the reason); a SLICE-WAIT needs no answer. `-Merge` lists a slice whose session has not reported ready yet as
+  at the reason). A SLICE-WAIT, or any other turn end without one of these markers, gets no answer and no status line:
+  end the turn without text. `-Merge` lists a slice whose session has not reported ready yet as
   "not ready yet" and still exits 0; a non-zero exit means a slice was left behind for a real reason.
 - Never two sessions on one slice: a slice with a branch slice-NN is in progress, not ready.
 

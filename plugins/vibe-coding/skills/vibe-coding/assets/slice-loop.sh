@@ -19,7 +19,7 @@
 # Stops for plan approval unless --yes; stops on NEEDS-DECISION, red tests or a blocked slice. A slice that ends its
 # turn with SLICE-WAIT is still running: the loop checks back on it in the same session.
 #
-# Usage: bash .claude/scripts/slice-loop.sh [--yes] [--parallel] [--dry-run] [--max-slices N] [--merge [--verify]]
+# Usage: bash .claude/scripts/slice-loop.sh [--yes] [--parallel] [--dry-run] [--max-slices N] [--merge [--verify] [--watch]]
 #   --yes           approve plans without asking (still stops on NEEDS-DECISION)
 #   --parallel      build slices that are ready at the same time side by side (headless; for long autonomous runs):
 #                   at most SLICE_PARALLEL_MAX per batch, and a slice whose "files" in work/_slices.json overlap a
@@ -31,11 +31,15 @@
 #   --verify        with --merge: after the queue, when it squashed a slice, run every command of the "- Full check
 #                   chain" line in work/conventions.md on the integration branch, under .slice-loop/full-suite.lock
 #                   (red: exit 1)
+#   --watch         with --merge: wait until a slice reports ready on a new tip, run the queue once, then exit (a
+#                   background command, so it wakes the chat that started it). A slice left behind brings it back only
+#                   with a new tip; a second watch next to a running one exits at once
 # Optional field "files" of an entry in work/_slices.json: the repo-relative paths (or prefixes ending in "/") the slice
 # is expected to change.
 # Env: SLICE_PERMISSION_MODE (default: auto) – passed to claude --permission-mode.
 #      SLICE_PARALLEL_MAX (default: 2) – most slices in one --parallel batch (three sessions on one machine made unrelated tests red under load).
 #      SLICE_WAIT_SECONDS (default: 60), SLICE_WAIT_MAX (default: 30) – pause and number of check-backs on SLICE-WAIT.
+#      SLICE_WATCH_SECONDS (default: 60), SLICE_WATCH_MAX (default: 480) – pause and number of checks of --watch.
 #      SLICE_WRITE_RETRIES (default: 5), SLICE_WRITE_BACKOFF_SECONDS (default: 2) – retries and pause when the queue
 #      cannot write a file or reset a merge because another process (scanner, indexer, editor) holds it, and when git
 #      cannot remove the worktree of a squashed slice (a shell of the finished session may still stand in it).
@@ -55,14 +59,19 @@ readonly WAIT_MAX="${SLICE_WAIT_MAX:-30}"
 readonly WRITE_RETRIES="${SLICE_WRITE_RETRIES:-5}"
 readonly WRITE_BACKOFF="${SLICE_WRITE_BACKOFF_SECONDS:-2}"
 readonly PARALLEL_MAX="${SLICE_PARALLEL_MAX:-2}"
+readonly WATCH_SECONDS="${SLICE_WATCH_SECONDS:-60}"
+readonly WATCH_MAX="${SLICE_WATCH_MAX:-480}"
+readonly WATCH_ALIVE="$LOG_DIR/watch.alive"  # sign of life of a running --watch, written at every check
 readonly LOCK_DIR="$LOG_DIR/full-suite.lock"  # taken (mkdir) by whoever runs the full suite; holds a file "owner"
-readonly USAGE="use --yes, --parallel, --dry-run, --max-slices N, --merge, --verify (with --merge)"
+readonly USAGE="use --yes, --parallel, --dry-run, --max-slices N, --merge, --verify and --watch (with --merge)"
 
 auto_approve=false
 parallel=false
 dry_run=false
 merge_only=false
 verify=false
+watch=false
+watching=false          # this run wrote the sign of life; the exit trap removes it
 squashed_count=0        # slices this run squashed
 link_lost=false         # a folder a link of a removed worktree pointed to lost entries
 max_slices=0  # 0 = no cap
@@ -71,6 +80,7 @@ round=""
 declare -A left_nrs=()  # slices the merge queue left behind in this run
 left_lines=()           # "slice NN: <reason>", in the order they were left
 not_ready_lines=()      # "slice NN: <reason>" for slices --merge found not ready yet (their session still checks)
+clean_up_lines=()       # "slice NN: <what is left>" for squashed slices whose worktree or folder could not be removed
 write_failed=""         # the file replace_file gave up on
 merging=""              # a squash merge is in progress in this checkout; the exit trap resets it
 
@@ -102,7 +112,7 @@ reset_merge() {
     sleep "$WRITE_BACKOFF"
   done
 }
-trap 'if [[ -n "$merging" ]]; then reset_merge; fi' EXIT
+trap 'if $watching; then rm -f "$WATCH_ALIVE"; fi; if [[ -n "$merging" ]]; then reset_merge; fi' EXIT
 trap 'exit 130' INT TERM
 
 # Leaves slice $1 behind for reason $2: its branch stays, the run goes on without it.
@@ -110,6 +120,8 @@ leave_slice() {
   echo "[slice $1] left behind: $2 – slice-$1 kept" >&2
   left_nrs[$1]=1
   left_lines+=("slice $1: $2")
+  # --watch comes back to this slice only with a new tip.
+  if $watch; then git rev-parse "slice-$1" >"$LOG_DIR/slice-$1.left"; fi
 }
 
 # Slice $1 is left for a later --merge (reason $2): its session has not reported ready on its tip yet. Not a problem
@@ -130,6 +142,10 @@ report_left() {
     echo "slice-loop: ${#left_lines[@]} slice(s) left behind – fix them on their branch, then run --merge again:" >&2
     printf '  %s\n' "${left_lines[@]}" >&2
   fi
+  if (( ${#clean_up_lines[@]} > 0 )); then
+    echo "slice-loop: ${#clean_up_lines[@]} squashed slice(s) left something to clean up:" >&2
+    printf '  %s\n' "${clean_up_lines[@]}" >&2
+  fi
   (( ${#left_lines[@]} == 0 )) && ! $link_lost
 }
 
@@ -141,6 +157,7 @@ parse_args() {
       --dry-run) dry_run=true ;;
       --merge) merge_only=true ;;
       --verify) verify=true ;;
+      --watch) watch=true ;;
       --max-slices)
         [[ $# -ge 2 && "$2" =~ ^[1-9][0-9]*$ ]] || die "--max-slices needs a positive integer ($USAGE)"
         max_slices=$2
@@ -150,6 +167,7 @@ parse_args() {
     shift
   done
   if $verify && ! $merge_only; then die "--verify needs --merge ($USAGE)"; fi
+  if $watch && ! $merge_only; then die "--watch needs --merge ($USAGE)"; fi
 }
 
 # Slice numbers in plan order, one per line.
@@ -260,6 +278,8 @@ remove_worktree() {
   # A shell of the finished session may still stand in the worktree: it often lets go within seconds.
   for (( attempt = 0; ; attempt++ )); do
     git worktree remove "$path" >/dev/null 2>&1 && break
+    # Git drops its entry even when files inside are held: there is nothing left to retry, only a folder.
+    [[ -n "$(worktree_of "slice-$nr")" ]] || break
     (( attempt < WRITE_RETRIES )) || return 1
     echo "slice-loop: could not remove the worktree of slice-$nr (a shell or process still runs inside it?) – retrying in $WRITE_BACKOFF s (attempt $((attempt + 1)) of $WRITE_RETRIES)" >&2
     sleep "$WRITE_BACKOFF"
@@ -279,8 +299,10 @@ remove_slice_branch() {
   if [[ -n "$path" ]] && ! remove_worktree "$1" "$path"; then
     echo "[slice $1] worktree $path could not be removed – most likely a shell, editor or process still runs inside it" \
       "(or it is locked); close it and run --merge again to retry. $path and $branch are kept" >&2
+    clean_up_lines+=("slice $1: $path and $branch kept – close what runs inside it, then run --merge again")
     return
   fi
+  if [[ -n "$path" && -e "$path" ]]; then clean_up_lines+=("slice $1: folder $path remains – close what holds it and delete it"); fi
   rm -f "$LOG_DIR/slice-$1.squashed"
   # -D: a squash merge leaves the branch unmerged in git's eyes; the squash commit made just now is the proof.
   git branch -D "$branch" >/dev/null || echo "[slice $1] branch $branch could not be removed" >&2
@@ -756,13 +778,48 @@ retry_removal() {
   fi
 }
 
+# The number of every slice-NN branch, lowest first, one per line.
+branch_numbers() {
+  git for-each-ref --format='%(refname:short)' 'refs/heads/slice-*' | sort -t- -k2,2n | sed -n 's/^slice-\([0-9][0-9][0-9]*\)$/\1/p'
+}
+
+# Whether a slice has reported ready on a tip the queue has not left behind yet.
+slice_reported() {
+  local nr left
+  while IFS= read -r nr; do
+    if is_done "$nr" || [[ -n "$(ready_problem "$nr")" ]]; then continue; fi
+    left="$LOG_DIR/slice-$nr.left"
+    if [[ -f "$left" && "$(tr -d '[:space:]' <"$left")" == "$(git rev-parse "slice-$nr")" ]]; then continue; fi
+    return 0
+  done < <(branch_numbers)
+  return 1
+}
+
+# Whether another --watch shows a sign of life. An older one has died: its file stays, and this run goes on.
+watch_running() {
+  [[ -f "$WATCH_ALIVE" && -n "$(find "$WATCH_ALIVE" -mmin -60 2>/dev/null)" ]]
+}
+
+# --watch: waits until a slice has reported ready; fails after the last check. The queue then runs once and the script
+# ends, so the chat that started it in the background is woken even when a session's own report never reached it.
+wait_for_ready_slice() {
+  local check
+  echo "slice-loop: watching for SLICE-READY every $WATCH_SECONDS s, at most $WATCH_MAX check(s)" >&2
+  for (( check = 1; check <= WATCH_MAX; check++ )); do
+    : >"$WATCH_ALIVE"
+    if slice_reported; then return 0; fi
+    if (( check < WATCH_MAX )); then sleep "$WATCH_SECONDS"; fi
+  done
+  echo "slice-loop: no slice reported ready after $WATCH_MAX check(s) – start the watch again while sessions run" >&2
+  return 1
+}
+
 # The merge queue alone (--merge): every slice-NN branch, lowest number first; one not ticked through Checks is left,
 # one that conflicts or lacks its proof is left behind and the queue goes on.
 merge_queue() {
   local branch nr
-  for branch in $(git for-each-ref --format='%(refname:short)' 'refs/heads/slice-*' | sort -t- -k2,2n); do
-    nr=${branch#slice-}
-    [[ "$nr" =~ ^[0-9]{2,}$ ]] || continue
+  for nr in $(branch_numbers); do
+    branch="slice-$nr"
     if is_done "$nr"; then retry_removal "$nr"; continue; fi
     if branch_ready "$nr"; then
       merge_slice "$nr" || true
@@ -1031,6 +1088,14 @@ main() {
   stale_lock_notice
   baseline_notice
   if $merge_only; then
+    if $watch; then
+      if watch_running; then
+        echo "slice-loop: already watching ($WATCH_ALIVE is under 60 minutes old; delete it if no watch runs)" >&2
+        exit 0
+      fi
+      watching=true
+      wait_for_ready_slice || exit 0
+    fi
     merge_queue
     local clean=true
     report_left || clean=false
