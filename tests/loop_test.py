@@ -999,7 +999,9 @@ def main() -> int:
                                      git_expected.get("prepared", []), git_expected.get("main_row"), git_expected.get("main_change"))
                     prepare_state(repo, git_expected)
                     if git_expected.get("failing_commit"):
-                        (repo / ".git/hooks/pre-commit").write_text("#!/bin/sh\nexit 1\n", encoding="utf-8", newline="\n")
+                        hook = repo / ".git/hooks/pre-commit"
+                        hook.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8", newline="\n")
+                        hook.chmod(0o755)
                     result = run_case(shell, repo, bin_dir, profile, options, env, git_expected.get("holds"))
                     if "rerun" in git_expected:  # whatever kept the worktree is gone (here: its lock), then the queue runs again
                         unlock_worktrees(repo)

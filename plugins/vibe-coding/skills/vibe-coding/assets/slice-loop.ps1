@@ -772,6 +772,10 @@ function Test-SliceReported {
 function Enter-MergeLock {
     try { New-Item -ItemType Directory -Path $MergeLock -ErrorAction Stop | Out-Null }
     catch {
+        if (-not (Test-Path -LiteralPath $MergeLock)) {
+            [Console]::Error.WriteLine("slice-loop: could not create $MergeLock – going on without it")
+            return $true
+        }
         if (((Get-Date) - (Get-Item -LiteralPath $MergeLock).LastWriteTime).TotalMinutes -lt 60) {
             [Console]::Error.WriteLine("slice-loop: another merge queue runs ($MergeLock; delete it if none runs) – this one does nothing")
             return $false

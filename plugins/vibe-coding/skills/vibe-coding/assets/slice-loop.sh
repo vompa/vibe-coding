@@ -114,7 +114,7 @@ reset_merge() {
     sleep "$WRITE_BACKOFF"
   done
 }
-trap 'if $watching; then rm -f "$WATCH_ALIVE"; fi; if $merge_locked; then rm -r "$MERGE_LOCK"; fi; if [[ -n "$merging" ]]; then reset_merge; fi' EXIT
+trap 'if $watching; then rm -f "$WATCH_ALIVE"; fi; if $merge_locked; then rm -r "$MERGE_LOCK" || true; fi; if [[ -n "$merging" ]]; then reset_merge; fi' EXIT
 trap 'exit 130' INT TERM
 
 # Leaves slice $1 behind for reason $2: its branch stays, the run goes on without it.
@@ -791,6 +791,10 @@ slice_reported() {
 # Takes the queue lock; fails while another queue holds it.
 take_merge_lock() {
   if ! mkdir "$MERGE_LOCK" 2>/dev/null; then
+    if [[ ! -d "$MERGE_LOCK" ]]; then
+      echo "slice-loop: could not create $MERGE_LOCK – going on without it" >&2
+      return 0
+    fi
     if [[ -n "$(find "$MERGE_LOCK" -maxdepth 0 -mmin -60 2>/dev/null)" ]]; then
       echo "slice-loop: another merge queue runs ($MERGE_LOCK; delete it if none runs) – this one does nothing" >&2
       return 1
@@ -1105,7 +1109,7 @@ main() {
     fi
     take_merge_lock || exit 0
     merge_queue
-    rm -r "$MERGE_LOCK"
+    if $merge_locked; then rm -r "$MERGE_LOCK" || true; fi
     merge_locked=false
     local clean=true
     report_left || clean=false
