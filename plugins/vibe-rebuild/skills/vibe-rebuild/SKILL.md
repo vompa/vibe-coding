@@ -5,7 +5,7 @@ license: MIT
 compatibility: Designed for Claude Code and Claude with file access and subagents; scripts need Python 3.10+; the generated rebuild-loop needs the claude CLI plus PowerShell 7 or bash.
 metadata:
   author: vompa
-  version: "2.3.1"
+  version: "2.4.0"
 ---
 
 # Vibe Rebuild – rebuild an existing app with vibe coding
@@ -14,6 +14,7 @@ Goal: turn an existing codebase into a plan a coding agent can follow to rebuild
 **Not a copy:** the original is the template, not the yardstick. The rebuild keeps what users and callers rely on – business behaviour and the contracts others depend on – and builds everything else better, guided by the legacy findings and the target-stack research.
 The plan is **self-contained**: the analysis captures everything the original does, so once the plan is written the rebuild needs neither the original's code nor a running original. What must stay is proven against cases written into the plan, not against the old system.
 The skill extracts the app's *intent* (behaviour, contracts, business numbers), not its implementation, and copies no code. Why: copying code drags the legacy along; carrying over only behaviour and contracts lets you re-cut the design cleanly and still prove that nothing users rely on got lost.
+**First the goal, then the solution:** a user-approved **goal contract** says what counts as success – what must stay, what must get better, how each is proven – and stays frozen while the slices are built. **Done is what is evidenced:** a slice closes only when a script finds the red run, the green suite, a cold review and the proof for each goal criterion it names – not when an agent says so.
 
 Write the plan in the user's language (default: English).
 
@@ -38,8 +39,8 @@ Clean does not mean silent. A user staring at a window where nothing moves for t
   | Phase | Weight | Counted inside the phase by |
   |---|---|---|
   | 1–2 Inputs, inventory | 5 % | done / not done |
-  | 3 Analysis | 25 % | explorer agents finished / launched, merge + spot-check counts as the last share |
-  | 4 PRD & glossary | 10 % | files written |
+  | 3 Analysis | 20 % | explorer agents finished / launched, merge + spot-check counts as the last share |
+  | 4 Goal contract, PRD & glossary | 15 % | contract drafted, questions answered, PRD, glossary |
   | 5 Target-stack research | 20 % | passes finished (broad, deep, distill); within a pass, topics finished / planned from `_raw/research-progress.md` |
   | 6 Guardrails | 5 % | done / not done |
   | 7 Slicing | 15 % | slices written / planned |
@@ -57,7 +58,7 @@ Check what is available and tell the user in one line what you will use.
 |---|---|---|
 | Analysis | `feature-dev:code-explorer` agents in parallel; a code-to-PRD skill if one exists | `Explore` subagents |
 | Target-stack research | web search + fetch (a deep-research skill if one exists) | model knowledge, every finding marked `[Unverified]` |
-| Sharpen the spec | `superpowers:brainstorming` | up to 5 questions to the user |
+| Goal contract | interview per `references/goal-contract.md` (up to 8 questions) | `superpowers:brainstorming` for the discovery part if installed |
 | Execution later | `/rebuild` command written into the target repo (§9); uses superpowers if installed, never installs it | slice prompts |
 | Improve this skill | `skill-creator` | – |
 
@@ -96,9 +97,19 @@ This schema is the interface to every later phase – if an external reverse-eng
 
 **Open questions** go into a separate `open-questions.md`, grouped as *architecture-relevant* (changes target architecture or scope), *functional*, and *dropped in the rebuild*, each with the `[Assumption]` taken. Put the architecture-relevant ones to the user before slicing if they are reachable; otherwise continue on assumptions and say so clearly in the README.
 
-## 4. PRD & glossary
+## 4. Goal contract, PRD & glossary
 
-`PRD.md`: behaviour from the user's point of view – purpose, principles, users/roles, features with a story and Given/When/Then acceptance criteria, edge cases, error behaviour, a short API contract, "Improvements on purpose" (from legacy findings and research, each with its reason), non-goals. No class or file names. If a good spec exists, don't copy it – reference it and add only the acceptance criteria.
+**Goal contract first** → `rebuild/goal/contract-v001.md`, following `references/goal-contract.md`. It decides what the PRD has to describe, so it comes before it:
+
+1. Fill the seven dimensions from the inputs and `analysis.md`; tag every line with its provenance (`USER_EXPLICIT`, `USER_CONFIRMED`, `ORIGINAL`, `EXTERNAL`, `AI_PROPOSED`, `UNKNOWN`).
+2. Ask the user what is still open – up to 8 questions in total, 1–3 per message, discovery before precision, none that presupposes a technology. Combine them with the architecture-relevant open questions from §3 so the user gets one conversation, not two. Asking pays: in the pilot of this method the variant that asked most hit the user's intent best.
+3. Sort what the original does into **invariants** (keep – proven by parity, §8) and **requirements** (improve – each with Given/When/Then acceptance criteria `AC-NN` and the evidence that will prove it). Business and interface contracts are invariants by default; whatever the user wants better is a requirement and must not be pinned to the original's value.
+4. Unconfirmed points stay under "Open" with their tag – never delete them to make the contract look finished.
+5. Run the draft check in `references/goal-contract.md`; a failed check goes back to the questions. Status `READY_FOR_APPROVAL` – the approval itself comes at the end of §5, together with the research decisions.
+
+User away or trial run: write the contract with every unanswered point under "Open" as `AI_PROPOSED` and `[Assumption]`, keep going, and say in the README that the contract is not approved yet.
+
+`PRD.md`: behaviour from the user's point of view – purpose, principles, users/roles, features with a story and Given/When/Then acceptance criteria, edge cases, error behaviour, a short API contract, "Improvements on purpose" (from legacy findings and research, each with its reason), non-goals. No class or file names. Every feature names the goal IDs it serves (`REQ-02, AC-03, INV-01`); a feature that serves none is either missing from the contract or not needed – ask. If a good spec exists, don't copy it – reference it and add only the acceptance criteria.
 `GLOSSARY.md`: term | code identifier | meaning. The agent uses only these terms.
 
 Templates: `references/templates.md`.
@@ -114,7 +125,7 @@ Collect first, decide later:
 3. **Go deep**: derive follow-up queries from what step 2 found and dig into each point that matters for this app – breaking changes, known pitfalls, migration guides from the source stack. **License and terms of every package you would recommend**: licence, paid tiers, sponsorship or registration duties that a build enforces (some packages break the build until a declaration is made). A package that needs money or a licence decision goes to the user, not into `CLAUDE.md`.
 4. **Probe what reading cannot show**: if the target SDK is available, build a throwaway hello-world for the risky paths – the planned transport or hosting, the distribution path (package, tool, container), how the process starts, stops and logs – in a scratch folder outside the plan repo. Record what behaved differently from the docs under "Pitfalls & breaking changes", marked `[Probed]`. Reading-only research tends to find no pitfalls; the real ones show up the first time something runs. Without the SDK, make the probe the first task of slice 00.
 5. **Distill**: end `research.md` with "Decisions for this rebuild" – each with the finding it rests on and its source. These feed `CLAUDE.md` (§6), the slice order (§7) and the rebuild-vs-refactor assessment (§9).
-6. **Present before slicing**: decisions that change architecture or scope go to the user together with the architecture-relevant open questions.
+6. **Present and approve before slicing**: decisions that change architecture or scope go to the user together with the goal contract (summary per `references/goal-contract.md`: intent, outcome, MUST criteria, invariants, non-goals, trade-offs, open points). A research decision that would change a requirement or criterion is `AI_PROPOSED` until the user confirms it. When the user approves this exact version, set `Status: APPROVED – User, <date>` – from then on the contract is frozen; later changes go through `rebuild/goal/change-requests.md` and a new version. Not reachable → leave it `READY_FOR_APPROVAL`; slice 00's plan approval then asks for it first.
 
 **Run it in passes, not as one long job.** Research is the longest step of the run, so it follows "Keep the user posted" strictly: launch broad, deep and distill as separate short runs (one subagent call each, or inline), and after each pass post one status line – e.g. "Research broad done: 14 topics, 31 sources – going deep on 6 points (~5 min)." The research agent appends each finished topic to `research.md` immediately and logs one line per topic in `_raw/research-progress.md`, so progress is visible even mid-pass.
 
@@ -129,21 +140,23 @@ Built on the decisions in `research.md`, not on defaults from memory. Target arc
 - **Every quality gate is proven to bite.** Build flags such as "warnings as errors" or "enforce code style" can silently skip rule groups (naming rules, formatting). Slice 00 commits a deliberate violation per gate in a throwaway branch, shows the build or CI turning red, and removes it; the formatter/linter check runs in CI, not only locally.
 - **Approved packages with their licence**: a short table package | version line | licence; anything else needs asking.
 
+- **Goal contract and evidence**: the approved contract under `rebuild/goal/` is read-only for agents (enforced by `.claude/hooks/protect-goal.py`); a criterion that turns out unreachable or wrong becomes a change request, never a quieter test. A slice is done only when `python3 .claude/scripts/evidence.py check NN` passes; the evidence commands (red run, suite, per-criterion proof) are part of the exact commands.
+
 Plus: hard rules (file size, single responsibility, constants defined once, no secrets, no new packages without asking), "Forbidden" = legacy findings, exact commands, way of working (plan with assumptions → failing tests → code, one slice per session, task commits on branch `slice-NN`, **one squash commit per green slice on `main`**).
 
 ## 7. Slicing → `rebuild/slices/NN-name.md`
 
-Vertical and ordered by dependency; slice 00 = scaffold including CI, the parity harness, one architecture test per rule in `CLAUDE.md` (mapping complete) and the proof that every quality gate turns red on a violation (§6). Sizing: one slice ≈ one agent session (1–2 h), roughly one slice per 1.5–2k lines of the original.
+Vertical and ordered by dependency; slice 00 = scaffold including CI, the parity harness, one architecture test per rule in `CLAUDE.md` (mapping complete) and the proof that every quality gate turns red on a violation (§6) – including the goal guard (an attempted edit of the approved contract is refused) and the evidence gate (`evidence.py check 00` reports NOT DONE before the suite has run). Sizing: one slice ≈ one agent session (1–2 h), roughly one slice per 1.5–2k lines of the original.
 Record the slices as a list in `rebuild/_slices.json` and render them:
 ```
 python3 scripts/render_slices.py rebuild/_slices.json rebuild/slices --lang <plan language>
 ```
 `--lang` writes the slice files and their prompts in the plan's language (`en`, `de` built in). For another language, render with `en` and translate the headings and the prompt, keeping file paths and command names unchanged.
-Each slice has goal, PRD reference, dependencies, scope, a ready-to-run prompt (plan first, then failing tests, then code), a Definition of Done with the concrete parity cases, and non-goals.
+Each slice has goal, PRD reference, dependencies, scope, the goal criteria it must prove (field `acs`, e.g. `["AC-03", "AC-07"]` – every MUST criterion of the contract lands in at least one slice), a ready-to-run prompt (plan first, then failing tests, then code), a Definition of Done with the concrete parity cases, and non-goals.
 
 ## 8. Parity → `rebuild/parity/`
 
-The safety net that lets the rebuild be better without losing anything. Sort the cases into three kinds:
+The safety net that lets the rebuild be better without losing anything. Parity proves the contract's **invariants**; the contract's **requirements** are proven by their own acceptance criteria – a parity case never pins a value the contract wants improved. Sort the cases into three kinds:
 
 | Kind | Example | In the rebuild |
 |---|---|---|
@@ -175,6 +188,7 @@ Never call non-deterministic dependencies (LLM calls, external APIs, wall-clock 
 - **Getting started** from `references/getting-started.md`, filled in for this plan – prerequisites, the `/rebuild` flow, commands, parallel work, what to do when something goes wrong, where things are. Someone who has never seen the plan must be able to start from it alone.
 - `checklist.md` (slice × plan / tests red / green / parity / commit): one row per slice starting with `| NN `, every cell `☐` until done, then `☑` – `/rebuild` and `rebuild-loop` read exactly this format.
 - `.claude/commands/rebuild.md` – copy `references/rebuild-command.md` unchanged. `/rebuild` picks the next ready slice (or `/rebuild NN`, `/rebuild status`), uses superpowers when it is installed and the slice prompt otherwise, and closes each slice with the next ready ones.
+- **Goal guard and evidence gate** – copy unchanged with a file copy: `assets/protect-goal.py` → `.claude/hooks/protect-goal.py`, `assets/settings.json` → `.claude/settings.json` (merge the `hooks` entry if the file exists), `assets/evidence.py` → `.claude/scripts/evidence.py`; add `rebuild/evidence/**/*.log` to `.gitignore` (logs can hold machine paths; the per-slice record `rebuild/evidence/NN.json` and the review reports are committed). Write the approved contract **before** the hook is in place – the hook would refuse the approved status otherwise. On Windows without `python3`, say in the README to change the hook command to `python`; slice 00 proves the guard bites either way.
 - `.claude/scripts/rebuild-loop.ps1` and `.claude/scripts/rebuild-loop.sh` – copy `assets/rebuild-loop.ps1` and `assets/rebuild-loop.sh` unchanged with a file copy (`cp` / `Copy-Item`), not by rewriting them, and add `*.sh text eol=lf` to the target repo's `.gitattributes` – a CRLF bash script fails with `$'\r'`. They run every slice in its own fresh headless Claude session, stop for plan approval, and move on to the next ready slice, so nobody has to type `/rebuild` after each slice.
 
 **No personal or machine data in any file.** Paths in files are relative to the repo ("open a terminal in the repo folder"); the full local path appears only in the handover message in chat. No user names, machine names, private e-mail addresses or personal names – decisions are recorded as "User, <date>".
@@ -194,7 +208,7 @@ Never call non-deterministic dependencies (LLM calls, external APIs, wall-clock 
 | Cloud session linked to the user's machine | remote-device tools are present; your own file system is a container | plain files via the file-transfer tool; `.git/` and `.claude/` are protected for transfer tools, so create them with the device shell: build the repo in a scratch folder on the device (`git init`, commit), then copy `.git/` and `.claude/` into the target folder. On a Windows folder mounted into a Linux shell, set `core.filemode=false`. Never ask for delete rights on a parent folder that holds other projects. |
 | No access to the user's machine | neither of the above | offer GitHub (2.) or files (3.) |
 
-Verify at the end, whatever the environment: `git log` shows the commit with the agreed identity, `git status` is clean, `.claude/commands/rebuild.md` and both `.claude/scripts/rebuild-loop.*` exist, and a search over all committed files finds no absolute path, user or machine name.
+Verify at the end, whatever the environment: `git log` shows the commit with the agreed identity, `git status` is clean, `.claude/commands/rebuild.md`, both `.claude/scripts/rebuild-loop.*`, `.claude/scripts/evidence.py`, `.claude/hooks/protect-goal.py` and `.claude/settings.json` exist, the hook refuses a test edit of the contract (pipe a fake Edit event into it), and a search over all committed files finds no absolute path, user or machine name.
 
 The original stays untouched.
 
@@ -212,7 +226,8 @@ For files only, give the same steps as an example directly below the delivered f
 - Copy no code – behaviour, data contracts, interfaces and business numbers, yes.
 - Never put secrets, connection strings or personal test data into the plan; use placeholders.
 - No personal or machine data in files: no absolute paths, user or machine names, private e-mail addresses or personal names (decisions: "User, <date>"). This holds for the commands and plans written later, too.
-- A marked assumption beats a silent invention.
+- A marked assumption beats a silent invention. A proposal is never a requirement until the user confirms it.
+- Done is what is evidenced: no slice, criterion or goal is reported as met on the agent's word – only on what `evidence.py check` and the cold review find.
 - Examples in prompts are open lists, not checklists. Agents take named examples literally and weight them above everything else; when a prompt (yours or a template's) lists examples, say explicitly that they are examples and ask for anything else that matters.
 
 ## Output structure
@@ -221,10 +236,12 @@ Root of the git repo (or the delivered folder when the user chose files only):
 
 ```
 CLAUDE.md  README.md  .gitignore  .gitattributes
-.claude/commands/rebuild.md
-.claude/scripts/rebuild-loop.ps1  rebuild-loop.sh
+.claude/commands/rebuild.md  .claude/settings.json  .claude/hooks/protect-goal.py
+.claude/scripts/rebuild-loop.ps1  rebuild-loop.sh  evidence.py
 rebuild/
   analysis.md  research.md  open-questions.md  PRD.md  GLOSSARY.md  checklist.md
+  goal/contract-v001.md  goal/change-requests.md     (frozen once approved)
+  evidence/NN.json  evidence/NN/review.md           (per slice; *.log stays out of git)
   slices/00-scaffold.md … NN-*.md
   parity/README.md  <area>-cases.md  deviations.md
   plans/                 (detailed per-slice plans, e.g. from superpowers)
