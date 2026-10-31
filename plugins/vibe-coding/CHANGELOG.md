@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.1.0 – 2026-10-31
+From round R05: finished slices waited unnoticed, and slices came up as cards in an automatic round. The cause is the chat: a desktop harness refuses to start a session on a turn a background event started, and a slice's report reached the orchestrating chat only with the user's next message, once four hours late right after a compaction.
+- **An automatic round runs in the script.** `/slice` gives the user `slice_loop.py --parallel --yes` instead of orchestrating in a chat and proposes no slices as cards.
+- **Parked slices.** Under `--yes` a NEEDS-DECISION, and under `--parallel` also a failed slice, writes `.slice-loop/slice-NN.parked`; the others go on, the run lists it and exits 1. The next run builds the slice once `.slice-loop/slice-NN.answer` holds the answer. **Changed:** `--yes` no longer asks at the terminal for a decision, and a failed slice no longer ends a `--parallel` run at once.
+- **Stall guard.** A turn without activity in its log, its transcript or its files in `.slice-loop/` for `SLICE_STALL_SECONDS` (7200) is stopped with its process tree, and a full-suite lock it held is released. It is resumed once; a second silence ends the slice.
+- **Long checks in the foreground.** A real `claude -p` (2.1.288, Windows) ended a background command with its turn, so `SLICE-WAIT` waited for nothing. Turns run with Bash timeouts of `SLICE_STALL_SECONDS`; the check-back says to rerun what left no result. `SLICE_WAIT_SECONDS` is now 300.
+- **After a compaction.** Every turn gets a `SessionStart` hook (matcher `compact`, through `--settings`) that tells the session to read `/slice` and its plan again and take the state from git and the files.
+- **History.** `.slice-loop/events.jsonl` has one line per started, stalled or parked slice.
+
 ## 2.0.0 – 2026-10-31
 The hands-off loop is one Python script. **Breaking:** `slice-loop.sh` and `slice-loop.ps1` are gone; start the loop with `python .claude/scripts/slice_loop.py` (`python3` on macOS and Linux if `python` is not found).
 - **One script instead of two.** `assets/slice_loop.py` does what the bash and PowerShell scripts did, with the same options (`--yes`, `--parallel`, `--dry-run`, `--max-slices N`, `--merge`, `--verify`, `--watch`), the same `SLICE_*` variables and defaults, the same files and locks under `.slice-loop/`, the same marker lines and exit codes. It needs Python 3.10+ and the `claude` CLI, nothing else: no bash, no PowerShell, no awk. The two scripts had drifted apart in small ways; where they differed, the bash behaviour and `tests/loop_test.py` decided (see below).

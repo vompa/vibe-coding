@@ -16,12 +16,18 @@ worktree of a squashed slice is retried, and the entries of every folder a link 
 before and after: fewer afterwards is reported and makes the run exit non-zero (the squash stays done). A stale
 .slice-loop/full-suite.lock (its slice branch is gone, or it is older than 60 minutes) is reported at the start, never
 removed; so is a work/conventions.md without a "- Baseline check" line (its keys stay English in any language).
-Stops for plan approval unless --yes; stops on NEEDS-DECISION, red tests or a blocked slice. A slice that ends its
-turn with SLICE-WAIT is still running: the loop checks back on it in the same session.
+Stops for plan approval unless --yes. With --yes a NEEDS-DECISION parks its slice, and with --parallel so does a red
+slice: .slice-loop/slice-NN.parked names the reason, the other slices go on, the run lists it and exits non-zero, and
+the next run builds it once .slice-loop/slice-NN.answer holds the answer. Otherwise red tests or a blocked slice stop the
+run. A turn without activity (log, transcript, the slice's files in .slice-loop) for SLICE_STALL_SECONDS is stopped with
+its processes and resumed once; a second silence ends the slice. A slice that ends its turn with SLICE-WAIT is still
+running: the loop checks back on it in the same session. Headless claude ends background commands with the turn, so
+turns run with a Bash timeout of SLICE_STALL_SECONDS and checks belong in the foreground. Each turn gets a SessionStart
+hook that re-reads the rules after a compaction. .slice-loop/events.jsonl records started, stalled and parked slices.
 
 Usage: python .claude/scripts/slice_loop.py [--yes] [--parallel] [--dry-run] [--max-slices N] [--merge [--verify] [--watch]]
   (on macOS and Linux the interpreter may be called python3)
-  --yes           approve plans without asking (still stops on NEEDS-DECISION)
+  --yes           approve plans without asking (a slice with a NEEDS-DECISION is parked)
   --parallel      build slices that are ready at the same time side by side (headless; for long autonomous runs):
                   at most SLICE_PARALLEL_MAX per batch, and a slice whose "files" in work/_slices.json overlap a
                   slice already in the batch waits for the next one
@@ -39,7 +45,8 @@ Optional field "files" of an entry in work/_slices.json: the repo-relative paths
 is expected to change.
 Env: SLICE_PERMISSION_MODE (default: auto) - passed to claude --permission-mode.
      SLICE_PARALLEL_MAX (default: 2) - most slices in one --parallel batch (three sessions on one machine made unrelated tests red under load).
-     SLICE_WAIT_SECONDS (default: 60), SLICE_WAIT_MAX (default: 30) - pause and number of check-backs on SLICE-WAIT.
+     SLICE_WAIT_SECONDS (default: 300), SLICE_WAIT_MAX (default: 30) - pause and number of check-backs on SLICE-WAIT.
+     SLICE_STALL_SECONDS (default: 7200) - a turn without activity for this long is stopped; also its Bash timeout.
      SLICE_WATCH_SECONDS (default: 60), SLICE_WATCH_MAX (default: 480) - pause and number of checks of --watch.
      SLICE_WRITE_RETRIES (default: 5), SLICE_WRITE_BACKOFF_SECONDS (default: 2) - retries and pause when the queue
      cannot write a file or reset a merge because another process (scanner, indexer, editor) holds it, and when git
@@ -49,6 +56,7 @@ Exit codes: 0 success (also: no open round, nothing to do), 1 failure or a slice
 from __future__ import annotations
 
 import datetime
+import glob
 import json
 import os
 import pathlib
@@ -70,6 +78,8 @@ LOG_DIR = ".slice-loop"
 WATCH_ALIVE = f"{LOG_DIR}/watch.alive"  # sign of life of a running --watch, written at every check
 MERGE_LOCK = f"{LOG_DIR}/merge.lock"  # taken (mkdir) by a running --merge queue; older than 60 minutes: its owner died
 LOCK_DIR = f"{LOG_DIR}/full-suite.lock"  # taken (mkdir) by whoever runs the full suite; holds a file "owner"
+EVENTS_FILE = f"{LOG_DIR}/events.jsonl"  # one JSON line per started, stalled or parked slice; read when a run stopped
+COMPACT_HOOK_FILE = f"{LOG_DIR}/compact-hook.json"  # settings of every turn: the rules are read again after a compaction
 USAGE = "use --yes, --parallel, --dry-run, --max-slices N, --merge, --verify and --watch (with --merge)"
 LOCK_MAX_AGE_SECONDS = 3600
 CMD_UNSAFE = set('%^&|<>"\r\n')  # characters cmd.exe would interpret in an argument passed to a claude.cmd shim
@@ -79,6 +89,18 @@ PRINT_LOCK = threading.Lock()
 
 class Die(Exception):
     """A fatal error: the message is printed as "slice-loop: <message>" and the run exits with 1."""
+
+
+class TurnStalled(Die):
+    """A claude turn showed no activity for SLICE_STALL_SECONDS and was stopped."""
+
+
+class NeedsDecision(Die):
+    """A plan under --yes names decisions only the user can make: its slice is parked."""
+
+    def __init__(self, questions: list[str]):
+        super().__init__("; ".join(questions))
+        self.questions = questions
 
 
 class WriteFailed(Exception):
@@ -584,8 +606,9 @@ class Slice:
 class Loop:
     def __init__(self) -> None:
         self.permission_mode = os.environ.get("SLICE_PERMISSION_MODE") or "auto"
-        self.wait_seconds = env_number("SLICE_WAIT_SECONDS", 60)
+        self.wait_seconds = env_number("SLICE_WAIT_SECONDS", 300)
         self.wait_max = int(env_number("SLICE_WAIT_MAX", 30))
+        self.stall_seconds = env_number("SLICE_STALL_SECONDS", 7200)
         self.write_retries = int(env_number("SLICE_WRITE_RETRIES", 5))
         self.write_backoff = env_number("SLICE_WRITE_BACKOFF_SECONDS", 2)
         self.parallel_max = int(env_number("SLICE_PARALLEL_MAX", 2))
@@ -1269,6 +1292,8 @@ class Loop:
         for entry in self.slices():
             if self.is_done(entry.nr) or entry.nr in self.left_nrs:
                 continue
+            if os.path.isfile(parked_path(entry.nr)) and not os.path.isfile(answer_path(entry.nr)):
+                continue
             if all(self.is_done(dep) for dep in entry.deps):
                 ready.append(entry.nr)
         return ready
@@ -1305,17 +1330,79 @@ class Loop:
         match = re.match(r"R[0-9]+", os.path.basename(self.open_round_file()))
         return match.group() if match else ""
 
+    def event(self, kind: str, nr: str = "", **fields: str) -> None:
+        """One line in the round's history, so a stop can be read afterwards. A failed write never stops the round."""
+        now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        line = json.dumps({"ts": now, "type": kind, **({"slice": nr} if nr else {}), **fields}, ensure_ascii=False)
+        try:
+            with PRINT_LOCK, open(EVENTS_FILE, "a", encoding="utf-8", newline="\n") as handle:
+                handle.write(line + "\n")
+        except OSError:
+            pass
+
+    def compact_hook_settings(self) -> str:
+        """The settings file every turn gets: after a compaction the session is told again what it is doing."""
+        script = pathlib.Path(__file__).resolve().as_posix()
+        python = pathlib.Path(sys.executable).as_posix()
+        hook = {"type": "command", "command": f'"{python}" "{script}" --after-compact'}
+        settings = {"hooks": {"SessionStart": [{"matcher": "compact", "hooks": [hook]}]}}
+        with open(COMPACT_HOOK_FILE, "w", encoding="utf-8", newline="\n") as handle:
+            json.dump(settings, handle)
+        return COMPACT_HOOK_FILE
+
+    def turn_environment(self, nr: str) -> dict[str, str]:
+        """Headless claude ends a background command with its turn, so checks run in the foreground: Bash may take as long
+        as the stall limit allows and is not moved to the background on the way."""
+        limit = str(int(self.stall_seconds * 1000))
+        return dict(os.environ, SLICE_NR=nr, BASH_DEFAULT_TIMEOUT_MS=limit, BASH_MAX_TIMEOUT_MS=limit)
+
+    def last_activity(self, session: str, log: str, nr: str) -> float:
+        """When the turn last did anything: its log, its transcript and those of its subagents, its files in .slice-loop."""
+        config = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+        pattern = os.path.join(glob.escape(config), "projects", "*", glob.escape(session))
+        paths = [log, *glob.glob(f"{pattern}.jsonl"), *glob.glob(f"{pattern}/**/*.jsonl", recursive=True),
+                 *glob.glob(f"{glob.escape(LOG_DIR)}/slice-{nr}.*")]
+        times = []
+        for path in paths:
+            try:
+                times.append(os.stat(path).st_mtime)
+            except OSError:
+                pass
+        return max(times, default=0.0)
+
+    def watch_turn(self, process: subprocess.Popen, session: str, log: str, nr: str, stalled: threading.Event) -> None:
+        """Stops the turn's whole process tree when it shows no activity for SLICE_STALL_SECONDS."""
+        started = time.time()
+        while process.poll() is None:
+            if time.time() - max(started, self.last_activity(session, log, nr)) > self.stall_seconds:
+                stalled.set()
+                stop_process_tree(process)
+                return
+            time.sleep(min(30.0, self.stall_seconds / 4))
+
+    def release_lock_of(self, nr: str) -> None:
+        """A stopped slice cannot release its full-suite lock any more."""
+        if os.path.isdir(LOCK_DIR) and re.match(rf"slice {re.escape(nr)}(\s|$)", self.lock_owner()):
+            shutil.rmtree(LOCK_DIR, ignore_errors=True)
+            say(f"[slice {nr}] released the full-suite lock it held")
+
     def claude_turn(self, log: str, model: str, *arguments: str) -> str:
         """Runs one claude turn on model (empty: the CLI default); the output goes to the log as it comes and is
-        returned for marker parsing."""
-        command = [self.claude, "-p", "--permission-mode", self.permission_mode, *(["--model", model] if model else []), *arguments]
+        returned for marker parsing. arguments starts with --session-id or --resume and the session."""
+        command = [self.claude, "-p", "--permission-mode", self.permission_mode, *(["--model", model] if model else []),
+                   "--settings", self.compact_hook_settings(), *arguments]
+        match = re.search(r"slice-([0-9]+)-", log)
+        nr = match.group(1) if match else ""
         if os.name == "nt" and self.claude.lower().endswith((".cmd", ".bat")):
             unsafe = [a for a in arguments if CMD_UNSAFE & set(a)]
             if unsafe:
                 die("an argument holds a character cmd.exe would interpret (one of % ^ & | < > \") and claude is a "
                     f".cmd shim ({self.claude}) \u2013 use the native claude.exe or leave the character out")
-        process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, encoding="utf-8", errors="replace")
+        process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, encoding="utf-8", errors="replace",
+                                   env=self.turn_environment(nr), start_new_session=os.name != "nt")
         self.children.append(process)
+        stalled = threading.Event()
+        threading.Thread(target=self.watch_turn, args=(process, arguments[1], log, nr, stalled), daemon=True).start()
         chunks: list[str] = []
         try:
             with open(log, "a", encoding="utf-8", newline="\n") as handle:
@@ -1328,6 +1415,11 @@ class Loop:
             if process.poll() is None:
                 process.kill()
             self.children.remove(process)
+        if stalled.is_set():
+            say(f"[slice {nr}] no activity for {number_text(self.stall_seconds)} s – stopped the turn (log {log})")
+            self.event("slice_stalled", nr)
+            self.release_lock_of(nr)
+            raise TurnStalled(f"slice {nr} stalled")
         if code != 0:
             die(f"claude exited with an error (exit {code}) \u2013 see {log}")
         return "".join(chunks)
@@ -1344,7 +1436,9 @@ class Loop:
                 die(f"slice {nr}: no PLAN line \u2013 see {log}")
             decisions = [line for line in lines if line.startswith("NEEDS-DECISION:")]
             say(f"[slice {nr}] {plans[-1]}")
-            if self.auto_approve and not decisions:
+            if self.auto_approve and decisions:
+                raise NeedsDecision(decisions)
+            if self.auto_approve:
                 return approval
             for line in decisions:
                 say(line)
@@ -1370,13 +1464,70 @@ class Loop:
         found = re.findall(rf"(?m)^SLICE-WAIT: {re.escape(nr)}(?:[^0-9].*)?$", output)
         return found[-1].rstrip("\r") if found else ""
 
+    def turn_with_one_restart(self, nr: str, session: str, log: str, model: str, message: str) -> str:
+        """One turn of a slice; a turn stopped for silence is resumed once, a second silence ends the slice."""
+        try:
+            return self.claude_turn(log, model, "--resume", session, message)
+        except TurnStalled:
+            try:
+                return self.claude_turn(log, model, "--resume", session,
+                                        f"Your last turn showed no activity and was stopped. Read the state from git, "
+                                        f"{CHECKLIST_FILE} and {LOG_DIR}/slice-{nr}.checks, run what is missing in the "
+                                        f"foreground, then finish slice {nr} and close it (auto).")
+            except TurnStalled:
+                die(f"slice {nr} stalled twice – see {log}")
+                return ""
+
+    def park(self, nr: str, run: dict, reason: str) -> None:
+        """Takes a slice out of the round until the user answers; the other slices go on."""
+        self.replace_file(parked_path(nr), json.dumps({**run, "reason": reason}, ensure_ascii=False, indent=1) + "\n")
+        self.event("slice_parked", nr, reason=reason)
+        say(f"[slice {nr}] parked: {reason}")
+
+    def report_parked(self) -> bool:
+        """Lists every parked slice and where its answer goes; False when there is none."""
+        parked = [entry.nr for entry in self.slices() if os.path.isfile(parked_path(entry.nr)) and not self.is_done(entry.nr)]
+        if parked:
+            say(f"slice-loop: {len(parked)} slice(s) parked – write the answer to the named file, then start the loop again:")
+        for nr in parked:
+            with open(parked_path(nr), encoding="utf-8") as handle:
+                say(f"  slice {nr}: {json.load(handle)['reason']} → {answer_path(nr)}")
+        return bool(parked)
+
+    def plan_or_park(self, nr: str) -> dict | None:
+        """The run of slice nr: a parked slice with an answer goes straight to its build turn. None when it was parked."""
+        if os.path.isfile(parked_path(nr)):
+            with open(parked_path(nr), encoding="utf-8") as handle:
+                run = json.load(handle)
+            with open(answer_path(nr), encoding="utf-8") as handle:
+                answer = handle.read().strip()
+            os.unlink(answer_path(nr))
+            os.unlink(parked_path(nr))
+            run.pop("reason", None)
+            run["approval"] = f"Approved with these answers: {answer}. Build slice {nr} and close it (auto)."
+            return run
+        session = str(uuid.uuid4())
+        log = f"{LOG_DIR}/slice-{nr}-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
+        run = {"nr": nr, "session": session, "log": log, "model": self.slice_model(nr)}
+        try:
+            run["approval"] = self.plan_slice(nr, session, log, run["model"])
+            return run
+        except NeedsDecision as decision:
+            self.park(nr, run, " ".join(decision.questions))
+        except TurnStalled as stalled:
+            if not self.parallel:
+                raise
+            self.park(nr, run, str(stalled))
+        return None
+
     def build_slice(self, nr: str, session: str, log: str, approval: str, model: str) -> None:
         note = ""
         if self.parallel:
             note = (" Other slices are built in parallel: if git is locked or the integration branch moved, wait and retry; "
                     "in conflicts keep every tick in work/checklist.md.")
         say(f"[slice {nr}] building \u2013 this can take a while (log {log})")
-        output = self.claude_turn(log, model, "--resume", session, approval + note)
+        self.event("slice_started", nr)
+        output = self.turn_with_one_restart(nr, session, log, model, approval + note)
         waits = 0
         # SLICE-WAIT: the session ended its turn while its checks still run - it is not done, so check back in it.
         while not self.slice_finished(nr, output):
@@ -1389,8 +1540,10 @@ class Loop:
             what = waiting[len(f"SLICE-WAIT: {nr}"):].strip()
             say(f"[slice {nr}] still running: {what} \u2013 checking back in {number_text(self.wait_seconds)}s")
             self.pause(self.wait_seconds)
-            output = self.claude_turn(log, model, "--resume", session,
-                                      f"Still waiting for: {what}. Check it; when it is done, finish slice {nr} and close it (auto).")
+            output = self.turn_with_one_restart(
+                nr, session, log, model,
+                f"Still waiting for: {what}. A background command ends with a headless turn: if it left no result, run it "
+                f"again in the foreground. When it is done, finish slice {nr} and close it (auto).")
         if not self.slice_finished(nr, output):
             opened = re.findall(r"(?m)^SLICE-OPEN:.*$", output)
             die(f"slice {nr} not finished: {opened[-1].rstrip(chr(13)) if opened else 'no SLICE-DONE or SLICE-READY line'} \u2013 see {log}")
@@ -1405,19 +1558,14 @@ class Loop:
     def run_round(self) -> None:
         ready = self.ready_slices()
         if not ready:
-            if not self.report_left():
+            clean = self.report_left()
+            if self.report_parked() or not clean:
                 raise SystemExit(1)
             die(f"no slice is ready \u2013 check {CHECKLIST_FILE} (/slice status)")
         ready = self.parallel_batch(ready) if self.parallel else ready[:1]
         if self.max_slices > 0:
             ready = ready[:self.max_slices - self.built]
-        runs = []
-        for nr in ready:
-            session = str(uuid.uuid4())
-            log = f"{LOG_DIR}/slice-{nr}-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
-            model = self.slice_model(nr)
-            runs.append({"nr": nr, "session": session, "log": log, "model": model,
-                         "approval": self.plan_slice(nr, session, log, model)})
+        runs = [run for run in map(self.plan_or_park, ready) if run]
         failures: dict[str, str] = {}
         threads = []
         for run in runs:
@@ -1432,7 +1580,8 @@ class Loop:
         for run, thread in zip(runs, threads):
             thread.join()
             if run["nr"] in failures:
-                die(f"slice {run['nr']} failed \u2013 see {run['log']}")
+                self.park(run["nr"], run, failures[run["nr"]])
+                continue
             self.finish_slice(run["nr"])
         self.built += len(runs)
 
@@ -1479,7 +1628,9 @@ class Loop:
             self.run_round()
             if self.max_slices > 0 and self.built >= self.max_slices and not self.all_done():
                 say(f"slice-loop: stopped after {self.built} slice(s) \u2013 {self.open_count()} still open")
-                return 0 if self.report_left() else 1
+                clean = self.report_left()
+                self.report_parked()
+                return 0 if clean else 1
         self.close_round()
         return 1 if self.link_lost else 0
 
@@ -1494,6 +1645,9 @@ class Loop:
                 handle.write(f"{LOG_DIR}/\n")
 
     def run(self, args: list[str]) -> int:
+        if args == ["--after-compact"]:
+            say(after_compact_text(), out=True)
+            return 0
         self.parse_args(args)
         if not (os.path.isfile(SLICES_FILE) and os.path.isfile(CHECKLIST_FILE)):
             die(f"run from the repo root (needs {SLICES_FILE} and {CHECKLIST_FILE})")
@@ -1512,7 +1666,7 @@ class Loop:
         claude still running."""
         for child in list(self.children):
             if child.poll() is None:
-                child.kill()
+                stop_process_tree(child)
         if self.watching:
             try:
                 os.unlink(WATCH_ALIVE)
@@ -1528,6 +1682,36 @@ def age_seconds(path: str) -> float:
         return time.time() - os.stat(path).st_mtime
     except OSError:
         return 0.0
+
+
+def parked_path(nr: str) -> str:
+    return f"{LOG_DIR}/slice-{nr}.parked"
+
+
+def answer_path(nr: str) -> str:
+    return f"{LOG_DIR}/slice-{nr}.answer"
+
+
+def stop_process_tree(process: subprocess.Popen) -> None:
+    """Stops a turn with everything it started; a surviving test run would keep the pipe open and the files locked."""
+    try:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)], stdin=subprocess.DEVNULL, capture_output=True)
+        else:
+            os.killpg(process.pid, signal.SIGKILL)
+    except OSError:
+        pass
+    if process.poll() is None:
+        process.kill()
+
+
+def after_compact_text() -> str:
+    """What a slice session reads after a compaction (SessionStart hook): the rules may be gone from its summary."""
+    nr = os.environ.get("SLICE_NR", "NN")
+    return (f"Your context was just compacted. You work on slice {nr} in auto mode, driven by a script: nobody answers questions. "
+            f"Before going on, read .claude/commands/slice.md (sections 4 and 5) and the plan of slice {nr} in work/plans/ again, and "
+            f"take the state from git on slice-{nr}, {CHECKLIST_FILE} and {LOG_DIR}/slice-{nr}.checks in the main checkout, not "
+            "from your summary. Run long checks in the foreground. End with exactly one marker line of section 5.")
 
 
 def on_terminate(_signal_number: int, _frame: object) -> None:

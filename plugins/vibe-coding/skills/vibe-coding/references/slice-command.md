@@ -4,7 +4,8 @@ argument-hint: "[status | NN | close | quick <finding>] [plan] [auto | parallel]
 ---
 You work the open round of this repository slice by slice. Arguments: "$ARGUMENTS".
 Answer me in the language of CLAUDE.md or README.md.
-"auto" means a script drives this session headless: nobody can answer questions mid-run.
+"auto" means a script drives this session headless: nobody can answer questions mid-run. Run long checks in the
+foreground: a headless run ends background commands with its turn.
 Never stop to ask in auto mode – decide on the documented default, or end with the marker
 lines of section 5 so the script can ask me.
 Everything specific to this repository comes from work/ and CLAUDE.md; this command never needs editing.
@@ -18,7 +19,7 @@ work/_slices.json. A slice is done when its row in work/checklist.md has a ☑ a
   first"; with "close": "ROUND-OPEN: Rnn more than one round is open").
 - "status" → read work/checklist.md, work/_slices.json and the git branches named slice-*.
   Show one table for the slices of the open round: slice, name, model (field "model" in
-  work/_slices.json), state (done / in progress / ready to merge / ready / blocked by …; "in progress" = not done,
+  work/_slices.json), state (done / parked (.slice-loop/slice-NN.parked names why) / in progress / ready to merge / ready / blocked by …; "in progress" = not done,
   but a branch slice-NN exists or the row has a ☑; "ready to merge" = a branch slice-NN whose row is ticked
   through Checks), then the round's check level and its next milestone (section 4, step 1), the number of open
   decisions in the round record, one line for a held .slice-loop/full-suite.lock (owner, since when) and one line

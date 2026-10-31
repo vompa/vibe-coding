@@ -90,8 +90,8 @@ The loop checks that a round is open, then for each ready slice starts a fresh h
 | Option | Effect |
 |---|---|
 | *(none)* | asks for every plan |
-| `--yes` | approves plans automatically; still stops when a plan reports an open decision (`NEEDS-DECISION`), a slice stays red, or a slice reports done without being ticked |
-| `--parallel` | builds slices that are ready at the same time side by side, each in its own worktree; each ends with `SLICE-READY` and the merge queue squashes them one after another. Headless – the way for long autonomous runs, since a desktop harness may refuse to start sessions from background events |
+| `--yes` | approves plans automatically; a plan with an open decision (`NEEDS-DECISION`) parks its slice and the others go on; still stops when a slice stays red or reports done without being ticked |
+| `--parallel` | builds slices that are ready at the same time side by side, each in its own worktree; each ends with `SLICE-READY` and the merge queue squashes them one after another; a failed slice is parked. With `--yes` this is the way to run a round by itself: a chat cannot, since a desktop harness refuses to start sessions from background events |
 | `--merge` | only runs the merge queue: squashes every `slice-NN` branch whose checklist row is ticked through Checks, lowest number first, retries removing worktrees an earlier squash left, then exits; starts no session and needs no open round |
 | `--merge --verify` | after the queue squashed at least one slice, runs the `Full check chain` of `work/conventions.md` on the integration branch under the full-suite lock; red exits non-zero |
 | `--merge --watch` | waits until a slice reports ready on a new tip, runs the queue once, then exits – as a background command it wakes the chat that started it. A slice left behind brings it back only with a new tip; next to a running watch it exits at once (`SLICE_WATCH_SECONDS`, `SLICE_WATCH_MAX`) |
@@ -102,7 +102,9 @@ Good to know:
 
 - Every turn of a slice runs on the slice's `model` from `work/_slices.json` (`claude --model`), never on your default model; a slice without the field runs on the default.
 - `--parallel` starts at most two slices at once (`SLICE_PARALLEL_MAX`; three sessions on one machine made unrelated tests red under load) and never two whose `files` in `work/_slices.json` share a path; the second waits for a later batch.
-- **Orchestrating from a chat instead?** Run that chat on Opus at low effort (`claude --model opus --effort low`); `.claude/slice/parallel.md` says why and how.
+- **Parked slices.** `.slice-loop/slice-NN.parked` names the question or failure. The run lists it and exits 1; write your answer to `.slice-loop/slice-NN.answer` and start the script again. `.slice-loop/events.jsonl` keeps the history.
+- **Stall guard.** A turn without activity for `SLICE_STALL_SECONDS` (two hours) is stopped with its processes and resumed once; a second silence ends the slice. The same limit is the Bash timeout of a turn, because headless runs end background commands with the turn.
+- **Steering slices from a chat instead?** Run that chat on Opus at low effort (`claude --model opus --effort low`); `.claude/slice/parallel.md` says why and how.
 - **Check levels.** `- Check level` in `work/conventions.md` (1 to 5, default 3; levels in `/slice` section 4) tells the slice sessions how often and how thoroughly to check; a round or a slice may set its own. They are instructions to the session: the script itself only knows `--verify`.
 - Headless sessions can't answer permission prompts, so they run with `--permission-mode auto`; set `SLICE_PERMISSION_MODE` to choose another mode.
 - Logs go to `.slice-loop/` in the repository, which the script keeps out of git.

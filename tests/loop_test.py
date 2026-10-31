@@ -210,7 +210,7 @@ def serialised(action, nr):
         try:
             lock = os.open("stub.lock", os.O_CREAT | os.O_EXCL)
             break
-        except FileExistsError:
+        except (FileExistsError, PermissionError):  # Windows: the lock file is being deleted
             time.sleep(0.05)
     try:
         action(nr)
@@ -231,6 +231,13 @@ elif (build or check_back) and option("STUB_WAIT_ALWAYS", (build or check_back).
     print(f"SLICE-WAIT: {(build or check_back).group(1)} full suite in the background")
 elif build or check_back:
     nr = (build or check_back).group(1)
+    hang = option("STUB_HANG", nr)  # always: every turn hangs silently; once: only the first one
+    if hang and (hang != "once" or not os.path.exists(f".slice-loop/stub-hung-{nr}")):
+        open(f".slice-loop/stub-hung-{nr}", "w").close()
+        time.sleep(600)
+    for _ in range(int(option("STUB_ACTIVE", nr) or 0)):  # a long turn that keeps writing
+        print("working", flush=True)
+        time.sleep(0.5)
     if os.environ.get("STUB_FAIL") == nr:
         print(f"SLICE-OPEN: {nr} tests red")
         sys.exit(0)
@@ -313,7 +320,34 @@ PROFILES = [
             ("ready but not ticked stops instead of merging", 3, ["--yes"], {"STUB_NO_TICK": "100"}, None, (1, 3, 1, 0),
              {"subjects": [], "branches": ["slice-100"]}),
             ("SLICE-DONE is still accepted", 3, ["--yes", "--max-slices", "1"], {"STUB_MARKER": "done"}, None, (0, 4, 1, 0)),
-            ("decision without terminal does not build", 3, ["--yes"], {"STUB_DECISION": "100"}, None, (1, 3, 0, 0)),
+            # --yes runs unattended: a decision parks its slice, the others go on, and the run ends non-zero listing it.
+            ("decision parks its slice and the round goes on", 3, ["--yes"], {"STUB_DECISION": "100"}, None, (1, 4, 1, 0),
+             {"subjects": ["Slice 101 stub squash"], "says": ["[slice 100] parked", "Which licence?", ".slice-loop/slice-100.answer"],
+              "event": "slice_parked"}),
+            ("an answered decision builds the parked slice and closes the round", 3, ["--yes"], {"STUB_DECISION": "100"}, None,
+             (0, 5, 2, 1), {"rerun": ["--yes"], "answer": {"100": "MIT please"}, "call_has": "Approved with these answers: MIT please",
+                            "subjects": ["Slice 101 stub squash", "Slice 100 stub squash"]}),
+            ("a parked slice without an answer is not planned again", 3, ["--yes"], {"STUB_DECISION": "100"}, None, (1, 4, 1, 0),
+             {"rerun": ["--yes"], "subjects": ["Slice 101 stub squash"], "call_count": ("100 plan auto", 1)}),
+            ("parallel run parks a red slice and finishes the other", 3, ["--yes", "--parallel"], {"STUB_FAIL": "100"}, None,
+             (1, 4, 2, 0), {"subjects": ["Slice 101 stub squash"], "says": ["[slice 100] parked", "tests red"]}),
+            ("a silent turn is stopped and resumed once", 3, ["--yes", "--max-slices", "1"],
+             {"STUB_HANG": "100:once", "SLICE_STALL_SECONDS": "8"}, None, (0, 4, 1, 0),
+             {"subjects": ["Slice 100 stub squash"], "says": "no activity for 8 s", "call_has": "finish slice 100 and close it",
+              "event": "slice_stalled"}),
+            ("a slice that stays silent fails a serial run", 3, ["--yes"], {"STUB_HANG": "100", "SLICE_STALL_SECONDS": "2"}, None,
+             (1, 3, 1, 0), {"subjects": [], "says": "slice 100 stalled twice"}),
+            ("parallel run parks a slice that stays silent and finishes the other", 3, ["--yes", "--parallel"],
+             {"STUB_HANG": "100", "SLICE_STALL_SECONDS": "2"}, None, (1, 4, 2, 0),
+             {"subjects": ["Slice 101 stub squash"], "says": ["[slice 100] parked", "slice 100 stalled twice"]}),
+            ("a stopped slice gives up its full-suite lock", 3, ["--yes", "--max-slices", "1"],
+             {"STUB_HANG": "100:once", "SLICE_STALL_SECONDS": "8"}, None, (0, 4, 1, 0),
+             {"lock": {"owner": "slice 100 2026-10-31T00:00:00Z", "age_minutes": 0}, "lock_gone": True, "says": "released the full-suite lock"}),
+            ("a turn that keeps writing is not stopped", 3, ["--yes", "--max-slices", "1"],
+             {"STUB_ACTIVE": "100:24", "SLICE_STALL_SECONDS": "8"}, None, (0, 4, 1, 0),
+             {"subjects": ["Slice 100 stub squash"], "says_not": "no activity"}),
+            ("every turn gets the hook that restores the rules after a compaction", 3, ["--yes", "--max-slices", "1"], {}, None,
+             (0, 4, 1, 0), {"call_has": "--settings", "file_has_loop": ("compact-hook.json", "--after-compact")}),
             ("approval without terminal does not build", 3, [], {}, None, (1, 3, 0, 0)),
             ("max slices stops after one with slices left", 1, ["--yes", "--max-slices", "1"], {}, None, (0, 2, 1, 0)),
             ("close fails keeps the round open", 4, ["--yes"], {"STUB_CLOSE_FAIL": "1"}, None, (1, 5, 1, 1)),
@@ -943,6 +977,16 @@ def git_problems(repo: pathlib.Path, profile: dict, result: subprocess.Completed
             problems.append(f"output does not name {text!r}")
     if "says_not" in expected and expected["says_not"] in output:
         problems.append(f"output names {expected['says_not']!r}")
+    if "call_has" in expected and expected["call_has"] not in calls_log(repo):
+        problems.append(f"no claude call holds {expected['call_has']!r}")
+    if "call_count" in expected and calls_log(repo).count(expected["call_count"][0]) != expected["call_count"][1]:
+        problems.append(f"claude calls with {expected['call_count'][0]!r}: {calls_log(repo).count(expected['call_count'][0])}")
+    if "event" in expected and expected["event"] not in (repo / ".slice-loop/events.jsonl").read_text(encoding="utf-8"):
+        problems.append(f"no event {expected['event']!r}")
+    if "file_has_loop" in expected:
+        name, text = expected["file_has_loop"]
+        if text not in (repo / ".slice-loop" / name).read_text(encoding="utf-8"):
+            problems.append(f".slice-loop/{name} lacks {text!r}")
     at = -1
     for text in expected.get("says_order", []):
         at = output.find(text, at + 1)
@@ -1054,6 +1098,8 @@ def main() -> int:
                     result = run_case(shell, repo, bin_dir, profile, options, env, git_expected.get("holds"))
                     if "rerun" in git_expected:  # whatever kept the worktree is gone (here: its lock), then the queue runs again
                         unlock_worktrees(repo)
+                        for nr, answer in git_expected.get("answer", {}).items():
+                            (repo / f".slice-loop/slice-{nr}.answer").write_text(answer, encoding="utf-8")
                         first = result
                         result = run_case(shell, repo, bin_dir, profile, git_expected["rerun"], env)
                         result.stdout, result.stderr = first.stdout + result.stdout, first.stderr + result.stderr
