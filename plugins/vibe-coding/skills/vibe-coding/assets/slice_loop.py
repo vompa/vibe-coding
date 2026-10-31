@@ -609,6 +609,8 @@ class Loop:
         self.wait_seconds = env_number("SLICE_WAIT_SECONDS", 300)
         self.wait_max = int(env_number("SLICE_WAIT_MAX", 30))
         self.stall_seconds = env_number("SLICE_STALL_SECONDS", 7200)
+        if self.stall_seconds <= 0:
+            die("SLICE_STALL_SECONDS needs a number above zero")
         self.write_retries = int(env_number("SLICE_WRITE_RETRIES", 5))
         self.write_backoff = env_number("SLICE_WRITE_BACKOFF_SECONDS", 2)
         self.parallel_max = int(env_number("SLICE_PARALLEL_MAX", 2))
@@ -717,13 +719,13 @@ class Loop:
                     handle.write(text)
                 os.replace(temp, target)
                 return
-            except OSError:
+            except OSError as error:
                 try:
                     os.unlink(temp)
                 except OSError:
                     pass
                 if attempt >= self.write_retries:
-                    raise WriteFailed(target) from None
+                    raise WriteFailed(target) from error
                 say(f"slice-loop: could not write {target} (locked by another process?) \u2013 retrying in "
                     f"{number_text(self.write_backoff)} s (attempt {attempt + 1} of {self.write_retries})")
                 self.pause(self.write_backoff)
@@ -1164,6 +1166,13 @@ class Loop:
             else:
                 say(f"[slice {nr}] not ready to merge: its row on slice-{nr} is not ticked through Checks \u2013 left as it is")
 
+    def squash_reported(self) -> None:
+        """Before a run plans anything: a slice that reported ready on its tip (an earlier run, or a repair on its branch)
+        goes through the queue; planning it again would find nothing to do."""
+        for nr in self.branch_numbers():
+            if not self.is_done(nr) and self.branch_ready(nr) and not self.ready_problem(nr):
+                self.merge_slice(nr)
+
     def slice_reported(self) -> bool:
         """Whether a slice has reported ready on a tip the queue has not left behind yet."""
         for nr in self.branch_numbers():
@@ -1340,15 +1349,15 @@ class Loop:
         except OSError:
             pass
 
-    def compact_hook_settings(self) -> str:
-        """The settings file every turn gets: after a compaction the session is told again what it is doing."""
+    def write_compact_hook(self) -> None:
+        """The settings file every turn gets: after a compaction the session is told again what it is doing. Written once,
+        before the first turn: a claude starting in a parallel batch must not read it half written."""
         script = pathlib.Path(__file__).resolve().as_posix()
         python = pathlib.Path(sys.executable).as_posix()
         hook = {"type": "command", "command": f'"{python}" "{script}" --after-compact'}
         settings = {"hooks": {"SessionStart": [{"matcher": "compact", "hooks": [hook]}]}}
         with open(COMPACT_HOOK_FILE, "w", encoding="utf-8", newline="\n") as handle:
             json.dump(settings, handle)
-        return COMPACT_HOOK_FILE
 
     def turn_environment(self, nr: str) -> dict[str, str]:
         """Headless claude ends a background command with its turn, so checks run in the foreground: Bash may take as long
@@ -1390,11 +1399,11 @@ class Loop:
         """Runs one claude turn on model (empty: the CLI default); the output goes to the log as it comes and is
         returned for marker parsing. arguments starts with --session-id or --resume and the session."""
         command = [self.claude, "-p", "--permission-mode", self.permission_mode, *(["--model", model] if model else []),
-                   "--settings", self.compact_hook_settings(), *arguments]
+                   "--settings", COMPACT_HOOK_FILE, *arguments]
         match = re.search(r"slice-([0-9]+)-", log)
         nr = match.group(1) if match else ""
         if os.name == "nt" and self.claude.lower().endswith((".cmd", ".bat")):
-            unsafe = [a for a in arguments if CMD_UNSAFE & set(a)]
+            unsafe = [a for a in command[1:] if CMD_UNSAFE & set(a)]
             if unsafe:
                 die("an argument holds a character cmd.exe would interpret (one of % ^ & | < > \") and claude is a "
                     f".cmd shim ({self.claude}) \u2013 use the native claude.exe or leave the character out")
@@ -1412,8 +1421,8 @@ class Loop:
                     chunks.append(line)
             code = process.wait()
         finally:
-            if process.poll() is None:
-                process.kill()
+            if process.poll() is None:  # interrupted: the turn runs in its own session, so its test runs would live on
+                stop_process_tree(process)
             self.children.remove(process)
         if stalled.is_set():
             say(f"[slice {nr}] no activity for {number_text(self.stall_seconds)} s – stopped the turn (log {log})")
@@ -1479,10 +1488,24 @@ class Loop:
                 return ""
 
     def park(self, nr: str, run: dict, reason: str) -> None:
-        """Takes a slice out of the round until the user answers; the other slices go on."""
+        """Takes a slice out of the round until the user answers; the other slices go on. An answer to an earlier reason
+        is gone: left in place, it would send the slice straight back into the same failure."""
         self.replace_file(parked_path(nr), json.dumps({**run, "reason": reason}, ensure_ascii=False, indent=1) + "\n")
+        remove_if_there(answer_path(nr))
         self.event("slice_parked", nr, reason=reason)
         say(f"[slice {nr}] parked: {reason}")
+
+    @staticmethod
+    def read_parked(nr: str) -> dict:
+        """The run a parked slice left; a hand-edited or damaged file stops the run with its name."""
+        try:
+            with open(parked_path(nr), encoding="utf-8") as handle:
+                run = json.load(handle)
+            if not isinstance(run, dict) or not {"nr", "session", "log", "model", "reason"} <= run.keys():
+                raise ValueError("fields are missing")
+        except (OSError, ValueError) as error:
+            raise Die(f"{parked_path(nr)} is unreadable ({error}) – repair or delete it") from error
+        return run
 
     def report_parked(self) -> bool:
         """Lists every parked slice and where its answer goes; False when there is none."""
@@ -1490,22 +1513,24 @@ class Loop:
         if parked:
             say(f"slice-loop: {len(parked)} slice(s) parked – write the answer to the named file, then start the loop again:")
         for nr in parked:
-            with open(parked_path(nr), encoding="utf-8") as handle:
-                say(f"  slice {nr}: {json.load(handle)['reason']} → {answer_path(nr)}")
+            say(f"  slice {nr}: {self.read_parked(nr)['reason']} → {answer_path(nr)}")
         return bool(parked)
 
     def plan_or_park(self, nr: str) -> dict | None:
-        """The run of slice nr: a parked slice with an answer goes straight to its build turn. None when it was parked."""
+        """The run of slice nr: a parked slice with an answer goes straight to its build turn, and its files stay until that
+        build has worked. A plan that never finished is planned again. None when it was parked."""
         if os.path.isfile(parked_path(nr)):
-            with open(parked_path(nr), encoding="utf-8") as handle:
-                run = json.load(handle)
-            with open(answer_path(nr), encoding="utf-8") as handle:
-                answer = handle.read().strip()
-            os.unlink(answer_path(nr))
-            os.unlink(parked_path(nr))
-            run.pop("reason", None)
-            run["approval"] = f"Approved with these answers: {answer}. Build slice {nr} and close it (auto)."
-            return run
+            run = self.read_parked(nr)
+            if not run.get("replan"):
+                try:
+                    with open(answer_path(nr), encoding="utf-8") as handle:
+                        answer = handle.read().strip()
+                except (OSError, ValueError) as error:
+                    raise Die(f"{answer_path(nr)} is unreadable ({error})") from error
+                run["approval"] = f"Approved with these answers: {answer}. Build slice {nr} and close it (auto)."
+                return run
+            remove_if_there(answer_path(nr))
+            remove_if_there(parked_path(nr))
         session = str(uuid.uuid4())
         log = f"{LOG_DIR}/slice-{nr}-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
         run = {"nr": nr, "session": session, "log": log, "model": self.slice_model(nr)}
@@ -1514,10 +1539,10 @@ class Loop:
             return run
         except NeedsDecision as decision:
             self.park(nr, run, " ".join(decision.questions))
-        except TurnStalled as stalled:
+        except Die as failed:
             if not self.parallel:
                 raise
-            self.park(nr, run, str(stalled))
+            self.park(nr, {**run, "replan": True}, str(failed))
         return None
 
     def build_slice(self, nr: str, session: str, log: str, approval: str, model: str) -> None:
@@ -1547,13 +1572,15 @@ class Loop:
         if not self.slice_finished(nr, output):
             opened = re.findall(r"(?m)^SLICE-OPEN:.*$", output)
             die(f"slice {nr} not finished: {opened[-1].rstrip(chr(13)) if opened else 'no SLICE-DONE or SLICE-READY line'} \u2013 see {log}")
+        remove_if_there(answer_path(nr))
+        remove_if_there(parked_path(nr))
 
     def build_in_thread(self, run: dict, failures: dict[str, str]) -> None:
         try:
             self.build_slice(run["nr"], run["session"], run["log"], run["approval"], run["model"])
-        except Die as error:
+        except Exception as error:  # whatever went wrong: unrecorded, the slice would count as built and the others be lost
             say(f"slice-loop: {error}")
-            failures[run["nr"]] = str(error)
+            failures[run["nr"]] = str(error) if isinstance(error, Die) else repr(error)
 
     def run_round(self) -> None:
         ready = self.ready_slices()
@@ -1624,6 +1651,7 @@ class Loop:
         self.claude = shutil.which("claude") or ""
         if not self.claude:
             die("claude CLI not found")
+        self.squash_reported()
         while not self.all_done():
             self.run_round()
             if self.max_slices > 0 and self.built >= self.max_slices and not self.all_done():
@@ -1645,9 +1673,6 @@ class Loop:
                 handle.write(f"{LOG_DIR}/\n")
 
     def run(self, args: list[str]) -> int:
-        if args == ["--after-compact"]:
-            say(after_compact_text(), out=True)
-            return 0
         self.parse_args(args)
         if not (os.path.isfile(SLICES_FILE) and os.path.isfile(CHECKLIST_FILE)):
             die(f"run from the repo root (needs {SLICES_FILE} and {CHECKLIST_FILE})")
@@ -1659,7 +1684,10 @@ class Loop:
         self.add_log_dir_exclude()
         self.stale_lock_notice()
         self.baseline_notice()
-        return self.run_merge() if self.merge_only else self.run_rounds()
+        if self.merge_only:
+            return self.run_merge()
+        self.write_compact_hook()
+        return self.run_rounds()
 
     def clean_up(self) -> None:
         """What the shell version did in its exit trap: the sign of life, the queue lock, a merge in progress and any
@@ -1690,6 +1718,13 @@ def parked_path(nr: str) -> str:
 
 def answer_path(nr: str) -> str:
     return f"{LOG_DIR}/slice-{nr}.answer"
+
+
+def remove_if_there(path: str) -> None:
+    try:
+        os.unlink(path)
+    except OSError:  # missing, or held by a scanner: a built slice never reads it again
+        pass
 
 
 def stop_process_tree(process: subprocess.Popen) -> None:
@@ -1729,6 +1764,9 @@ def use_utf8_streams() -> None:
 
 def main(args: list[str]) -> int:
     use_utf8_streams()
+    if args == ["--after-compact"]:  # a hook of a running session: needs no settings, so a bad SLICE_* value cannot break it
+        say(after_compact_text(), out=True)
+        return 0
     signal.signal(signal.SIGTERM, on_terminate)
     loop: Loop | None = None
     try:

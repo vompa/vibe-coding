@@ -220,6 +220,13 @@ def serialised(action, nr):
 
 
 if plan:
+    plan_hang = option("STUB_PLAN_HANG", plan.group(1))  # once: the first planning turn hangs silently
+    if plan_hang and not os.path.exists(f".slice-loop/stub-plan-hung-{plan.group(1)}"):
+        open(f".slice-loop/stub-plan-hung-{plan.group(1)}", "w").close()
+        time.sleep(600)
+    if option("STUB_NO_PLAN", plan.group(1)):
+        print(f"SLICE-OPEN: {plan.group(1)} nothing to plan")
+        sys.exit(0)
     print(f"PLAN: {folder}/plans/slice-{plan.group(1)}.md")
     if os.environ.get("STUB_DECISION") == plan.group(1):
         print("NEEDS-DECISION: Which licence?")
@@ -331,6 +338,29 @@ PROFILES = [
              {"rerun": ["--yes"], "subjects": ["Slice 101 stub squash"], "call_count": ("100 plan auto", 1)}),
             ("parallel run parks a red slice and finishes the other", 3, ["--yes", "--parallel"], {"STUB_FAIL": "100"}, None,
              (1, 4, 2, 0), {"subjects": ["Slice 101 stub squash"], "says": ["[slice 100] parked", "tests red"]}),
+            ("a run squashes a slice that already reported ready instead of planning it again", 3, ["--yes"], {}, None, (0, 5, 1, 1),
+             {"prepared": [{"nr": "100"}], "subjects": ["Slice 100 stub squash", "Slice 101 stub squash"],
+              "call_count": ("100 plan auto", 0)}),
+            ("parallel run parks a slice whose plan fails and finishes the other", 3, ["--yes", "--parallel"], {"STUB_NO_PLAN": "100"},
+             None, (1, 4, 1, 0), {"subjects": ["Slice 101 stub squash"], "says": ["[slice 100] parked", "no PLAN line"]}),
+            ("an answer stays until its build has worked", 3, ["--yes"], {"STUB_DECISION": "100", "STUB_FAIL": "100"}, None,
+             (1, 4, 2, 0), {"rerun": ["--yes"], "answer": {"100": "MIT please"},
+                            "file_has": {".slice-loop/slice-100.answer": ["MIT please"]}}),
+            ("an answered slice that goes red in a parallel run is parked again and needs a new answer", 3, ["--yes", "--parallel"],
+             {"STUB_DECISION": "100", "STUB_FAIL": "100"}, None, (1, 4, 2, 0),
+             {"rerun": ["--yes", "--parallel"], "answer": {"100": "MIT please"}, "gone": [".slice-loop/slice-100.answer"],
+              "says": "tests red"}),
+            ("a built slice leaves no parked state behind", 3, ["--yes"], {"STUB_DECISION": "100"}, None, (0, 5, 2, 1),
+             {"rerun": ["--yes"], "answer": {"100": "MIT please"},
+              "gone": [".slice-loop/slice-100.answer", ".slice-loop/slice-100.parked"]}),
+            ("a plan that went silent is planned again, not built from nothing", 3, ["--yes", "--parallel"],
+             {"STUB_PLAN_HANG": "100:once", "SLICE_STALL_SECONDS": "2"}, None, (0, 5, 2, 1),
+             {"rerun": ["--yes", "--parallel"], "answer": {"100": "go on"}, "call_count": ("100 plan auto", 2),
+              "says": "[slice 100] parked"}),
+            ("an unreadable parked file stops the run with its name", 3, ["--yes"], {"STUB_DECISION": "100"}, None, (1, 4, 1, 0),
+             {"rerun": ["--yes"], "spoil_parked": "100", "says": ".slice-loop/slice-100.parked is unreadable"}),
+            ("a stall limit of zero is refused", 3, ["--yes"], {"SLICE_STALL_SECONDS": "0"}, None, (1, 3, 0, 0),
+             {"says": "SLICE_STALL_SECONDS", "no_calls": True}),
             ("a silent turn is stopped and resumed once", 3, ["--yes", "--max-slices", "1"],
              {"STUB_HANG": "100:once", "SLICE_STALL_SECONDS": "8"}, None, (0, 4, 1, 0),
              {"subjects": ["Slice 100 stub squash"], "says": "no activity for 8 s", "call_has": "finish slice 100 and close it",
@@ -1008,6 +1038,7 @@ def git_problems(repo: pathlib.Path, profile: dict, result: subprocess.Completed
     checklist = (folder / "checklist.md").read_text(encoding="utf-8").splitlines()
     problems += [f"record lacks {line!r}" for line in expected.get("record_has", []) if line not in record]
     problems += [f"checklist lacks {line!r}" for line in expected.get("checklist_has", []) if line not in checklist]
+    problems += [f"{path} is still there" for path in expected.get("gone", []) if (repo / path).exists()]
     for path, lines in expected.get("file_has", {}).items():
         text = (repo / path).read_text(encoding="utf-8").splitlines()
         problems += [f"{path} lacks {line!r}" for line in lines if line not in text]
@@ -1100,6 +1131,8 @@ def main() -> int:
                         unlock_worktrees(repo)
                         for nr, answer in git_expected.get("answer", {}).items():
                             (repo / f".slice-loop/slice-{nr}.answer").write_text(answer, encoding="utf-8")
+                        if "spoil_parked" in git_expected:
+                            (repo / f".slice-loop/slice-{git_expected['spoil_parked']}.parked").write_text("not json", encoding="utf-8")
                         first = result
                         result = run_case(shell, repo, bin_dir, profile, git_expected["rerun"], env)
                         result.stdout, result.stderr = first.stdout + result.stdout, first.stderr + result.stderr

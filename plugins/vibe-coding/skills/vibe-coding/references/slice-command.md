@@ -168,8 +168,11 @@ Do 1–4 on slice-NN, so they land in the same commit as the code.
    decided while building (a column that does not apply, a point the code settled); the merge queue refuses a slice
    that adds a line in another format there. Under Surprises what the plan did not foresee, under Deferred minors what
    you left out on purpose. Every question for me is a "NEEDS-DECISION: <question>" line under Open decisions,
-   not only a note elsewhere. Under Manual test list insert the slice's block in slice-number order, in the
-   format of .claude/slice/close.md (one Expected: per step). A step of an earlier slice's block that your change makes
+   not only a note elsewhere. In auto mode the approval of a plan comes from the script, not from me: it is no Ruling.
+   Under Manual test list insert the slice's block in slice-number order, unindented and in exactly this format, because
+   the merge queue refuses any other (.claude/slice/close.md has the rules): a line "### Slice NN – <name>", a line
+   "Start: <command>", the numbered steps each followed by one line "Expected: <observable result>", then one line
+   "Closes: <ids>" and one line "Result: ☐". A step of an earlier slice's block that your change makes
    wrong gets "(superseded by slice NN: <what holds now>)" at the end of its Expected: line, so I do not test what no
    longer applies.
    When "## Source" names a tracked findings file, mark the slice's ids there as "done in slice NN" in the
