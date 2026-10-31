@@ -138,11 +138,11 @@ Do 1–4 on slice-NN, so they land in the same commit as the code.
    1. Own checks without the scan tests; full suites stay out of the slice; the full check chain only at round close.
    2. Own checks including the scan tests; the full suite of an area only when the slice touches shared code; the full
       check chain only at round close.
-   3. (default) Like 2, plus `slice-loop -Merge -Verify` at the round's milestones and at round close, not after
+   3. (default) Like 2, plus `slice_loop.py --merge --verify` at the round's milestones and at round close, not after
       every group.
-   4. Like 3, plus `-Merge -Verify` after every group, and after merging the integration branch (step 6a) the full
+   4. Like 3, plus `--merge --verify` after every group, and after merging the integration branch (step 6a) the full
       suites of the areas the integration branch changed since the old base.
-   5. The full check chain in every slice on the tip and after every merge of the integration branch; `-Merge -Verify`
+   5. The full check chain in every slice on the tip and after every merge of the integration branch; `--merge --verify`
       after every group.
    A red test is first re-run alone; the whole suite runs again only when it stays red. A red test that is green when run
    alone or in a second unchanged run is load, not a regression: note it under Surprises as "load, not a fault" (test, both
@@ -207,7 +207,7 @@ Do 1–4 on slice-NN, so they land in the same commit as the code.
       it behind ("integration branch moved and touches <files>") when such a file turns up later – then merge here.
       After a merge, repeat the baseline check and your own checks on the merged tip before the squash or SLICE-READY;
       full suites only when your check level asks for them (step 1) or the overlap lists a file; the interplay of
-      slices is covered by `-Merge -Verify` as the level asks; append these runs to the checks proof (the merged tip);
+      slices is covered by `--merge --verify` as the level asks; append these runs to the checks proof (the merged tip);
    b. in the main checkout, `git merge --squash slice-NN`;
    c. check the resolved files before committing: `grep '^<<<<<<<'` finds nothing and every line of both sides
       (`git show HEAD:<file>` and `git show slice-NN:<file>`) is still present, every `Result:` line too;
@@ -227,7 +227,7 @@ End with exactly three lines:
   else "SLICE-OPEN: NN <reason>")
 
 ## 5. Marker lines
-The loop script (.claude/scripts/slice-loop.*) reads these lines. Print each on a line of its own,
+The loop script (.claude/scripts/slice_loop.py) reads these lines. Print each on a line of its own,
 from the first column, exactly as written – no bullet, quote or code format, nothing before it:
 - "PLAN: <path of the plan file>" – last line of a "plan" run
 - "NEEDS-DECISION: <question>" – one per open point, before the PLAN line

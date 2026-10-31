@@ -269,7 +269,7 @@ async function requestStart($: EngineInterface, round: string, rows: SliceRow[])
     `the slice's goal, scope, not-building list and acceptance cases from work/_slices.json, ` +
     `the parallel rules (own branch and worktree, never push) and work/session-hints.md. ` +
     `Each session ends with SLICE-READY: NN; the squash happens through the merge queue in the main checkout ` +
-    `(slice-loop --merge, or the running loop), never in the session itself.`
+    `(slice_loop.py --merge, or the running loop), never in the session itself.`
   const box = await $.prompt.read()
   const { isFilled } = await $.prompt.fill(box.text.trim() ? { text: `\n${text}`, mode: 'append' } : { text })
   $.ui.toast(isFilled ? 'Start request is in the prompt box: Enter sends it.' : 'The prompt box is busy: close the dialog and press Start again.')

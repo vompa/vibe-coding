@@ -4,7 +4,7 @@ import json, pathlib, re
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SKILL = ROOT / "plugins/vibe-coding/skills/vibe-coding"
 COMMAND = SKILL / "references/slice-command.md"
-SCRIPTS = ("assets/slice-loop.sh", "assets/slice-loop.ps1")
+SCRIPTS = ("assets/slice_loop.py",)
 LOOP_MARKERS = ["PLAN:", "NEEDS-DECISION:", "SLICE-DONE:", "SLICE-READY:", "SLICE-WAIT:", "SLICE-OPEN:", "ROUND-DONE:", "ROUND-OPEN:"]
 COPIED = {"round-close.md": ".claude/slice/close.md", "slice-parallel.md": ".claude/slice/parallel.md", "slice-quick.md": ".claude/slice/quick.md"}
 
@@ -16,7 +16,7 @@ def test_command_defines_every_marker():
     for marker in LOOP_MARKERS + ["ALL-DONE"]: assert marker in text, marker
     assert "QUICK-DONE:" in text and "QUICK-DONE:" in read("references/slice-quick.md")
 
-def test_loop_scripts_read_the_same_markers():
+def test_loop_script_reads_the_markers_the_command_prints():
     for script in SCRIPTS:
         text = read(script)
         for marker in LOOP_MARKERS: assert marker in text, (script, marker)
@@ -35,11 +35,15 @@ def test_command_stays_short():
     lines = len(COMMAND.read_text(encoding="utf-8").splitlines())
     assert lines <= 250, lines
 
-def test_loop_scripts_define_no_function_twice():
-    """A second slice_numbers() silently replaced the first and the bash loop read branches instead of the slice list."""
-    for script, pattern in (("assets/slice-loop.sh", r"^([a-z_]+)\(\) \{"), ("assets/slice-loop.ps1", r"^function ([A-Za-z-]+)")):
-        names = re.findall(pattern, read(script), re.M)
-        assert len(names) == len(set(names)), (script, sorted(n for n in set(names) if names.count(n) > 1))
+def test_loop_script_defines_no_function_twice():
+    """A second slice_numbers() silently replaced the first and the bash loop read branches instead of the slice list.
+    Methods of the Loop class and module functions share one namespace here: no name may be defined twice at all."""
+    names = [n for n in re.findall(r"^\s*def (\w+)\(", read("assets/slice_loop.py"), re.M) if not n.startswith("__")]
+    assert len(names) == len(set(names)), sorted(n for n in set(names) if names.count(n) > 1)
+
+def test_loop_script_is_the_only_loop_script_of_the_plugin():
+    """The shell versions are gone since 2.0.0; a leftover would be copied by nobody and tested by nobody."""
+    assert sorted(p.name for p in (SKILL / "assets").iterdir() if p.name != "__pycache__") == ["slice_loop.py"]
 
 def test_every_slice_runs_on_its_own_model():
     assert '"model"' in COMMAND.read_text(encoding="utf-8") and "claude --model" in read("references/slice-parallel.md")

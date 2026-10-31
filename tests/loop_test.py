@@ -1,11 +1,12 @@
-"""Tests for the loop scripts of both plugins (assets/rebuild-loop and assets/slice-loop, .sh and .ps1)
-with a fake claude CLI (no real Claude calls).
+"""Tests for the loop scripts of both plugins with a fake claude CLI (no real Claude calls): assets/rebuild-loop
+(.sh and .ps1, run under bash and pwsh) and assets/slice_loop.py of vibe-coding (run with the Python that runs this test).
 
 The vibe-coding profile runs in a real git repository: the fake claude builds each slice on its own branch and
 worktree and ends with SLICE-READY, and the loop's merge queue squashes the branch in the main checkout.
 
 Usage: python tests/loop_test.py [text]   (bash and/or pwsh must be on PATH; missing shells are skipped)
-  text: run only the cases whose name contains it; LOOP_TEST_SHELLS="pwsh" runs only that shell.
+  text: run only the cases whose name contains it; LOOP_TEST_SHELLS="pwsh" runs only that shell
+  (shells: bash, pwsh, python; the rebuild profile runs under bash and pwsh, the vibe-coding profile under python).
 """
 import json
 import mmap
@@ -268,7 +269,7 @@ CONVENTIONS_TRANSLATED = "# Konventionen\n- Basisprüfung (vor jeder Slice): `ba
 # "dry_run_ready" is what --dry-run prints when the first three slices are done.
 PROFILES = [
     {
-        "plugin": "vibe-rebuild", "script": "rebuild-loop", "folder": "rebuild", "command": "/rebuild",
+        "plugin": "vibe-rebuild", "script": "rebuild-loop", "folder": "rebuild", "command": "/rebuild", "shells": ("bash", "pwsh"),
         "slices": [
             {"nr": "00", "deps": "–"}, {"nr": "01", "deps": "00"}, {"nr": "02", "deps": "01"},
             {"nr": "03", "deps": "02"}, {"nr": "04", "deps": "02"},
@@ -286,7 +287,7 @@ PROFILES = [
         ],
     },
     {
-        "plugin": "vibe-coding", "script": "slice-loop", "folder": "work", "command": "/slice",
+        "plugin": "vibe-coding", "script": "slice_loop", "folder": "work", "command": "/slice", "shells": ("python",),
         "slices": [
             {"nr": "05", "deps": "–", "round": "R01", "model": "sonnet"}, {"nr": "06", "deps": "05", "round": "R01"},
             {"nr": "07", "deps": "06", "round": "R01", "model": "opus"}, {"nr": "100", "deps": "07", "round": "R01", "model": "haiku"},
@@ -739,6 +740,11 @@ def prepare_state(repo: pathlib.Path, expected: dict) -> None:
             os.utime(path, (then, then))
 
 
+def with_stub_path(env: dict, bin_dir: pathlib.Path) -> dict:
+    """env with the folder of the fake claude first on PATH (the python shell has no shell command to export it)."""
+    return dict(env, PATH=str(bin_dir) + os.pathsep + env.get("PATH", ""))
+
+
 def command(shell: str, bin_dir: pathlib.Path, body: str) -> list[str]:
     # Full path: on Windows a bare "bash" would start WSL from System32 instead of the bash on PATH.
     executable = shutil.which(shell)
@@ -751,6 +757,14 @@ def command(shell: str, bin_dir: pathlib.Path, body: str) -> list[str]:
 
 def assert_stub_first(shell: str, bin_dir: pathlib.Path) -> None:
     """Never let a test reach the real claude CLI."""
+    if shell == "python":
+        # The way slice_loop.py finds claude: shutil.which on a PATH that starts with the stub folder. On Windows that
+        # honours PATHEXT, so the extensionless bash wrapper is skipped and claude.cmd is found.
+        found = subprocess.run([sys.executable, "-c", "import shutil; print(shutil.which('claude') or '')"],
+                               env=with_stub_path(dict(os.environ), bin_dir), capture_output=True, text=True).stdout.strip()
+        if not found or not os.path.normcase(os.path.realpath(found)).startswith(os.path.normcase(os.path.realpath(bin_dir))):
+            sys.exit(f"python: claude resolves to {found!r}, not the stub – aborting")
+        return
     probe = "command -v claude" if shell == "bash" else "(Get-Command claude -CommandType Application | Select-Object -First 1).Source"
     found = subprocess.run(command(shell, bin_dir, probe), capture_output=True, text=True).stdout.strip()
     if "claude_stub" not in found and not found.startswith((posix(bin_dir), str(bin_dir))):
@@ -759,7 +773,8 @@ def assert_stub_first(shell: str, bin_dir: pathlib.Path) -> None:
 
 def script_path(profile: dict, shell: str) -> pathlib.Path:
     plugin = profile["plugin"]
-    return ROOT / "plugins" / plugin / "skills" / plugin / "assets" / f"{profile['script']}.{'sh' if shell == 'bash' else 'ps1'}"
+    extension = {"bash": "sh", "pwsh": "ps1", "python": "py"}[shell]
+    return ROOT / "plugins" / plugin / "skills" / plugin / "assets" / f"{profile['script']}.{extension}"
 
 
 def pwsh_arguments(options: list[str]) -> str:
@@ -877,14 +892,19 @@ def run_case(shell: str, repo: pathlib.Path, bin_dir: pathlib.Path, profile: dic
     if not script.exists():
         # Not left to the shell: a missing .ps1 would not give a failing exit code under -Command.
         return subprocess.CompletedProcess([], 127, "", f"script missing: {script}")
-    if shell == "bash":
-        body = f'bash "{posix(script)}" ' + " ".join(options)
-    else:
-        body = f"& '{script}' " + pwsh_arguments(options) + "; exit $LASTEXITCODE"
     stub_env = dict(os.environ, STUB_FOLDER=profile["folder"], STUB_COMMAND=profile["command"], **env)
+    if shell == "python":
+        arguments = [sys.executable, str(script), *options]
+        stub_env = with_stub_path(stub_env, bin_dir)
+    else:
+        if shell == "bash":
+            body = f'bash "{posix(script)}" ' + " ".join(options)
+        else:
+            body = f"& '{script}' " + pwsh_arguments(options) + "; exit $LASTEXITCODE"
+        arguments = command(shell, bin_dir, body)
     if holds:
-        return run_held(command(shell, bin_dir, body), repo, stub_env, holds)
-    return subprocess.run(command(shell, bin_dir, body), cwd=repo, env=stub_env,
+        return run_held(arguments, repo, stub_env, holds)
+    return subprocess.run(arguments, cwd=repo, env=stub_env,
                           input="", capture_output=True, text=True, encoding="utf-8", timeout=int(os.environ.get("LOOP_TEST_TIMEOUT", 300)))
 
 
@@ -975,12 +995,39 @@ def wrong_models(repo: pathlib.Path, profile: dict) -> list[str]:
     return wrong
 
 
+ENCODING_CASE = "python ignores PYTHONIOENCODING and writes UTF-8"
+
+
+def check_python_encoding(base: pathlib.Path, bin_dir: pathlib.Path, stub: pathlib.Path) -> bool:
+    """slice_loop.py under a legacy console encoding (PYTHONIOENCODING=cp1252, PYTHONUTF8=0): its messages (en dashes)
+    and the non-ASCII finding id Ä77 taken from a file must leave as UTF-8 bytes. The raw bytes are checked: decoding
+    them as UTF-8 first, or escaping non-ASCII (json.dumps), would hide a script that wrote cp1252."""
+    profile = next(p for p in PROFILES if "python" in p["shells"])
+    prepared = [{"nr": "100", "finding": "\u00c477"}, {"nr": "101", "finding": "\u00c477"}]
+    repo = make_repo(base, profile, 3, None, stub, prepared, None)
+    env = with_stub_path(dict(os.environ, PYTHONIOENCODING="cp1252", PYTHONUTF8="0",
+                              STUB_FOLDER=profile["folder"], STUB_COMMAND=profile["command"]), bin_dir)
+    result = subprocess.run([sys.executable, str(script_path(profile, "python")), "--merge"], cwd=repo, env=env,
+                            input=b"", capture_output=True, timeout=int(os.environ.get("LOOP_TEST_TIMEOUT", 300)))
+    output = result.stdout + result.stderr
+    expected = "finding id defined twice: \u00c477 in docs/findings.md".encode("utf-8")
+    checks = (("UTF-8 finding id missing", expected not in output),
+              ("en dash not UTF-8", " \u2013 ".encode("utf-8") not in output),
+              ("cp1252 dash written", b"\x96" in output),
+              ("exit code is not 1", result.returncode != 1))
+    problems = [what for what, bad in checks if bad]
+    print(f"{'FAIL' if problems else 'ok  '} python {profile['plugin']:12} {ENCODING_CASE}: {problems or 'raw UTF-8 bytes'}")
+    if problems:
+        print(output[-1500:].decode("utf-8", "replace"))
+    return not problems
+
+
 def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # failure output carries ☑ and ☐; Windows consoles default to cp1252
     only = sys.argv[1] if len(sys.argv) > 1 else ""  # optional: run only cases whose name contains this text
-    shells = [s for s in os.environ.get("LOOP_TEST_SHELLS", "bash pwsh").split() if shutil.which(s)]
+    shells = [s for s in os.environ.get("LOOP_TEST_SHELLS", "bash pwsh python").split() if s == "python" or shutil.which(s)]
     if not shells:
-        print("no bash or pwsh found")
+        print("no bash, pwsh or python found")
         return 1
     failures = 0
     with tempfile.TemporaryDirectory() as tmp:
@@ -991,6 +1038,8 @@ def main() -> int:
         for shell in shells:
             assert_stub_first(shell, bin_dir)
             for profile in PROFILES:
+                if shell not in profile["shells"]:
+                    continue
                 for name, done, options, env, rounds, expected, *extra in profile["cases"]:
                     if only not in name:
                         continue
@@ -1015,6 +1064,8 @@ def main() -> int:
                     print(f"{'ok  ' if ok else 'FAIL'} {shell:4} {profile['plugin']:12} {name}: exit/ticked/builds/closes {got}")
                     if not ok:
                         print(result.stdout[-1500:], result.stderr[-1500:], *problems[:5], sep="\n")
+        if "python" in shells and only in ENCODING_CASE:
+            failures += not check_python_encoding(base, bin_dir, stub)
     return 1 if failures else 0
 
 

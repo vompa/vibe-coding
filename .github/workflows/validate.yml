@@ -46,6 +46,5 @@ jobs:
         run: |
           bash -n plugins/vibe-rebuild/skills/vibe-rebuild/assets/rebuild-loop.sh
           pwsh -NoProfile -Command "\$null = [scriptblock]::Create((Get-Content -Raw plugins/vibe-rebuild/skills/vibe-rebuild/assets/rebuild-loop.ps1))"
-          bash -n plugins/vibe-coding/skills/vibe-coding/assets/slice-loop.sh
-          pwsh -NoProfile -Command "\$null = [scriptblock]::Create((Get-Content -Raw plugins/vibe-coding/skills/vibe-coding/assets/slice-loop.ps1))"
+          python -m py_compile plugins/vibe-coding/skills/vibe-coding/assets/slice_loop.py
           python tests/loop_test.py
