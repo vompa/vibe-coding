@@ -28,7 +28,7 @@ jobs:
           skills-ref validate plugins/vibe-coding/skills/vibe-coding
       - name: Check scripts
         run: |
-          python -m py_compile plugins/vibe-rebuild/skills/vibe-rebuild/scripts/*.py plugins/vibe-coding/skills/vibe-coding/scripts/*.py tests/*.py
+          python -m py_compile plugins/vibe-rebuild/skills/vibe-rebuild/scripts/*.py plugins/vibe-coding/skills/vibe-coding/scripts/*.py plugins/vibe-rebuild/skills/vibe-rebuild/assets/*.py tests/*.py
           python plugins/vibe-rebuild/skills/vibe-rebuild/scripts/inventory.py . > /dev/null
           printf '%s' '[{"nr":"00","slug":"scaffold","name":"Scaffold","goal":"g","prd":"p","deps":"-","scope":["a"],"parity":"x","non_goals":"n"}]' > /tmp/s.json
           python plugins/vibe-rebuild/skills/vibe-rebuild/scripts/render_slices.py /tmp/s.json /tmp/slices
@@ -40,7 +40,12 @@ jobs:
           test -f /tmp/coding-slices/07-message-bars.md
           python plugins/vibe-coding/skills/vibe-coding/scripts/render_slices.py /tmp/c.json /tmp/coding-slices-de --lang de
           grep -q "Muster übernehmen" /tmp/coding-slices-de/07-message-bars.md
+          printf '%s' '[{"nr":"03","slug":"search","name":"Search","goal":"g","prd":"p","deps":"00","acs":["AC-03","AC-07"],"scope":["a"],"parity":"x","non_goals":"n"}]' > /tmp/g.json
+          python plugins/vibe-rebuild/skills/vibe-rebuild/scripts/render_slices.py /tmp/g.json /tmp/goal-slices
+          grep -q "Goal criteria:\*\* AC-03, AC-07" /tmp/goal-slices/03-search.md
+          grep -q "evidence.py check 03" /tmp/goal-slices/03-search.md
           python tests/render_slices_test.py
+          python tests/goal_evidence_test.py
           python tests/markers_test.py
       - name: Check loop scripts
         run: |
