@@ -42,6 +42,7 @@ jobs:
           grep -q "Muster übernehmen" /tmp/coding-slices-de/07-message-bars.md
           python tests/render_slices_test.py
           python tests/markers_test.py
+          python tests/slice_loop_round_test.py
       - name: Check loop scripts
         run: |
           bash -n plugins/vibe-rebuild/skills/vibe-rebuild/assets/rebuild-loop.sh

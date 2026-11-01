@@ -11,6 +11,7 @@ From round R05: finished slices waited unnoticed, and slices came up as cards in
 - **Parked files stay until the build worked.** An answer survives a failed serial build; a failure under `--parallel` asks for a new one. A plan that went silent is planned again, and a damaged parked file stops the run with its name.
 - **Found by a run with the real `claude`.** A run first squashes a slice that already reported ready instead of planning it again, a failed plan under `--parallel` parks its slice instead of ending the run, and `/slice` spells out the manual test block the queue insists on.
 - **Interrupting a run stops the turn's whole process tree**, an unexpected error in a build thread parks its slice, and the hook file is written once before the first turn.
+- **The loop works only the open round.** `--dry-run` and a run counted the slices of every round, so a slice of a round planned ahead (`Status: planned`) was built and the open round never closed. Now only slices whose `round` names the open round count, plus entries without that field. **Changed:** an open round without slices builds nothing and stays open instead of being closed.
 
 ## 2.0.0 – 2026-10-31
 The hands-off loop is one Python script. **Breaking:** `slice-loop.sh` and `slice-loop.ps1` are gone; start the loop with `python .claude/scripts/slice_loop.py` (`python3` on macOS and Linux if `python` is not found).

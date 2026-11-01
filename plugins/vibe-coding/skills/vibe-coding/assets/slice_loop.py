@@ -599,6 +599,7 @@ class Slice:
         deps = entry["deps"]
         self.deps = re.findall(r"[0-9]{2,}", " ".join(map(str, deps)) if isinstance(deps, list) else str(deps))
         self.model = str(entry.get("model") or "")
+        self.round = str(entry.get("round") or "")
         files = entry.get("files") or []
         self.files = [str(path) for path in files if path] if isinstance(files, list) else []
 
@@ -1296,9 +1297,14 @@ class Loop:
 
     # --- planning and building ---
 
+    def round_slices(self) -> list[Slice]:
+        """The slices of the open round; a round planned ahead waits. An entry without "round" counts as part of it."""
+        current = self.open_round()
+        return [entry for entry in self.slices() if entry.round in ("", current)]
+
     def ready_slices(self) -> list[str]:
         ready = []
-        for entry in self.slices():
+        for entry in self.round_slices():
             if self.is_done(entry.nr) or entry.nr in self.left_nrs:
                 continue
             if os.path.isfile(parked_path(entry.nr)) and not os.path.isfile(answer_path(entry.nr)):
@@ -1308,10 +1314,10 @@ class Loop:
         return ready
 
     def all_done(self) -> bool:
-        return all(self.is_done(entry.nr) for entry in self.slices())
+        return all(self.is_done(entry.nr) for entry in self.round_slices())
 
     def open_count(self) -> int:
-        return sum(not self.is_done(entry.nr) for entry in self.slices())
+        return sum(not self.is_done(entry.nr) for entry in self.round_slices())
 
     def parallel_batch(self, ready: list[str]) -> list[str]:
         """The ready slices (in order) that go into the next --parallel batch: at most SLICE_PARALLEL_MAX, and none
@@ -1647,6 +1653,9 @@ class Loop:
         self.round = self.open_round()
         if not self.round:
             say(f"slice-loop: no open round in {ROUNDS_DIR} \u2013 start a round with the vibe-coding skill first")
+            return 0
+        if not self.round_slices():
+            say(f"slice-loop: round {self.round} has no slices in {SLICES_FILE} – nothing to build, the round stays open")
             return 0
         self.claude = shutil.which("claude") or ""
         if not self.claude:
