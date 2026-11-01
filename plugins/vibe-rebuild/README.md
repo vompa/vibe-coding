@@ -15,6 +15,7 @@ A git repo that becomes the target repo of the rebuild – local by default (the
 
 - **analysis.md** – stack, domain, features, interfaces, existing tests, legacy findings
 - **research.md** – current best practice for the target stack, with sources and the decisions drawn from it
+- **goal/contract-v001.md** – the user-approved goal contract: what must stay, what must get better, how each is proven; every line tagged with where it came from; frozen once approved
 - **PRD.md** and **GLOSSARY.md** – behaviour from the user's view with Given/When/Then acceptance criteria, improvements on purpose, and binding terminology
 - **CLAUDE.md** – guardrails for the target repo: architecture with enforced dependency rules, hard rules, exact commands
 - **slices/** – vertical, dependency-ordered slices, each with a ready-to-run prompt and a Definition of Done
@@ -41,7 +42,7 @@ The skill triggers on its own; you can also call it as `/vibe-rebuild:vibe-rebui
 
 1. Quick inventory of the codebase via script: projects, lines per folder, files over 300 lines, existing specifications and docs.
 2. Parallel analysis by explorer subagents (preferably `feature-dev:code-explorer`) into a fixed schema, with numbers spot-checked against the code.
-3. PRD and glossary – existing specs are the primary source of intent; legacy findings become improvements on purpose.
+3. Goal contract, then PRD and glossary – a short interview (up to 8 questions) settles what counts as success; invariants (keep) are separated from requirements (improve), proposals stay proposals until you confirm them, open points stay visible. Existing specs are the primary source of intent; legacy findings become improvements on purpose.
 4. Target-stack research in three short passes – broad, deep, distill – with the goal stated openly, distilled into sourced decisions; architecture-relevant ones go to you before slicing. It checks the licence and terms of every recommended package (some packages break the build until a sponsorship declaration is made) and, when the target SDK is available, runs a short probe of the risky paths – transport, packaging, start-up, logging – because reading alone rarely finds the pitfalls.
 5. CLAUDE.md guardrails built on those decisions: one architecture test per dependency rule, every quality gate proven to turn red on a deliberate violation in slice 00, approved packages listed with their licence.
 6. Slicing into vertical, dependency-ordered work packages of one agent session each, slice prompts in your language; each plan lists its assumptions for you to confirm.
@@ -63,6 +64,8 @@ Open a terminal in the plan repo and choose:
 | `-DryRun` / `--dry-run` | only lists the slices that are ready now |
 
 Good to know about the loop: headless sessions can't answer permission prompts, so they run with `--permission-mode auto` (set `REBUILD_PERMISSION_MODE` to choose another); logs per slice go to `.rebuild-loop/`, which the script keeps out of git; approvals need a terminal (without one, e.g. in CI, the script stops instead of approving silently); under the hood `/rebuild` prints marker lines the script reads (`PLAN:`, `NEEDS-DECISION:`, `SLICE-DONE:`, `SLICE-OPEN:`, `ALL-DONE`), and `/rebuild NN plan auto` is what the script sends.
+
+**Done is what is evidenced.** A goal guard (hook) keeps the approved contract frozen – changes go through a change request and your approval. Each slice records its red run, the green suite and a proof per goal criterion with `.claude/scripts/evidence.py`, gets a cold review by a fresh agent that did not build it (at most three rounds), and is ticked only when `evidence.py check NN` prints `EVIDENCE OK`.
 
 Nothing is pushed, nothing is installed. Each slice ends the same way: the plan lists its assumptions for you to confirm, tests come first, and deviations and undocumented findings are written down in fixed places. When all slices are done, `/rebuild` offers to turn the plan README into the product README.
 
