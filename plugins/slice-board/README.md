@@ -2,9 +2,11 @@
 
 A compact pane beside the chat for the open round of [vibe-coding](../vibe-coding/README.md). It is a Claude Code mod: it runs in the CLI, the Code tab of the Desktop app and the VS Code extension.
 
-It is laid out like the app's context pane and refreshed every ten seconds while it is open. Two refreshes never run at once, and none runs while the pane is closed. Every row is plain text, with no timers of its own, so nothing on the pane goes blank under load.
+It is laid out like the app's context pane and refreshed every ten seconds while it is open. Two refreshes never run at once. Every row is plain text, with no timers of its own, so nothing on the pane goes blank under load. A closed pane stays closed and runs no git; every ten seconds it reads `.slice-loop/events.jsonl` and shows a toast when a slice finished, asks something, was parked, left behind or stalled.
 
 - **The round:** the share of done slices, a thin bar with one segment per group, and a legend with count and share per group: Done, In progress, Ready, Blocked. Each legend row unfolds its slices.
+- **Needs you:** a slice the loop parked or left behind stands above the groups with its reason, until it is planned, built or squashed again.
+- **Done:** a slice the loop squashed unfolds its report (`.slice-loop/slice-NN.report.json`): what it does, start, end and duration, its place in the round, files, green checks, commit and the steps of its manual test.
 - **In progress** (unfolded by default): one row per slice with a dot for its state (working, awaiting plan approval, idle), the next checklist step with the slice's share (Plan, Red, Green, Checks, Commit), and `↗`, which brings the slice's session to the front.
 - **Ready:** `▶` per slice and a `Start N` button above the groups write a request into the prompt box to start one session per slice, at most two slices in progress at once. Each session is briefed with `/slice NN parallel auto`: it goes on with its plan's assumptions without an approval round, stops only on an open decision (`NEEDS-DECISION`), ends with `SLICE-READY: NN`, and the squash happens through the merge queue in the main checkout (`slice_loop.py --merge`, or the running loop), not in the session. Enter sends it as your message and Claude starts the sessions under the session's own permission check; a start straight from the pane would have no conversation behind it, and auto mode refuses such a call. A blocked slice joins the ready ones as soon as the slices it depends on are done; a toast says so, and another when a plan waits for approval.
 

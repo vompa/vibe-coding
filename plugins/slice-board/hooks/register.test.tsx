@@ -1,4 +1,4 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, test, type Plugin } from 'claude-code/testing'
 
 const ROOT = '/repo'
 const PANE = {
@@ -43,23 +43,34 @@ type BoardOn = Parameters<BoardBody>[1]
 const submit = ($: Board$, text: string) => $.prompt.submit({ text } as Parameters<Board$['prompt']['submit']>[0])
 
 /** Stands for the engine: the repository above on disk and in git, the app's sessions as given. */
-async function startBoard($: Board$, on: BoardOn, appSessions: typeof sessions, now = Date.UTC(2026, 9, 25, 10, 0, 0), show = true) {
+async function startBoard($: Board$, on: BoardOn, appSessions: typeof sessions, now = Date.UTC(2026, 9, 25, 10, 0, 0), show = true, toasts: string[] = []) {
   on('command.register', () => ({ value: { command: 'slices' } }))
   const opened: string[] = []
   on('ui.open', (_, e) => {
     opened.push((e as { id: string }).id)
     return { value: { isPlaced: true } }
   })
+  on('ui.close', () => ({ value: undefined }))
   on('prompt.submit', (_, e) => ({ text: e.text }))
   on('clock.now', () => ({ value: now }))
   // The pauses are held and recorded: an answer at once would run the next refresh at once, and so on.
   const pauses: number[] = []
+  const held: (() => void)[] = []
   on('clock.after', (_, e) => {
     pauses.push(e.ms)
-    return new Promise(() => {})
+    return new Promise(resolve => held.push(() => resolve({ value: undefined })))
   })
+  /** Ends the pause that is held and waits for the next one: one full tick of the refresh. */
+  const tick = async () => {
+    const before = held.length
+    held[before - 1]?.()
+    for (let waited = 0; held.length === before && waited < 200; waited++) await new Promise(resolve => setTimeout(resolve, 5))
+  }
   on('ui.log', () => ({ value: undefined }))
-  on('ui.toast', () => ({ value: undefined }))
+  on('ui.toast', (_, e) => {
+    toasts.push((e as { message?: string; text?: string }).message ?? (e as { text?: string }).text ?? '')
+    return { value: undefined }
+  })
   // The engine makes paths absolute for the host (`C:\repo\…` on Windows): compare them without drive and separators.
   const plain = (path: string | undefined) => (path ?? '').replace(/\\/g, '/').replace(/^[A-Za-z]:/, '')
   on('fs.read', (_, e) => {
@@ -104,7 +115,7 @@ async function startBoard($: Board$, on: BoardOn, appSessions: typeof sessions, 
 
   await $.session.start({ cwd: ROOT, surface: 'desktop', isInteractive: true })
   if (show) await submit($, '/slices')
-  return { gitCalls, shown, filled, box, opened, pauses }
+  return { gitCalls, shown, filled, box, opened, pauses, tick }
 }
 
 test('the pane shows the round as a legend with groups, opens a session and starts the ready slices', async ($, on) => {
@@ -135,6 +146,71 @@ test('the pane shows the round as a legend with groups, opens a session and star
     await ui.unmount()
   }
 
+})
+
+test('a finished slice unfolds its report, and a slice the loop left behind stands above the groups', async ($, on) => {
+  files[`${ROOT}/.slice-loop/slice-01.report.json`] = JSON.stringify({
+    title: 'A done', summary: 'A is built.', started: '2026-11-01T14:44:00Z', ended: '2026-11-01T17:02:00Z',
+    position: 1, total: 4, commit: '55fba4b6', files: 36, checks: 7, manual: ['1. Scan a code'],
+  })
+  files[`${ROOT}/.slice-loop/events.jsonl`] = [
+    '{"type":"slice_left","slice":"02","reason":"old reason"}',
+    '{"type":"slice_planning","slice":"02"}',
+    '{"type":"slice_left","slice":"03","reason":"check red"}',
+    'half a lin',
+  ].join('\n')
+  await startBoard($, on, sessions, Date.UTC(2026, 9, 25, 17, 0, 0))
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect((await ui.find({ type: 'Text', text: /check red/ }))?.text).toBe('! 03: check red')
+  expect(await ui.find({ type: 'Text', text: /old reason/ })).toBeUndefined()
+  await ui.press({ key: 'toggle-done' })
+  expect(await ui.find({ type: 'Text', text: /A is built/ })).toBeUndefined()
+  await ui.press({ key: 'report-01' })
+  expect((await ui.find({ type: 'Text', text: /A is built/ }))?.text).toBe('A is built.')
+  expect((await ui.find({ type: 'Text', text: /2 h 18 min$/ }))?.text).toMatch(/^Start \d\d:44 · End \d\d:02 · 2 h 18 min$/)
+  expect((await ui.find({ type: 'Text', text: /^Slice 1 of 4/ }))?.text).toBe('Slice 1 of 4 · 36 files · 7 checks green · 55fba4b6')
+  expect((await ui.find({ type: 'Text', text: /Scan a code/ }))?.text).toBe('1. Scan a code')
+  await ui.unmount()
+  delete files[`${ROOT}/.slice-loop/slice-01.report.json`]
+  delete files[`${ROOT}/.slice-loop/events.jsonl`]
+})
+
+// The person closing the pane: neither the test's `$` nor its hooks may raise `ui.close`, a plugin's `$` may.
+// An inline plugin shares no variables with the test, so a prompt tells it when.
+const CLOSE_PROMPT = 'close the pane'
+const closer = {
+  name: 'closer',
+  register: on => {
+    on('prompt.submit', async ($, e, next) => {
+      if (e.text === 'close the pane') await $.ui.close({ id: 'slice-board' })
+      return next(e)
+    })
+  },
+} satisfies Plugin
+
+test('a closed pane runs no git and still announces what the loop did', { plugins: [closer] }, async ($, on) => {
+  const events = ['{"type":"slice_started","slice":"01"}']
+  files[`${ROOT}/.slice-loop/events.jsonl`] = events.join('\n')
+  const toasts: string[] = []
+  const { gitCalls, tick } = await startBoard($, on, sessions, Date.UTC(2026, 9, 25, 18, 0, 0), true, toasts)
+  // The first read is the starting point: what happened before is on the pane, not in a toast.
+  expect(toasts).toEqual([])
+  await submit($, CLOSE_PROMPT)
+  const callsWhenClosed = gitCalls.length
+  files[`${ROOT}/.slice-loop/events.jsonl`] = [
+    ...events,
+    '{"type":"slice_merged","slice":"01","position":"1","total":"4"}',
+    '{"type":"slice_parked","slice":"02","reason":"NEEDS-DECISION: Which rate?","question":"yes"}',
+    '{"type":"slice_left","slice":"03","reason":"check red"}',
+    '{"type":"loop_stopped","reason":"uncommitted changes"}',
+  ].join('\n')
+  await tick()
+  expect(gitCalls.length).toBe(callsWhenClosed)
+  expect(toasts).toEqual(['Slice 01 done (1 of 4): /slices shows the report', 'Slice 02 asks: Which rate?', 'Slice 03 left behind: check red', 'The slice loop stopped: uncommitted changes'])
+  // Told once, and the watch goes on.
+  await tick()
+  expect(toasts).toHaveLength(4)
+  delete files[`${ROOT}/.slice-loop/events.jsonl`]
 })
 
 test('Start writes a request into the prompt box, after any draft the person typed', async ($, on) => {

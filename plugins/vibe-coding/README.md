@@ -96,6 +96,7 @@ The loop checks that a round is open, then for each ready slice starts a fresh h
 | `--merge` | only runs the merge queue: squashes every `slice-NN` branch whose checklist row is ticked through Checks, lowest number first, retries removing worktrees an earlier squash left, then exits; starts no session and needs no open round |
 | `--merge --verify` | after the queue squashed at least one slice, runs the `Full check chain` of `work/conventions.md` on the integration branch under the full-suite lock; red exits non-zero |
 | `--merge --watch` | waits until a slice reports ready on a new tip, runs the queue once, then exits – as a background command it wakes the chat that started it. A slice left behind brings it back only with a new tip; next to a running watch it exits at once (`SLICE_WATCH_SECONDS`, `SLICE_WATCH_MAX`) |
+| `--notify` | waits until a slice is parked, left behind or stalled, prints `SLICE-PROBLEM` or `SLICE-QUESTION`, then exits – as a background command it wakes the chat that started it; `.slice-loop/notify.seen` keeps the place, so a restart misses nothing. Finished slices stay out of the chat, they are on the Slice Board |
 | `--dry-run` | only lists the slices that are ready now |
 | `--max-slices N` | stops after N built slices if slices are left (exit 0; run it again to continue) |
 

@@ -1,14 +1,15 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Board, SliceRow, SliceSession, SliceState } from '../types'
+import type { Board, SliceReport, SliceRow, SliceSession, SliceState } from '../types'
 
 const PANE = 'slice-board'
 const TITLE = 'Slices'
 const REFRESH_MS = 10_000
 const SESSIONS_MS = 30_000
 const STEPS = ['Plan', 'Red', 'Green', 'Checks', 'Commit']
-const LIST_SESSIONS = 'mcp__ccd_session_mgmt__list_sessions'
+const EVENTS_FILE = '.slice-loop/events.jsonl'
+const LIST_SESSIONS ='mcp__ccd_session_mgmt__list_sessions'
 const OPEN_SESSION = 'mcp__ccd_window__open_session_in'
 /** Parallel builds and test suites turn each other red under load: at most this many slices in progress at once (three sessions on one machine made unrelated tests red and queued at the full-suite lock). */
 const MAX_PARALLEL = 2
@@ -23,6 +24,7 @@ const GROUPS: { state: SliceState; label: string; fill: string; cell: string }[]
 
 const board = atom({ plugin: 'slice-board', key: 'board' } as const, null)
 const expanded = atom({ plugin: 'slice-board', key: 'expanded' } as const, { done: false, active: true, ready: false, blocked: false })
+const openReports = atom({ plugin: 'slice-board', key: 'openReports' } as const, [] as string[])
 /** Whether this session asked for the pane; a reload of the plugin opens it again. */
 const isWanted = atom({ plugin: 'slice-board', key: 'isWanted' } as const, false)
 
@@ -65,6 +67,53 @@ async function readText($: EngineInterface, path: string): Promise<string | null
   } catch {
     return null
   }
+}
+
+type LoopEvent = { type?: string; slice?: string; reason?: string; position?: string; total?: string; question?: string }
+
+/** The lines of the loop's history; a line that does not parse is skipped. */
+function loopEvents(text: string | null): LoopEvent[] {
+  const events: LoopEvent[] = []
+  for (const line of (text ?? '').split(/\r?\n/)) {
+    try {
+      if (line) events.push(JSON.parse(line) as LoopEvent)
+    } catch {
+      // a line being written, or damaged: the history stays readable without it
+    }
+  }
+  return events
+}
+
+/** Why a slice is parked or left, per slice; a later planning, build or squash clears it. */
+function openProblems(events: LoopEvent[]): Map<string, string> {
+  const problems = new Map<string, string>()
+  for (const event of events) {
+    if (!event.slice) continue
+    if (event.type === 'slice_parked' || event.type === 'slice_left') problems.set(event.slice, event.reason ?? '')
+    else if (event.type === 'slice_planning' || event.type === 'slice_started' || event.type === 'slice_merged') problems.delete(event.slice)
+  }
+  return problems
+}
+
+function parseReport(text: string | null): SliceReport | null {
+  try {
+    return text ? (JSON.parse(text) as SliceReport) : null
+  } catch {
+    return null
+  }
+}
+
+/** Local time of a UTC time from the loop; empty when there is none. */
+function clockTime(iso: string): string {
+  const at = new Date(iso)
+  if (!iso || Number.isNaN(at.getTime())) return ''
+  return `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
+}
+
+function duration(started: string, ended: string): string {
+  const minutes = Math.round((new Date(ended).getTime() - new Date(started).getTime()) / 60_000)
+  if (!started || Number.isNaN(minutes) || minutes < 0) return ''
+  return minutes >= 60 ? `${Math.floor(minutes / 60)} h ${minutes % 60} min` : `${minutes} min`
 }
 
 /** Ticks per slice number from a checklist table: `| 12 web-money-pos | ☑ | ☐ | … |`. */
@@ -157,6 +206,7 @@ async function collect($: EngineInterface, cwd: string): Promise<Board | null> {
   const isDone = (nr: string) => (mainTicks.get(nr) ?? []).length === STEPS.length && mainTicks.get(nr)!.every(Boolean)
   const branches = new Set((await git($, root, ['branch', '--list', 'slice-*', '--format=%(refname:short)'])).split(/\r?\n/).filter(Boolean))
   const sessions = sessionsBySlice(await appSessions($, now), root)
+  const problems = openProblems(loopEvents(await readText($, `${root}/${EVENTS_FILE}`)))
 
   const rows: SliceRow[] = []
   for (const slice of slices) {
@@ -179,7 +229,9 @@ async function collect($: EngineInterface, cwd: string): Promise<Board | null> {
     const isClaimed = !done && found?.isHere === true
     const state: SliceState = done ? 'done' : hasBranch || isClaimed || ticks.some(Boolean) ? 'active' : waitingFor.length ? 'blocked' : 'ready'
     const session = state === 'active' ? (found?.session ?? null) : null
-    rows.push({ nr: slice.nr, slug: slice.slug, name: slice.name, state, ticks, waitingFor, ahead, hasPlan, session })
+    const report = done ? parseReport(await readText($, `${root}/.slice-loop/slice-${slice.nr}.report.json`)) : null
+    const problem = done ? null : (problems.get(slice.nr) ?? null)
+    rows.push({ nr: slice.nr, slug: slice.slug, name: slice.name, state, ticks, waitingFor, ahead, hasPlan, session, report, problem })
   }
   return { root, round, integration, rows, updatedAt: now, problem: null }
 }
@@ -211,7 +263,28 @@ function announce($: EngineInterface, data: Board | null) {
   announced = { ready, approval }
 }
 
-/** Whether a refresh runs or waits: never two at once, none while the pane is closed. */
+/** How many lines of the loop's history were announced; null until the first read, which announces nothing. */
+let seenEvents: number | null = null
+/** The repository the pane last showed: a closed pane still reads its history. */
+let watchedRoot = ''
+
+/** A toast for what the loop did since the last read: a finished slice, or one that needs the person. */
+async function announceEvents($: EngineInterface, root: string) {
+  if (!root) return
+  const events = loopEvents(await readText($, `${root}/${EVENTS_FILE}`))
+  const news = seenEvents === null ? [] : events.slice(seenEvents)
+  seenEvents = events.length
+  for (const event of news) {
+    const reason = clip((event.reason ?? '').replaceAll('NEEDS-DECISION: ', ''), 120)
+    if (event.type === 'loop_stopped') $.ui.toast(`The slice loop stopped: ${reason}`)
+    if (event.type === 'slice_merged') $.ui.toast(`Slice ${event.slice} done (${event.position} of ${event.total})${isPaneOpen ? '' : ': /slices shows the report'}`)
+    if (event.type === 'slice_parked') $.ui.toast(`Slice ${event.slice} ${event.question ? 'asks' : 'parked'}: ${reason}`)
+    if (event.type === 'slice_left') $.ui.toast(`Slice ${event.slice} left behind: ${reason}`)
+    if (event.type === 'slice_stalled') $.ui.toast(`Slice ${event.slice} stalled`)
+  }
+}
+
+/** Whether a refresh runs or waits: never two at once; a closed pane reads only the loop's history. */
 let isRefreshing = false
 let isPaneOpen = false
 let pending: ReturnType<EngineInterface['clock']['after']> | undefined
@@ -222,6 +295,8 @@ async function refresh($: EngineInterface, cwd: string) {
   try {
     const next = await collect($, cwd)
     announce($, next)
+    watchedRoot = next?.root ?? watchedRoot
+    await announceEvents($, watchedRoot)
     await update($, board, () => next)
   } catch (error) {
     $.ui.log(`slice-board: ${String(error)}`, { to: 'debug' })
@@ -230,12 +305,12 @@ async function refresh($: EngineInterface, cwd: string) {
   }
 }
 
-/** Waits 10 s, refreshes, and waits again, while the pane is open; closing the pane cancels the wait. */
+/** Every 10 s once the pane was asked for: a refresh while it is open, otherwise one read of the loop's history and no git. */
 function scheduleRefresh($: EngineInterface) {
-  if (pending || !isPaneOpen) return
+  if (pending) return
   pending = $.clock.after(REFRESH_MS, () => {
     pending = undefined
-    if (isPaneOpen) void refresh($, paneCwd).then(() => scheduleRefresh($))
+    void (isPaneOpen ? refresh($, paneCwd) : announceEvents($, watchedRoot)).catch(() => {}).then(() => scheduleRefresh($))
   })
 }
 
@@ -304,13 +379,9 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // A closed pane stops the refresh; /slices or a round command opens it again.
+  // A closed pane stops the git work, not the toasts; /slices or a round command opens it again.
   on('ui.close', async ($, e, next) => {
-    if (e.id === PANE) {
-      isPaneOpen = false
-      pending?.cancel()
-      pending = undefined
-    }
+    if (e.id === PANE) isPaneOpen = false
     return next(e)
   })
 
@@ -326,6 +397,7 @@ export const register: Register = on => {
     const air = e.surface === 'terminal' ? 0 : 1
     const data = await read($, board)
     const open = await read($, expanded)
+    const reports = await read($, openReports)
     if (!data) return <Text dimColor>No round here: work/_slices.json not found.</Text>
     if (data.problem) return <Text dimColor>{data.problem}</Text>
 
@@ -355,6 +427,25 @@ export const register: Register = on => {
       </Box>
     )
 
+    const toggleReport = (nr: string) => update($, openReports, current => (current.includes(nr) ? current.filter(other => other !== nr) : [...current, nr]))
+
+    /** What the loop wrote about a finished slice, one fact per line, as plain text. */
+    const reportLines = (nr: string, report: SliceReport) => {
+      const time = [clockTime(report.started) && `Start ${clockTime(report.started)}`, clockTime(report.ended) && `End ${clockTime(report.ended)}`, duration(report.started, report.ended)]
+      const facts = [`Slice ${report.position} of ${report.total}`, report.files ? `${report.files} files` : '', report.checks ? `${report.checks} checks green` : '', report.commit]
+      return (
+        <Box key={`report-lines-${nr}`} flexDirection="column" paddingLeft={2} marginTop={air}>
+          <Text>{report.summary || report.title}</Text>
+          <Text color="subtle">{time.filter(Boolean).join(' · ')}</Text>
+          <Text color="subtle">{facts.filter(Boolean).join(' · ')}</Text>
+          {report.manual.length > 0 && <Text color="subtle">To test:</Text>}
+          {report.manual.map((step, index) => (
+            <Text key={`step-${nr}-${index}`}>{step}</Text>
+          ))}
+        </Box>
+      )
+    }
+
     /** One slice under its group: what it is, and on the right what it waits for or does. */
     const sliceRow = (row: SliceRow) => {
       const now = phase(row)
@@ -379,7 +470,10 @@ export const register: Register = on => {
           </Text>
         ) : null
       const isDim = row.state === 'done' || row.state === 'blocked' || (row.state === 'ready' && !canStart)
-      const left = (
+      const isReportOpen = row.report !== null && reports.includes(row.nr)
+      const left = row.report ? (
+        <Button key={`report-${row.nr}`} plain label={`${isReportOpen ? '▾' : '›'} ${row.nr} ${row.slug}`} onPress={() => toggleReport(row.nr)} />
+      ) : (
         <Text wrap="truncate-end" dimColor={isDim}>
           {row.state === 'active' && <Text color={now.color}>{'\u25cf'} </Text>}
           <Text color="subtle">{row.nr} </Text>
@@ -395,9 +489,12 @@ export const register: Register = on => {
             </Box>
             {right}
           </Box>
+          {isReportOpen && reportLines(row.nr, row.report!)}
         </Box>
       )
     }
+
+    const needsYou = data.rows.filter(row => row.problem !== null)
 
     return (
       <Box flexDirection="column">
@@ -419,6 +516,15 @@ export const register: Register = on => {
             )
           })}
         </Box>
+
+        {/* What needs the person stays above the folded groups. */}
+        {needsYou.map(row => (
+          <Box key={`needs-${row.nr}`} marginBottom={1}>
+            <Text color="warning">
+              {'!'} {row.nr}: {row.problem}
+            </Text>
+          </Box>
+        ))}
 
         {/* Start above the groups, so it stays in view however long the lists get. */}
         {ready.length > 0 && (
