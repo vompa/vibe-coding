@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.3.0 – 2026-11-01
 - **A slice with a problem or a question reports in the chat.** `slice_loop.py --notify` waits as a background command until a slice is parked, left behind or stalled, prints `SLICE-PROBLEM` or `SLICE-QUESTION` and exits, which wakes the chat that started it. `.slice-loop/notify.seen` keeps the place, so a restart misses nothing. `/slice` tells a chat next to the script to start it.
 - **A stopped run says so.** Any stop of the whole run is the event `loop_stopped`, which `--notify` and the Slice Board report; before, only the terminal showed it.
 - **A stray `*.stackdump` no longer stops the round.** A crash of Git Bash left `bash.exe.stackdump` in the main checkout, and the queue took it for uncommitted changes (found in a real run).
