@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- **A slice with a problem or a question reports in the chat.** `slice_loop.py --notify` waits as a background command until a slice is parked, left behind or stalled, prints `SLICE-PROBLEM` or `SLICE-QUESTION` and exits, which wakes the chat that started it. `.slice-loop/notify.seen` keeps the place, so a restart misses nothing. `/slice` tells a chat next to the script to start it.
+- **A stopped run says so.** Any stop of the whole run is the event `loop_stopped`, which `--notify` and the Slice Board report; before, only the terminal showed it.
+- **A stray `*.stackdump` no longer stops the round.** A crash of Git Bash left `bash.exe.stackdump` in the main checkout, and the queue took it for uncommitted changes (found in a real run).
+- **A report per finished slice.** The queue writes `.slice-loop/slice-NN.report.json` (summary, start, end, place in the round, files, green checks, commit, manual test steps) and new events `slice_planning`, `slice_merged` and `slice_left`. The Slice Board shows them.
 - **A run on uncommitted changes no longer blocks the squash.** A session wrote `<sha>+uncommitted` for the red step of a test; the queue called the whole proof unreadable and left a slice with a green tip behind, and the next slice on the same files started without it. Such a line now counts as a stale run and never as proof; a line in no format is still refused. `/slice` says to write no proof line for such a run.
 
 ## 2.2.0 – 2026-11-01

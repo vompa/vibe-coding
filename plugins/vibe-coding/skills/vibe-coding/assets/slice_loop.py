@@ -41,6 +41,8 @@ Usage: python .claude/scripts/slice_loop.py [--yes] [--parallel] [--dry-run] [--
   --watch         with --merge: wait until a slice reports ready on a new tip, run the queue once, then exit (a
                   background command, so it wakes the chat that started it). A slice left behind brings it back only
                   with a new tip; a second watch next to a running one exits at once
+  --notify        wait until a slice has a problem or a question for the user, print it and exit (a background command, so
+                  it wakes the chat that started it); uses SLICE_WATCH_SECONDS and SLICE_WATCH_MAX
 Optional field "files" of an entry in work/_slices.json: the repo-relative paths (or prefixes ending in "/") the slice
 is expected to change.
 Env: SLICE_PERMISSION_MODE (default: auto) - passed to claude --permission-mode.
@@ -80,7 +82,8 @@ MERGE_LOCK = f"{LOG_DIR}/merge.lock"  # taken (mkdir) by a running --merge queue
 LOCK_DIR = f"{LOG_DIR}/full-suite.lock"  # taken (mkdir) by whoever runs the full suite; holds a file "owner"
 EVENTS_FILE = f"{LOG_DIR}/events.jsonl"  # one JSON line per started, stalled or parked slice; read when a run stopped
 COMPACT_HOOK_FILE = f"{LOG_DIR}/compact-hook.json"  # settings of every turn: the rules are read again after a compaction
-USAGE = "use --yes, --parallel, --dry-run, --max-slices N, --merge, --verify and --watch (with --merge)"
+NOTIFY_SEEN = f"{LOG_DIR}/notify.seen"  # how many lines of the event history --notify has passed on
+USAGE = "use --yes, --parallel, --dry-run, --max-slices N, --merge, --verify, --watch (with --merge) and --notify"
 LOCK_MAX_AGE_SECONDS = 3600
 CMD_UNSAFE = set('%^&|<>"\r\n')  # characters cmd.exe would interpret in an argument passed to a claude.cmd shim
 
@@ -448,6 +451,59 @@ def manual_test_problem(lines: list[str], nr: str) -> str:
     return "; ".join(bad)
 
 
+def notice_of(line: str) -> str:
+    """The line --notify prints for one line of the event history; empty when the event needs nobody."""
+    try:
+        event = json.loads(line)
+    except ValueError:
+        return ""
+    nr, kind, reason = event.get("slice", ""), event.get("type"), event.get("reason", "").replace("NEEDS-DECISION: ", "")
+    if kind == "loop_stopped":
+        return f"SLICE-PROBLEM: the loop stopped: {reason} → start the loop again once that is fixed"
+    if kind == "slice_parked" and event.get("question"):
+        return f"SLICE-QUESTION: {nr} {reason} → answer in {answer_path(nr)}, then start the loop again"
+    if kind == "slice_parked":
+        return f"SLICE-PROBLEM: {nr} parked: {reason} → answer in {answer_path(nr)}, then start the loop again"
+    if kind == "slice_left":
+        return f"SLICE-PROBLEM: {nr} left behind: {reason} → fix it on slice-{nr}, then run --merge"
+    if kind == "slice_stalled":
+        return f"SLICE-PROBLEM: {nr} stalled: no activity, its turn was stopped and is resumed once"
+    return ""
+
+
+def manual_test_steps(lines: list[str], nr: str) -> list[str]:
+    """The manual test of slice nr as written: start, numbered steps, expected result. A step alone can read "Run the
+    command above"."""
+    section = in_block = False
+    steps = []
+    for line in lines:
+        if line.startswith("## "):
+            section, in_block = line.startswith("## Manual test list"), False
+        elif section and line.startswith("### "):
+            in_block = re.match(rf"### Slice {re.escape(nr)}([^0-9]|$)", line) is not None
+        elif in_block and re.match(r"[0-9]+\. |Start: |Expected: ", line):
+            steps.append(line)
+    return steps
+
+
+def proof_on_tip(lines: list[str], tip: str) -> tuple[dict[str, str], int, str]:
+    """Reads a checks proof: command -> exit code of its last line on the tip (in order of the first line), the number
+    of stale lines, and the first line in no format (empty when there is none; reading stops there)."""
+    last: dict[str, str] = {}
+    stale = 0
+    for line in lines:
+        if not line or line.startswith("#"):
+            continue
+        match = re.fullmatch(r"(-?[0-9]+)\s+([0-9a-f]{7,40})(\S*)\s+(.+)", line)
+        if not match:
+            return last, stale, line
+        if not match.group(3) and tip.startswith(match.group(2)):
+            last[match.group(4)] = match.group(1)
+        else:
+            stale += 1
+    return last, stale, ""
+
+
 def duplicate_ids(lines: list[str]) -> list[str]:
     """Finding ids defined more than once: as the first cell of two table rows, or as the first word of two headings.
     An id is uppercase letters (A-Z or a Latin-1 capital such as Ae, Oe, Ue), an optional "-" and digits (B71, F-01)."""
@@ -617,7 +673,7 @@ class Loop:
         self.parallel_max = int(env_number("SLICE_PARALLEL_MAX", 2))
         self.watch_seconds = env_number("SLICE_WATCH_SECONDS", 60)
         self.watch_max = int(env_number("SLICE_WATCH_MAX", 480))
-        self.auto_approve = self.parallel = self.dry_run = self.merge_only = self.verify = self.watch = False
+        self.auto_approve = self.parallel = self.dry_run = self.merge_only = self.verify = self.watch = self.notify = False
         self.max_slices = 0  # 0 = no cap
         self.built = 0
         self.round = ""
@@ -651,6 +707,8 @@ class Loop:
                 self.verify = True
             elif arg == "--watch":
                 self.watch = True
+            elif arg == "--notify":
+                self.notify = True
             elif arg == "--max-slices":
                 if i + 1 >= len(args) or not re.fullmatch(r"[1-9][0-9]*", args[i + 1]):
                     die(f"--max-slices needs a positive integer ({USAGE})")
@@ -836,18 +894,9 @@ class Loop:
         if not os.path.isfile(path):
             return f"no checks proof {path}"
         tip = self.tip(nr)
-        last: dict[str, str] = {}  # command -> exit code of its last line on the tip, in order of the first line
-        stale = 0
-        for line in read_lines(path):
-            if not line or line.startswith("#"):
-                continue
-            match = re.fullmatch(r"(-?[0-9]+)\s+([0-9a-f]{7,40})(\S*)\s+(.+)", line)
-            if not match:
-                return f"unreadable line in {path}: {line}"
-            if not match.group(3) and tip.startswith(match.group(2)):
-                last[match.group(4)] = match.group(1)
-            else:
-                stale += 1
+        last, stale, unreadable = proof_on_tip(read_lines(path), tip)
+        if unreadable:
+            return f"unreadable line in {path}: {unreadable}"
         if not last:
             if stale == 0:
                 return f"no check listed in {path}"
@@ -905,6 +954,8 @@ class Loop:
     def leave_slice(self, nr: str, reason: str) -> None:
         """Leaves slice nr behind: its branch stays, the run goes on without it."""
         say(f"[slice {nr}] left behind: {reason} \u2013 slice-{nr} kept")
+        if nr not in self.left_nrs:
+            self.event("slice_left", nr, reason=reason)
         self.left_nrs.add(nr)
         self.left_lines.append(f"slice {nr}: {reason}")
         if self.watch:  # --watch comes back to this slice only with a new tip
@@ -1104,8 +1155,47 @@ class Loop:
         say(f"[slice {nr}] squashed onto {self.branch_name()} ({self.git_first('rev-parse', '--short', 'HEAD')})")
         if not self.is_done(nr):
             die(f"slice {nr} was squashed but is not ticked in {CHECKLIST_FILE} \u2013 check it before running again")
+        self.write_report(nr, self.tip(nr))
         self.remove_slice_branch(nr)
         return True
+
+    def started_at(self, nr: str) -> str:
+        """When the first planning of slice nr began, else its first build, so a slice parked for an answer keeps its
+        start; empty for a slice no run started."""
+        times: dict[str, str] = {}
+        for line in read_lines(EVENTS_FILE) if os.path.isfile(EVENTS_FILE) else []:
+            event = json.loads(line) if line else {}
+            if event.get("slice") == nr:
+                times.setdefault(event.get("type", ""), event.get("ts", ""))
+        return times.get("slice_planning") or times.get("slice_started") or ""
+
+    def write_report(self, nr: str, tip: str) -> None:
+        """What a finished slice leaves for people: .slice-loop/slice-NN.report.json and a slice_merged event, read by
+        the Slice Board. tip is the squashed branch tip, empty when the session squashed the slice itself. A failure
+        here never stops the round: the squash is done."""
+        try:
+            message = read_lines(f"{LOG_DIR}/slice-{nr}.msg") if os.path.isfile(f"{LOG_DIR}/slice-{nr}.msg") else []
+            record = self.open_round_file()
+            proof = f"{LOG_DIR}/slice-{nr}.checks"
+            members = self.round_slices()
+            position = sum(self.is_done(entry.nr) for entry in members)
+            report = {
+                "nr": nr,
+                "title": message[0] if message else "",
+                "summary": " ".join(line for line in message[1:] if line),
+                "started": self.started_at(nr),
+                "ended": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "position": position,
+                "total": len(members),
+                "commit": self.git_first("rev-parse", "--short=8", "HEAD") if tip else "",
+                "files": len(self.names("diff", "--name-only", "HEAD~1", "HEAD")) if tip else 0,
+                "checks": len(proof_on_tip(read_lines(proof), tip)[0]) if tip and os.path.isfile(proof) else 0,
+                "manual": manual_test_steps(read_lines(record), nr) if record else [],
+            }
+            self.replace_file(f"{LOG_DIR}/slice-{nr}.report.json", json.dumps(report, ensure_ascii=False, indent=1) + "\n")
+            self.event("slice_merged", nr, position=str(position), total=str(len(members)))
+        except Exception as error:  # pylint: disable=broad-except
+            say(f"[slice {nr}] no report written: {error}")
 
     def merge_slice(self, nr: str) -> bool:
         """Squashes branch slice-NN onto the branch checked out here; False when it leaves the slice behind (branch
@@ -1113,7 +1203,8 @@ class Loop:
         slice); then the record's manual test list is put in slice order and the slice's block checked, and no finding
         id may be defined twice. A file it cannot write leaves the slice behind, too; any other way out of the merge (a
         stop, a signal) resets it."""
-        if self.git_lines("status", "--porcelain"):
+        # A crash of Git Bash leaves bash.exe.stackdump here now and then: it is no change of anybody's, and no reason to stop.
+        if [line for line in self.git_lines("status", "--porcelain") if not re.fullmatch(r"\?\? .*\.stackdump", line)]:
             die(f"slice {nr}: this checkout has uncommitted changes \u2013 commit or remove them, then run --merge")
         problem = self.ready_problem(nr)
         if problem and self.merge_only:
@@ -1147,6 +1238,8 @@ class Loop:
                     "check it before running again")
             if not self.merge_slice(nr):
                 return
+        else:
+            self.write_report(nr, "")
         say(f"[slice {nr}] done")
 
     # --- merge queue, watch and locks ---
@@ -1494,12 +1587,12 @@ class Loop:
                 die(f"slice {nr} stalled twice – see {log}")
                 return ""
 
-    def park(self, nr: str, run: dict, reason: str) -> None:
+    def park(self, nr: str, run: dict, reason: str, is_question: bool = False) -> None:
         """Takes a slice out of the round until the user answers; the other slices go on. An answer to an earlier reason
         is gone: left in place, it would send the slice straight back into the same failure."""
         self.replace_file(parked_path(nr), json.dumps({**run, "reason": reason}, ensure_ascii=False, indent=1) + "\n")
         remove_if_there(answer_path(nr))
-        self.event("slice_parked", nr, reason=reason)
+        self.event("slice_parked", nr, reason=reason, **({"question": "yes"} if is_question else {}))
         say(f"[slice {nr}] parked: {reason}")
 
     @staticmethod
@@ -1541,11 +1634,12 @@ class Loop:
         session = str(uuid.uuid4())
         log = f"{LOG_DIR}/slice-{nr}-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
         run = {"nr": nr, "session": session, "log": log, "model": self.slice_model(nr)}
+        self.event("slice_planning", nr)
         try:
             run["approval"] = self.plan_slice(nr, session, log, run["model"])
             return run
         except NeedsDecision as decision:
-            self.park(nr, run, " ".join(decision.questions))
+            self.park(nr, run, " ".join(decision.questions), is_question=True)
         except Die as failed:
             if not self.parallel:
                 raise
@@ -1650,6 +1744,29 @@ class Loop:
             clean = False
         return 0 if clean else 1
 
+    def run_notify(self) -> int:
+        """--notify: waits for a slice with a problem or a question for the user, prints one line per such event and
+        exits, so a chat that started it as a background command wakes up. .slice-loop/notify.seen keeps the place, so a
+        restart misses nothing; the first start begins at the end of the history. Also exits when no round is open."""
+        lines = read_lines(EVENTS_FILE) if os.path.isfile(EVENTS_FILE) else []
+        seen = int(read_text(NOTIFY_SEEN).strip() or 0) if os.path.isfile(NOTIFY_SEEN) else len(lines)
+        for check in range(self.watch_max):
+            if check:
+                self.pause(self.watch_seconds)
+            lines = [line for line in read_lines(EVENTS_FILE) if line] if os.path.isfile(EVENTS_FILE) else []
+            notices = [text for text in map(notice_of, lines[seen:]) if text]
+            seen = len(lines)
+            self.replace_file(NOTIFY_SEEN, f"{seen}\n")
+            if notices:
+                for text in notices:
+                    say(text, out=True)
+                return 0
+            if not self.open_round():
+                say("SLICE-NOTIFY: no open round – nothing to watch", out=True)
+                return 0
+        say(f"SLICE-NOTIFY: no problem after {self.watch_max} check(s) – start --notify again", out=True)
+        return 0
+
     def run_rounds(self) -> int:
         self.round = self.open_round()
         if not self.round:
@@ -1692,6 +1809,8 @@ class Loop:
             return 0
         os.makedirs(LOG_DIR, exist_ok=True)
         self.add_log_dir_exclude()
+        if self.notify:
+            return self.run_notify()
         self.stale_lock_notice()
         self.baseline_notice()
         if self.merge_only:
@@ -1784,6 +1903,8 @@ def main(args: list[str]) -> int:
         return loop.run(args)
     except Die as error:
         say(f"slice-loop: {error}")
+        if loop is not None and not loop.notify:  # the whole run stopped: nobody learns that from a slice's event
+            loop.event("loop_stopped", reason=str(error))
         return 1
     except KeyboardInterrupt:
         return 130

@@ -485,6 +485,21 @@ PROFILES = [
             ("merge leaves a slice with a line in no format", 3, ["--merge"], {}, None, (1, 3, 0, 0),
              {"prepared": [{"nr": "100", "checks": "garbled"}], "subjects": [], "branches": ["slice-100"],
               "says": "unreadable line in .slice-loop/slice-100.checks: no proof line", "no_calls": True}),
+            ("merge writes a report of the squashed slice for the board", 3, ["--merge"], {}, None, (0, 4, 0, 0),
+             {"prepared": [{"nr": "100"}], "event": "slice_merged", "no_calls": True,
+              "report": {"100": {"title": "Slice 100 stub squash", "summary": "Body line.", "checks": 2, "position": 4, "total": 5,
+                                 "started": "", "manual": ["Start: run", "1. Click", "Expected: shown"]}}}),
+            ("a built slice reports when its planning began", 3, ["--yes", "--max-slices", "1"], {}, None, (0, 4, 1, 0),
+             {"event": "slice_planning", "report": {"100": {"started": True, "position": 4}}}),
+            ("merge is not stopped by a stackdump of Git Bash", 3, ["--merge"], {}, None, (0, 4, 0, 0),
+             {"prepared": [{"nr": "100"}], "main_change": {"uncommitted": {"bash.exe.stackdump": "Stack trace:\n"}},
+              "subjects": ["Slice 100 stub squash"], "no_calls": True}),
+            ("a stop of the whole run is an event with its reason", 3, ["--merge"], {}, None, (1, 3, 0, 0),
+             {"prepared": [{"nr": "100"}], "main_change": {"uncommitted": {"stray.txt": "a change\n"}}, "event": "loop_stopped",
+              "subjects": [], "branches": ["slice-100"], "says": "uncommitted changes", "no_calls": True}),
+            ("a slice left behind is an event with its reason", 3, ["--merge"], {}, None, (1, 3, 0, 0),
+             {"prepared": [{"nr": "100", "checks": "red"}], "subjects": [], "branches": ["slice-100"], "event": "slice_left",
+              "no_calls": True, "gone": [".slice-loop/slice-100.report.json"]}),
             ("merge accepts a green rerun after a red run on the tip", 3, ["--merge"], {}, None, (0, 4, 0, 0),
              {"prepared": [{"nr": "100", "checks": "rerun"}], "subjects": ["Slice 100 stub squash"], "no_calls": True}),
             ("merge leaves a slice whose check went red after a green run", 3, ["--merge"], {}, None, (1, 3, 0, 0),
@@ -750,7 +765,11 @@ def add_main_row(repo: pathlib.Path, profile: dict, nr: str) -> None:
 
 def change_main(repo: pathlib.Path, changes: dict) -> None:
     """Commits on main after the slice branches were cut: "path": text replaces a file, "block": NN appends a manual
-    test block for slice NN to the open record."""
+    test block for slice NN to the open record, "uncommitted": {path: text} writes files and commits nothing."""
+    if "uncommitted" in changes:
+        for path, text in changes["uncommitted"].items():
+            (repo / path).write_text(text, encoding="utf-8", newline="\n")
+        return
     for path, text in changes.items():
         if path == "block":
             record = repo / "work/rounds/R01-test.md"
@@ -1006,7 +1025,7 @@ def git_problems(repo: pathlib.Path, profile: dict, result: subprocess.Completed
         return []
     problems = []
     status = git(repo, "status", "--porcelain")
-    if status:
+    if status and "uncommitted" not in expected.get("main_change", {}):  # the case left that file there itself
         problems.append(f"working tree not clean: {status!r}")
     branches = sorted(git(repo, "for-each-ref", "--format=%(refname:short)", "refs/heads/slice-*").split())
     if branches != sorted(expected.get("branches", [])):
@@ -1030,6 +1049,11 @@ def git_problems(repo: pathlib.Path, profile: dict, result: subprocess.Completed
         problems.append(f"claude calls with {expected['call_count'][0]!r}: {calls_log(repo).count(expected['call_count'][0])}")
     if "event" in expected and expected["event"] not in (repo / ".slice-loop/events.jsonl").read_text(encoding="utf-8"):
         problems.append(f"no event {expected['event']!r}")
+    for nr, fields in expected.get("report", {}).items():
+        report = json.loads((repo / f".slice-loop/slice-{nr}.report.json").read_text(encoding="utf-8"))
+        for field, value in fields.items():
+            if (bool(report.get(field)) if value is True else report.get(field)) != value:
+                problems.append(f"report of slice {nr}: {field} is {report.get(field)!r}, not {value!r}")
     if "file_has_loop" in expected:
         name, text = expected["file_has_loop"]
         if text not in (repo / ".slice-loop" / name).read_text(encoding="utf-8"):
