@@ -6,7 +6,7 @@ SKILL = ROOT / "plugins/vibe-coding/skills/vibe-coding"
 COMMAND = SKILL / "references/slice-command.md"
 SCRIPTS = ("assets/slice_loop.py",)
 LOOP_MARKERS = ["PLAN:", "NEEDS-DECISION:", "SLICE-DONE:", "SLICE-READY:", "SLICE-WAIT:", "SLICE-OPEN:", "ROUND-DONE:", "ROUND-OPEN:"]
-COPIED = {"round-close.md": ".claude/slice/close.md", "slice-parallel.md": ".claude/slice/parallel.md", "slice-quick.md": ".claude/slice/quick.md"}
+COPIED = {"round-close.md": ".claude/slice/close.md", "slice-parallel.md": ".claude/slice/parallel.md", "slice-quick.md": ".claude/slice/quick.md", "slice-tests.md": ".claude/slice/tests.md"}
 
 def read(name):
     return (SKILL / name).read_text(encoding="utf-8")
@@ -43,7 +43,7 @@ def test_loop_script_defines_no_function_twice():
 
 def test_loop_script_is_the_only_loop_script_of_the_plugin():
     """The shell versions are gone since 2.0.0; a leftover would be copied by nobody and tested by nobody."""
-    assert sorted(p.name for p in (SKILL / "assets").iterdir() if p.name != "__pycache__") == ["slice_loop.py"]
+    assert sorted(p.name for p in (SKILL / "assets").iterdir() if p.suffix in (".py", ".sh", ".ps1")) == ["slice_loop.py"]
 
 def test_every_slice_runs_on_its_own_model():
     assert '"model"' in COMMAND.read_text(encoding="utf-8") and "claude --model" in read("references/slice-parallel.md")

@@ -20,8 +20,9 @@ These files appear in your repository. The round-start commit on its integration
 ```
 CLAUDE.md                     only if the repository has none
 .gitignore  .gitattributes    lines for work/_raw/ and .slice-loop/ added, nothing else touched
+.editorconfig                 only for a new .NET project without one
 .claude/commands/slice.md     the /slice command – next slice, a given slice, status, close
-.claude/slice/                close.md, parallel.md, quick.md – read by /slice only for that argument
+.claude/slice/                close.md, parallel.md, quick.md – read by /slice only for that argument; tests.md – rules for new tests
 .claude/scripts/slice_loop.py  runs the slices one after another in fresh sessions
 work/
   conventions.md              how this repository works – branch, commands, rules – each fact with the document it comes from

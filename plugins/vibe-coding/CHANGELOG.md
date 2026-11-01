@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.2.0 – 2026-11-01
+From an audit of a repository with 3,291 test methods, where tests took about 37 % of the active slice time.
+- **Rules for new tests in `.claude/slice/tests.md`,** read by `/slice` before writing a test. The cheapest level that proves the behaviour, no repeat on a slower level, one behaviour per test, names of about 80 characters, no logic in tests, an injected clock, and every new test names the fault it would catch. A repository's own rule wins.
+- **`.editorconfig` for a new .NET project.** `assets/dotnet.editorconfig` holds naming, dead-code, security and resource rules; the handover copies it when a round creates the first .NET project and none exists. An existing file is never changed. `tests/dotnet_editorconfig_test.py` proves the rules with real builds.
+
 ## 2.1.0 – 2026-10-31
 From round R05: finished slices waited unnoticed, and slices came up as cards in an automatic round. The cause is the chat: a desktop harness refuses to start a session on a turn a background event started, and a slice's report reached the orchestrating chat only with the user's next message, once four hours late right after a compaction.
 - **An automatic round runs in the script.** `/slice` gives the user `slice_loop.py --parallel --yes` instead of orchestrating in a chat and proposes no slices as cards.

@@ -88,6 +88,7 @@ Rules for plan and build (both paths):
   (section 4) with its exit code and the SHA it ran on; tick Tests red only with such a line, so test and code are not
   written in one go. Run the type check and the single test file often, the checks of your check level (section 4)
   once at the end – a full suite once at the end only where the level asks for one; refactor after green.
+- Before writing a test, read .claude/slice/tests.md (which level, how many, how to write it) and say so in every brief.
 - A fault: start with a command that shows it red, before any hypothesis.
 - A screen's behaviour is tested through the real input (click, key, focus) where the repository's test harness can,
   not only by setting view-model state: a click path that breaks stays green otherwise.

@@ -5,7 +5,7 @@ license: MIT
 compatibility: Designed for Claude Code with file access and subagents; render script needs Python 3.10+; the slice loop needs Python 3.10+ and the claude CLI; uses the superpowers plugin when installed.
 metadata:
   author: vompa
-  version: "2.1.0"
+  version: "2.2.0"
 ---
 
 # Vibe Coding – run everyday coding work in rounds of slices
@@ -99,11 +99,12 @@ Slices run in fresh worktrees cut from the integration branch, so what they need
 
 1. **Confirm the slice map.** Show the slice map – `## Slices` of the round record with the `deps` and `model` of `work/_slices.json` (slice | name | depends on | model | ids) –, which slices can run in parallel (at most two at once), the round's check level and milestones, and the open decisions; wait for the user's confirmation. In a headless or trial run nobody can answer: write `[Assumption] conventions and slice map not yet confirmed by the user` under `## Decisions` in the record and repeat it in the handover message.
 2. **Identity.** Show `git config user.name` and `git config user.email`. If they look private (a personal mail address, a name the privacy rule does not allow), ask which identity to use and set it with `git config --local`. Never touch the global config.
-3. **Copy, do not rewrite** (`cp` / `Copy-Item`), after `mkdir -p .claude/commands .claude/slice .claude/scripts` (`New-Item -ItemType Directory -Force` in PowerShell): `references/slice-command.md` → `.claude/commands/slice.md`; `references/round-close.md` → `.claude/slice/close.md`; `references/slice-parallel.md` → `.claude/slice/parallel.md`; `references/slice-quick.md` → `.claude/slice/quick.md`; `assets/slice_loop.py` → `.claude/scripts/`. A target that exists and differs from the skill's file is a name conflict: report it and stop. A repository from an earlier version also holds `.claude/scripts/slice-loop.sh` and `slice-loop.ps1`: leave them, remove nothing, and say in the handover that they are obsolete and can be deleted by hand.
+3. **Copy, do not rewrite** (`cp` / `Copy-Item`), after `mkdir -p .claude/commands .claude/slice .claude/scripts` (`New-Item -ItemType Directory -Force` in PowerShell): `references/slice-command.md` → `.claude/commands/slice.md`; `references/round-close.md` → `.claude/slice/close.md`; `references/slice-parallel.md` → `.claude/slice/parallel.md`; `references/slice-quick.md` → `.claude/slice/quick.md`; `references/slice-tests.md` → `.claude/slice/tests.md`; `assets/slice_loop.py` → `.claude/scripts/`. A target that exists and differs from the skill's file is a name conflict: report it and stop. A repository from an earlier version also holds `.claude/scripts/slice-loop.sh` and `slice-loop.ps1`: leave them, remove nothing, and say in the handover that they are obsolete and can be deleted by hand.
 4. **`.gitignore`** gets `work/_raw/` and `.slice-loop/`. No `.gitattributes` line is needed: the loop is a Python script, not a shell script. Create `.gitignore` when missing, append missing lines, change no existing line.
+   **A new .NET project.** When the round creates the repository's first .NET project (no `*.sln`, `*.slnx` or `*.csproj` yet) and the repository has no `.editorconfig`, copy `assets/dotnet.editorconfig` → `.editorconfig`. An existing `.editorconfig` is never changed, and a repository that already has a .NET project gets the file only when the user asks. The slice that creates the project gets this in its `acceptance`: `Directory.Build.props` sets `TreatWarningsAsErrors`, `EnforceCodeStyleInBuild` and `GenerateDocumentationFile` to true, without which the rules do not act in the build, and `dotnet format --verify-no-changes` is part of the baseline check.
 5. **Check.** `git status` lists only files this skill wrote (and the untracked findings file allowed in section 1), and the current branch is still the integration branch. Search every written file for absolute paths, the user name, the machine name, private mail addresses and anything similar; personal names only where the privacy rule allows. Fix findings before committing.
-6. **One commit** on the integration branch: `git add work .claude/commands/slice.md .claude/slice .claude/scripts/slice_loop.py .gitignore` (plus `CLAUDE.md` when you created it; `work/_raw/` is ignored and stays out), message `Round Rnn: <slug> – N slices` in the repository's commit language and style. Never push.
-7. **Verify.** `git log -1` shows that commit with the agreed identity, `git status` is clean (apart from the allowed untracked findings file), and `.claude/commands/slice.md`, the three files in `.claude/slice/` and `.claude/scripts/slice_loop.py` exist.
+6. **One commit** on the integration branch: `git add work .claude/commands/slice.md .claude/slice .claude/scripts/slice_loop.py .gitignore` (plus `CLAUDE.md` and `.editorconfig` when you created them; `work/_raw/` is ignored and stays out), message `Round Rnn: <slug> – N slices` in the repository's commit language and style. Never push.
+7. **Verify.** `git log -1` shows that commit with the agreed identity, `git status` is clean (apart from the allowed untracked findings file), and `.claude/commands/slice.md`, the four files in `.claude/slice/` and `.claude/scripts/slice_loop.py` exist.
 8. **Handover message** in the user's language. Short and concrete; the full local path of the repository appears here in chat, never in a file:
    1. Where: path, branch, commit.
    2. How to start: "Open a terminal in the repository folder, run `claude --model <model>` with the model of the slice (slice map, `/slice status`), type `/slice NN`." One sentence on what happens: it runs the baseline check, shows a plan, builds after approval and lands one squash commit; then a fresh session on the next slice's model and `/slice NN` again, and `/slice close` after the last. Also `/slice status` for the state and the model per slice, `/slice` alone for the lowest ready slice, `/slice NN plan` to stop after the plan.
@@ -117,7 +118,7 @@ Slices run in fresh worktrees cut from the integration branch, so what they need
 `/slice close` (`/slice` proposes it when the last slice is done; the loop runs it) runs the full check chain, writes the **manual test list** into the round record – per slice the start command, the steps, the expected result, the finding ids it closes and `Result: ☐` – sets `Status: closed` and commits the record as `Round Rnn closed: <slug>` on the integration branch, never pushed. Steps and formats: `references/round-close.md`.
 
 Every write of this skill and its command, so nothing surprises the user:
-- **Committed** in the one round-start commit of section 5: `work/` (without `_raw/`; it holds `work/session-hints.md`), `.claude/commands/slice.md`, `.claude/slice/`, `.claude/scripts/slice_loop.py`, `.gitignore`, `.gitattributes`, and `CLAUDE.md` only where none exists.
+- **Committed** in the one round-start commit of section 5: `work/` (without `_raw/`; it holds `work/session-hints.md`), `.claude/commands/slice.md`, `.claude/slice/`, `.claude/scripts/slice_loop.py`, `.gitignore`, `.gitattributes`, `CLAUDE.md` only where none exists, and `.editorconfig` only for a new .NET project without one.
 - **Git-ignored or local, never committed:** `work/_raw/` (working material, also the collect-mode file `intake-Rnn.md`); `.slice-loop/` (loop logs, the squash messages `slice-NN.msg`, the checks proofs `slice-NN.checks`, the ready files `slice-NN.ready` and the full-suite lock `.slice-loop/full-suite.lock/` – both loop scripts also append it to `.git/info/exclude` when it is missing there); the repository-local git identity (`git config --local user.name` / `user.email`), set only with the user's approval.
 - **`/slice`, later:** a branch and worktree `slice-NN` while it works, then one squash commit per slice on the integration branch – with the plan in `work/plans/`, the checklist tick, the round record entries, the repository's own protocol entry and the documents `conventions.md` lists as "must change with a change".
 - **`/slice close`:** the round-close commit above; it lists leftover worktrees and branches and removes the safe ones only on the user's yes.
@@ -143,8 +144,10 @@ Root of the target repository (files this skill writes or copies; the product co
 
 ```
 CLAUDE.md (only if none)  .gitignore  .gitattributes
+.editorconfig (only for a new .NET project without one)
 .claude/commands/slice.md
 .claude/slice/close.md  parallel.md  quick.md   read by /slice only for that argument
+.claude/slice/tests.md    rules for new tests, read before writing one
 .claude/scripts/slice_loop.py
 work/
   conventions.md            how this repository works (first round)
