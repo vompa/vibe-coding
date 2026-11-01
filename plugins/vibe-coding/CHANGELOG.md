@@ -1,5 +1,8 @@
 # Changelog
 
+## Unreleased
+- **A run on uncommitted changes no longer blocks the squash.** A session wrote `<sha>+uncommitted` for the red step of a test; the queue called the whole proof unreadable and left a slice with a green tip behind, and the next slice on the same files started without it. Such a line now counts as a stale run and never as proof; a line in no format is still refused. `/slice` says to write no proof line for such a run.
+
 ## 2.2.0 – 2026-11-01
 From an audit of a repository with 3,291 test methods, where tests took about 37 % of the active slice time.
 - **Rules for new tests in `.claude/slice/tests.md`,** read by `/slice` before writing a test. The cheapest level that proves the behaviour, no repeat on a slower level, one behaviour per test, names of about 80 characters, no logic in tests, an injected clock, and every new test names the fault it would catch. A repository's own rule wins.

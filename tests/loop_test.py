@@ -128,7 +128,9 @@ def append_to_record(worktree, nr):
 def write_checks(worktree, nr):
     """The checks proof /slice writes before SLICE-READY: "<exit code> <sha> <command>" per check of the baseline.
     STUB_CHECKS=NN:missing|red|stale|incomplete spoils it; orphan adds a red line of an old commit (a stale run of another
-    session), rerun a red line followed by a green one of the same command, regress a green line followed by a red one."""
+    session), rerun a red line followed by a green one of the same command, regress a green line followed by a red one,
+    dirty_old a red line of an old commit with a suffix after its SHA, dirty_tip a suffix on the tip's only line of a
+    baseline command, garbled a line in no format."""
     mode = option("STUB_CHECKS", nr)
     if mode == "missing":
         return
@@ -141,6 +143,12 @@ def write_checks(worktree, nr):
         lines.insert(1, f"1 {sha} unit-tests")
     if mode == "regress":
         lines.append(f"1 {sha} unit-tests")
+    if mode == "dirty_old":
+        lines.insert(0, f"2 {git_out('rev-parse', 'HEAD~1', cwd=worktree)}+uncommitted unit-tests")
+    if mode == "dirty_tip":
+        lines[1] = f"0 {sha}+uncommitted unit-tests"
+    if mode == "garbled":
+        lines.append("no proof line")
     open(f".slice-loop/slice-{nr}.checks", "w", encoding="utf-8", newline="\n").write("\n".join(lines) + "\n")
 
 
@@ -468,6 +476,15 @@ PROFILES = [
             # A stale line (another commit) is ignored when the tip has its own lines; of each command the last line counts.
             ("merge ignores a stale red line of an old commit and squashes", 3, ["--merge"], {}, None, (0, 4, 0, 0),
              {"prepared": [{"nr": "100", "checks": "orphan"}], "subjects": ["Slice 100 stub squash"], "no_calls": True}),
+            # A run on uncommitted changes says nothing about a commit, so a suffix after the SHA never counts as proof.
+            ("merge ignores a red run on uncommitted changes of an old commit and squashes", 3, ["--merge"], {}, None, (0, 4, 0, 0),
+             {"prepared": [{"nr": "100", "checks": "dirty_old"}], "subjects": ["Slice 100 stub squash"], "no_calls": True}),
+            ("merge does not count a run on uncommitted changes of the tip", 3, ["--merge"], {}, None, (1, 3, 0, 0),
+             {"prepared": [{"nr": "100", "checks": "dirty_tip"}], "subjects": [], "branches": ["slice-100"],
+              "says": "baseline check missing from .slice-loop/slice-100.checks: unit-tests", "no_calls": True}),
+            ("merge leaves a slice with a line in no format", 3, ["--merge"], {}, None, (1, 3, 0, 0),
+             {"prepared": [{"nr": "100", "checks": "garbled"}], "subjects": [], "branches": ["slice-100"],
+              "says": "unreadable line in .slice-loop/slice-100.checks: no proof line", "no_calls": True}),
             ("merge accepts a green rerun after a red run on the tip", 3, ["--merge"], {}, None, (0, 4, 0, 0),
              {"prepared": [{"nr": "100", "checks": "rerun"}], "subjects": ["Slice 100 stub squash"], "no_calls": True}),
             ("merge leaves a slice whose check went red after a green run", 3, ["--merge"], {}, None, (1, 3, 0, 0),

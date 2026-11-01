@@ -154,7 +154,7 @@ Do 1–4 on slice-NN, so they land in the same commit as the code.
    Checks proof: write each check you run to .slice-loop/slice-NN.checks in the main checkout (the parent of
    `git rev-parse --git-common-dir`), one line per check: `<exit code> <commit SHA> <command>` – the command exactly
    as work/conventions.md writes it, the SHA of `git rev-parse HEAD` on slice-NN when it ran. Always append; the merge
-   queue reads only the lines with the branch tip, the last one per command, so a stale run cannot wipe the proof. A
+   queue reads only the lines with the branch tip, the last one per command, so a stale run cannot wipe the proof. A run on uncommitted changes (such as the red step of a test) gets no proof line. A
    filtered test run that selected no tests proves nothing: correct the filter and write no proof line for that run.
    Review the whole branch diff with a fresh, read-only reviewer (a subagent that did not write the code), on two axes, kept apart: specification (every finding cites the plan line; ask about unrequested
    scope) and standards (the repository rule beats the general rule; what tools enforce stays out).

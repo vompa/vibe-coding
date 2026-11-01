@@ -828,9 +828,10 @@ class Loop:
     def checks_problem(self, nr: str) -> str:
         """Why the checks proof .slice-loop/slice-NN.checks does not allow the squash; empty when it does. One line
         per check: "<exit code> <commit SHA> <command>". Only lines of the branch tip count (the SHA is a prefix of it,
-        7 to 40 hex digits): lines of other commits are stale runs and ignored. Of each command the last line on the
-        tip counts - red then green is fine, green then red is red. Every such line is green and every command of the
-        baseline check in work/conventions.md has one."""
+        7 to 40 hex digits): lines of other commits are stale runs and ignored, and so is a SHA with a suffix
+        ("<sha>+uncommitted"), a run on changes no commit holds. Of each command the last line on the tip counts - red
+        then green is fine, green then red is red. Every such line is green and every command of the baseline check in
+        work/conventions.md has one."""
         path = f"{LOG_DIR}/slice-{nr}.checks"
         if not os.path.isfile(path):
             return f"no checks proof {path}"
@@ -840,11 +841,11 @@ class Loop:
         for line in read_lines(path):
             if not line or line.startswith("#"):
                 continue
-            match = re.fullmatch(r"(-?[0-9]+)\s+([0-9a-f]{7,40})\s+(.+)", line)
+            match = re.fullmatch(r"(-?[0-9]+)\s+([0-9a-f]{7,40})(\S*)\s+(.+)", line)
             if not match:
                 return f"unreadable line in {path}: {line}"
-            if tip.startswith(match.group(2)):
-                last[match.group(3)] = match.group(1)
+            if not match.group(3) and tip.startswith(match.group(2)):
+                last[match.group(4)] = match.group(1)
             else:
                 stale += 1
         if not last:
