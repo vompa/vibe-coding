@@ -150,7 +150,7 @@ test('Start writes a request into the prompt box, after any draft the person typ
   // the merge queue in the main checkout does the squash.
   expect(box.text).toContain('"/slice NN parallel auto"')
   expect(box.text).toContain('SLICE-READY: NN')
-  expect(box.text).toContain('slice-loop --merge')
+  expect(box.text).toContain('slice_loop.py --merge')
   // A draft the person typed stays; the request comes after it.
   box.text = 'my draft'
   await ui.press({ key: 'toggle-ready' })

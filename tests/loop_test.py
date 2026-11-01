@@ -1,11 +1,12 @@
-"""Tests for the loop scripts of both plugins (assets/rebuild-loop and assets/slice-loop, .sh and .ps1)
-with a fake claude CLI (no real Claude calls).
+"""Tests for the loop scripts of both plugins with a fake claude CLI (no real Claude calls): assets/rebuild-loop
+(.sh and .ps1, run under bash and pwsh) and assets/slice_loop.py of vibe-coding (run with the Python that runs this test).
 
 The vibe-coding profile runs in a real git repository: the fake claude builds each slice on its own branch and
 worktree and ends with SLICE-READY, and the loop's merge queue squashes the branch in the main checkout.
 
 Usage: python tests/loop_test.py [text]   (bash and/or pwsh must be on PATH; missing shells are skipped)
-  text: run only the cases whose name contains it; LOOP_TEST_SHELLS="pwsh" runs only that shell.
+  text: run only the cases whose name contains it; LOOP_TEST_SHELLS="pwsh" runs only that shell
+  (shells: bash, pwsh, python; the rebuild profile runs under bash and pwsh, the vibe-coding profile under python).
 """
 import json
 import mmap
@@ -209,7 +210,7 @@ def serialised(action, nr):
         try:
             lock = os.open("stub.lock", os.O_CREAT | os.O_EXCL)
             break
-        except FileExistsError:
+        except (FileExistsError, PermissionError):  # Windows: the lock file is being deleted
             time.sleep(0.05)
     try:
         action(nr)
@@ -219,6 +220,13 @@ def serialised(action, nr):
 
 
 if plan:
+    plan_hang = option("STUB_PLAN_HANG", plan.group(1))  # once: the first planning turn hangs silently
+    if plan_hang and not os.path.exists(f".slice-loop/stub-plan-hung-{plan.group(1)}"):
+        open(f".slice-loop/stub-plan-hung-{plan.group(1)}", "w").close()
+        time.sleep(600)
+    if option("STUB_NO_PLAN", plan.group(1)):
+        print(f"SLICE-OPEN: {plan.group(1)} nothing to plan")
+        sys.exit(0)
     print(f"PLAN: {folder}/plans/slice-{plan.group(1)}.md")
     if os.environ.get("STUB_DECISION") == plan.group(1):
         print("NEEDS-DECISION: Which licence?")
@@ -230,6 +238,13 @@ elif (build or check_back) and option("STUB_WAIT_ALWAYS", (build or check_back).
     print(f"SLICE-WAIT: {(build or check_back).group(1)} full suite in the background")
 elif build or check_back:
     nr = (build or check_back).group(1)
+    hang = option("STUB_HANG", nr)  # always: every turn hangs silently; once: only the first one
+    if hang and (hang != "once" or not os.path.exists(f".slice-loop/stub-hung-{nr}")):
+        open(f".slice-loop/stub-hung-{nr}", "w").close()
+        time.sleep(600)
+    for _ in range(int(option("STUB_ACTIVE", nr) or 0)):  # a long turn that keeps writing
+        print("working", flush=True)
+        time.sleep(0.5)
     if os.environ.get("STUB_FAIL") == nr:
         print(f"SLICE-OPEN: {nr} tests red")
         sys.exit(0)
@@ -268,7 +283,7 @@ CONVENTIONS_TRANSLATED = "# Konventionen\n- Basisprüfung (vor jeder Slice): `ba
 # "dry_run_ready" is what --dry-run prints when the first three slices are done.
 PROFILES = [
     {
-        "plugin": "vibe-rebuild", "script": "rebuild-loop", "folder": "rebuild", "command": "/rebuild",
+        "plugin": "vibe-rebuild", "script": "rebuild-loop", "folder": "rebuild", "command": "/rebuild", "shells": ("bash", "pwsh"),
         "slices": [
             {"nr": "00", "deps": "–"}, {"nr": "01", "deps": "00"}, {"nr": "02", "deps": "01"},
             {"nr": "03", "deps": "02"}, {"nr": "04", "deps": "02"},
@@ -286,7 +301,7 @@ PROFILES = [
         ],
     },
     {
-        "plugin": "vibe-coding", "script": "slice-loop", "folder": "work", "command": "/slice",
+        "plugin": "vibe-coding", "script": "slice_loop", "folder": "work", "command": "/slice", "shells": ("python",),
         "slices": [
             {"nr": "05", "deps": "–", "round": "R01", "model": "sonnet"}, {"nr": "06", "deps": "05", "round": "R01"},
             {"nr": "07", "deps": "06", "round": "R01", "model": "opus"}, {"nr": "100", "deps": "07", "round": "R01", "model": "haiku"},
@@ -312,12 +327,62 @@ PROFILES = [
             ("ready but not ticked stops instead of merging", 3, ["--yes"], {"STUB_NO_TICK": "100"}, None, (1, 3, 1, 0),
              {"subjects": [], "branches": ["slice-100"]}),
             ("SLICE-DONE is still accepted", 3, ["--yes", "--max-slices", "1"], {"STUB_MARKER": "done"}, None, (0, 4, 1, 0)),
-            ("decision without terminal does not build", 3, ["--yes"], {"STUB_DECISION": "100"}, None, (1, 3, 0, 0)),
+            # --yes runs unattended: a decision parks its slice, the others go on, and the run ends non-zero listing it.
+            ("decision parks its slice and the round goes on", 3, ["--yes"], {"STUB_DECISION": "100"}, None, (1, 4, 1, 0),
+             {"subjects": ["Slice 101 stub squash"], "says": ["[slice 100] parked", "Which licence?", ".slice-loop/slice-100.answer"],
+              "event": "slice_parked"}),
+            ("an answered decision builds the parked slice and closes the round", 3, ["--yes"], {"STUB_DECISION": "100"}, None,
+             (0, 5, 2, 1), {"rerun": ["--yes"], "answer": {"100": "MIT please"}, "call_has": "Approved with these answers: MIT please",
+                            "subjects": ["Slice 101 stub squash", "Slice 100 stub squash"]}),
+            ("a parked slice without an answer is not planned again", 3, ["--yes"], {"STUB_DECISION": "100"}, None, (1, 4, 1, 0),
+             {"rerun": ["--yes"], "subjects": ["Slice 101 stub squash"], "call_count": ("100 plan auto", 1)}),
+            ("parallel run parks a red slice and finishes the other", 3, ["--yes", "--parallel"], {"STUB_FAIL": "100"}, None,
+             (1, 4, 2, 0), {"subjects": ["Slice 101 stub squash"], "says": ["[slice 100] parked", "tests red"]}),
+            ("a run squashes a slice that already reported ready instead of planning it again", 3, ["--yes"], {}, None, (0, 5, 1, 1),
+             {"prepared": [{"nr": "100"}], "subjects": ["Slice 100 stub squash", "Slice 101 stub squash"],
+              "call_count": ("100 plan auto", 0)}),
+            ("parallel run parks a slice whose plan fails and finishes the other", 3, ["--yes", "--parallel"], {"STUB_NO_PLAN": "100"},
+             None, (1, 4, 1, 0), {"subjects": ["Slice 101 stub squash"], "says": ["[slice 100] parked", "no PLAN line"]}),
+            ("an answer stays until its build has worked", 3, ["--yes"], {"STUB_DECISION": "100", "STUB_FAIL": "100"}, None,
+             (1, 4, 2, 0), {"rerun": ["--yes"], "answer": {"100": "MIT please"},
+                            "file_has": {".slice-loop/slice-100.answer": ["MIT please"]}}),
+            ("an answered slice that goes red in a parallel run is parked again and needs a new answer", 3, ["--yes", "--parallel"],
+             {"STUB_DECISION": "100", "STUB_FAIL": "100"}, None, (1, 4, 2, 0),
+             {"rerun": ["--yes", "--parallel"], "answer": {"100": "MIT please"}, "gone": [".slice-loop/slice-100.answer"],
+              "says": "tests red"}),
+            ("a built slice leaves no parked state behind", 3, ["--yes"], {"STUB_DECISION": "100"}, None, (0, 5, 2, 1),
+             {"rerun": ["--yes"], "answer": {"100": "MIT please"},
+              "gone": [".slice-loop/slice-100.answer", ".slice-loop/slice-100.parked"]}),
+            ("a plan that went silent is planned again, not built from nothing", 3, ["--yes", "--parallel"],
+             {"STUB_PLAN_HANG": "100:once", "SLICE_STALL_SECONDS": "2"}, None, (0, 5, 2, 1),
+             {"rerun": ["--yes", "--parallel"], "answer": {"100": "go on"}, "call_count": ("100 plan auto", 2),
+              "says": "[slice 100] parked"}),
+            ("an unreadable parked file stops the run with its name", 3, ["--yes"], {"STUB_DECISION": "100"}, None, (1, 4, 1, 0),
+             {"rerun": ["--yes"], "spoil_parked": "100", "says": ".slice-loop/slice-100.parked is unreadable"}),
+            ("a stall limit of zero is refused", 3, ["--yes"], {"SLICE_STALL_SECONDS": "0"}, None, (1, 3, 0, 0),
+             {"says": "SLICE_STALL_SECONDS", "no_calls": True}),
+            ("a silent turn is stopped and resumed once", 3, ["--yes", "--max-slices", "1"],
+             {"STUB_HANG": "100:once", "SLICE_STALL_SECONDS": "8"}, None, (0, 4, 1, 0),
+             {"subjects": ["Slice 100 stub squash"], "says": "no activity for 8 s", "call_has": "finish slice 100 and close it",
+              "event": "slice_stalled"}),
+            ("a slice that stays silent fails a serial run", 3, ["--yes"], {"STUB_HANG": "100", "SLICE_STALL_SECONDS": "2"}, None,
+             (1, 3, 1, 0), {"subjects": [], "says": "slice 100 stalled twice"}),
+            ("parallel run parks a slice that stays silent and finishes the other", 3, ["--yes", "--parallel"],
+             {"STUB_HANG": "100", "SLICE_STALL_SECONDS": "2"}, None, (1, 4, 2, 0),
+             {"subjects": ["Slice 101 stub squash"], "says": ["[slice 100] parked", "slice 100 stalled twice"]}),
+            ("a stopped slice gives up its full-suite lock", 3, ["--yes", "--max-slices", "1"],
+             {"STUB_HANG": "100:once", "SLICE_STALL_SECONDS": "8"}, None, (0, 4, 1, 0),
+             {"lock": {"owner": "slice 100 2026-10-31T00:00:00Z", "age_minutes": 0}, "lock_gone": True, "says": "released the full-suite lock"}),
+            ("a turn that keeps writing is not stopped", 3, ["--yes", "--max-slices", "1"],
+             {"STUB_ACTIVE": "100:24", "SLICE_STALL_SECONDS": "8"}, None, (0, 4, 1, 0),
+             {"subjects": ["Slice 100 stub squash"], "says_not": "no activity"}),
+            ("every turn gets the hook that restores the rules after a compaction", 3, ["--yes", "--max-slices", "1"], {}, None,
+             (0, 4, 1, 0), {"call_has": "--settings", "file_has_loop": ("compact-hook.json", "--after-compact")}),
             ("approval without terminal does not build", 3, [], {}, None, (1, 3, 0, 0)),
             ("max slices stops after one with slices left", 1, ["--yes", "--max-slices", "1"], {}, None, (0, 2, 1, 0)),
             ("close fails keeps the round open", 4, ["--yes"], {"STUB_CLOSE_FAIL": "1"}, None, (1, 5, 1, 1)),
-            ("second round open runs on it", 3, ["--yes", "--max-slices", "1"], {},
-             [("R01", "closed"), ("R02", "open")], (0, 4, 1, 0)),
+            ("open round without slices builds nothing and stays open", 3, ["--yes"], {},
+             [("R01", "closed"), ("R02", "open")], (0, 3, 0, 0), {"says": "has no slices", "no_calls": True}),
             ("no open round exits without building", 3, ["--yes"], {}, [("R01", "closed")], (0, 3, 0, 0)),
             ("all done and closed exits cleanly", 5, [], {}, [("R01", "closed")], (0, 5, 0, 0)),
             ("merge squashes one ready branch without a claude call", 3, ["--merge"], {}, [("R01", "closed")], (0, 4, 0, 0),
@@ -739,6 +804,11 @@ def prepare_state(repo: pathlib.Path, expected: dict) -> None:
             os.utime(path, (then, then))
 
 
+def with_stub_path(env: dict, bin_dir: pathlib.Path) -> dict:
+    """env with the folder of the fake claude first on PATH (the python shell has no shell command to export it)."""
+    return dict(env, PATH=str(bin_dir) + os.pathsep + env.get("PATH", ""))
+
+
 def command(shell: str, bin_dir: pathlib.Path, body: str) -> list[str]:
     # Full path: on Windows a bare "bash" would start WSL from System32 instead of the bash on PATH.
     executable = shutil.which(shell)
@@ -751,6 +821,14 @@ def command(shell: str, bin_dir: pathlib.Path, body: str) -> list[str]:
 
 def assert_stub_first(shell: str, bin_dir: pathlib.Path) -> None:
     """Never let a test reach the real claude CLI."""
+    if shell == "python":
+        # The way slice_loop.py finds claude: shutil.which on a PATH that starts with the stub folder. On Windows that
+        # honours PATHEXT, so the extensionless bash wrapper is skipped and claude.cmd is found.
+        found = subprocess.run([sys.executable, "-c", "import shutil; print(shutil.which('claude') or '')"],
+                               env=with_stub_path(dict(os.environ), bin_dir), capture_output=True, text=True).stdout.strip()
+        if not found or not os.path.normcase(os.path.realpath(found)).startswith(os.path.normcase(os.path.realpath(bin_dir))):
+            sys.exit(f"python: claude resolves to {found!r}, not the stub – aborting")
+        return
     probe = "command -v claude" if shell == "bash" else "(Get-Command claude -CommandType Application | Select-Object -First 1).Source"
     found = subprocess.run(command(shell, bin_dir, probe), capture_output=True, text=True).stdout.strip()
     if "claude_stub" not in found and not found.startswith((posix(bin_dir), str(bin_dir))):
@@ -759,7 +837,8 @@ def assert_stub_first(shell: str, bin_dir: pathlib.Path) -> None:
 
 def script_path(profile: dict, shell: str) -> pathlib.Path:
     plugin = profile["plugin"]
-    return ROOT / "plugins" / plugin / "skills" / plugin / "assets" / f"{profile['script']}.{'sh' if shell == 'bash' else 'ps1'}"
+    extension = {"bash": "sh", "pwsh": "ps1", "python": "py"}[shell]
+    return ROOT / "plugins" / plugin / "skills" / plugin / "assets" / f"{profile['script']}.{extension}"
 
 
 def pwsh_arguments(options: list[str]) -> str:
@@ -877,14 +956,19 @@ def run_case(shell: str, repo: pathlib.Path, bin_dir: pathlib.Path, profile: dic
     if not script.exists():
         # Not left to the shell: a missing .ps1 would not give a failing exit code under -Command.
         return subprocess.CompletedProcess([], 127, "", f"script missing: {script}")
-    if shell == "bash":
-        body = f'bash "{posix(script)}" ' + " ".join(options)
-    else:
-        body = f"& '{script}' " + pwsh_arguments(options) + "; exit $LASTEXITCODE"
     stub_env = dict(os.environ, STUB_FOLDER=profile["folder"], STUB_COMMAND=profile["command"], **env)
+    if shell == "python":
+        arguments = [sys.executable, str(script), *options]
+        stub_env = with_stub_path(stub_env, bin_dir)
+    else:
+        if shell == "bash":
+            body = f'bash "{posix(script)}" ' + " ".join(options)
+        else:
+            body = f"& '{script}' " + pwsh_arguments(options) + "; exit $LASTEXITCODE"
+        arguments = command(shell, bin_dir, body)
     if holds:
-        return run_held(command(shell, bin_dir, body), repo, stub_env, holds)
-    return subprocess.run(command(shell, bin_dir, body), cwd=repo, env=stub_env,
+        return run_held(arguments, repo, stub_env, holds)
+    return subprocess.run(arguments, cwd=repo, env=stub_env,
                           input="", capture_output=True, text=True, encoding="utf-8", timeout=int(os.environ.get("LOOP_TEST_TIMEOUT", 300)))
 
 
@@ -923,6 +1007,16 @@ def git_problems(repo: pathlib.Path, profile: dict, result: subprocess.Completed
             problems.append(f"output does not name {text!r}")
     if "says_not" in expected and expected["says_not"] in output:
         problems.append(f"output names {expected['says_not']!r}")
+    if "call_has" in expected and expected["call_has"] not in calls_log(repo):
+        problems.append(f"no claude call holds {expected['call_has']!r}")
+    if "call_count" in expected and calls_log(repo).count(expected["call_count"][0]) != expected["call_count"][1]:
+        problems.append(f"claude calls with {expected['call_count'][0]!r}: {calls_log(repo).count(expected['call_count'][0])}")
+    if "event" in expected and expected["event"] not in (repo / ".slice-loop/events.jsonl").read_text(encoding="utf-8"):
+        problems.append(f"no event {expected['event']!r}")
+    if "file_has_loop" in expected:
+        name, text = expected["file_has_loop"]
+        if text not in (repo / ".slice-loop" / name).read_text(encoding="utf-8"):
+            problems.append(f".slice-loop/{name} lacks {text!r}")
     at = -1
     for text in expected.get("says_order", []):
         at = output.find(text, at + 1)
@@ -944,6 +1038,7 @@ def git_problems(repo: pathlib.Path, profile: dict, result: subprocess.Completed
     checklist = (folder / "checklist.md").read_text(encoding="utf-8").splitlines()
     problems += [f"record lacks {line!r}" for line in expected.get("record_has", []) if line not in record]
     problems += [f"checklist lacks {line!r}" for line in expected.get("checklist_has", []) if line not in checklist]
+    problems += [f"{path} is still there" for path in expected.get("gone", []) if (repo / path).exists()]
     for path, lines in expected.get("file_has", {}).items():
         text = (repo / path).read_text(encoding="utf-8").splitlines()
         problems += [f"{path} lacks {line!r}" for line in lines if line not in text]
@@ -975,12 +1070,39 @@ def wrong_models(repo: pathlib.Path, profile: dict) -> list[str]:
     return wrong
 
 
+ENCODING_CASE = "python ignores PYTHONIOENCODING and writes UTF-8"
+
+
+def check_python_encoding(base: pathlib.Path, bin_dir: pathlib.Path, stub: pathlib.Path) -> bool:
+    """slice_loop.py under a legacy console encoding (PYTHONIOENCODING=cp1252, PYTHONUTF8=0): its messages (en dashes)
+    and the non-ASCII finding id Ä77 taken from a file must leave as UTF-8 bytes. The raw bytes are checked: decoding
+    them as UTF-8 first, or escaping non-ASCII (json.dumps), would hide a script that wrote cp1252."""
+    profile = next(p for p in PROFILES if "python" in p["shells"])
+    prepared = [{"nr": "100", "finding": "\u00c477"}, {"nr": "101", "finding": "\u00c477"}]
+    repo = make_repo(base, profile, 3, None, stub, prepared, None)
+    env = with_stub_path(dict(os.environ, PYTHONIOENCODING="cp1252", PYTHONUTF8="0",
+                              STUB_FOLDER=profile["folder"], STUB_COMMAND=profile["command"]), bin_dir)
+    result = subprocess.run([sys.executable, str(script_path(profile, "python")), "--merge"], cwd=repo, env=env,
+                            input=b"", capture_output=True, timeout=int(os.environ.get("LOOP_TEST_TIMEOUT", 300)))
+    output = result.stdout + result.stderr
+    expected = "finding id defined twice: \u00c477 in docs/findings.md".encode("utf-8")
+    checks = (("UTF-8 finding id missing", expected not in output),
+              ("en dash not UTF-8", " \u2013 ".encode("utf-8") not in output),
+              ("cp1252 dash written", b"\x96" in output),
+              ("exit code is not 1", result.returncode != 1))
+    problems = [what for what, bad in checks if bad]
+    print(f"{'FAIL' if problems else 'ok  '} python {profile['plugin']:12} {ENCODING_CASE}: {problems or 'raw UTF-8 bytes'}")
+    if problems:
+        print(output[-1500:].decode("utf-8", "replace"))
+    return not problems
+
+
 def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # failure output carries ☑ and ☐; Windows consoles default to cp1252
     only = sys.argv[1] if len(sys.argv) > 1 else ""  # optional: run only cases whose name contains this text
-    shells = [s for s in os.environ.get("LOOP_TEST_SHELLS", "bash pwsh").split() if shutil.which(s)]
+    shells = [s for s in os.environ.get("LOOP_TEST_SHELLS", "bash pwsh python").split() if s == "python" or shutil.which(s)]
     if not shells:
-        print("no bash or pwsh found")
+        print("no bash, pwsh or python found")
         return 1
     failures = 0
     with tempfile.TemporaryDirectory() as tmp:
@@ -991,6 +1113,8 @@ def main() -> int:
         for shell in shells:
             assert_stub_first(shell, bin_dir)
             for profile in PROFILES:
+                if shell not in profile["shells"]:
+                    continue
                 for name, done, options, env, rounds, expected, *extra in profile["cases"]:
                     if only not in name:
                         continue
@@ -1005,6 +1129,10 @@ def main() -> int:
                     result = run_case(shell, repo, bin_dir, profile, options, env, git_expected.get("holds"))
                     if "rerun" in git_expected:  # whatever kept the worktree is gone (here: its lock), then the queue runs again
                         unlock_worktrees(repo)
+                        for nr, answer in git_expected.get("answer", {}).items():
+                            (repo / f".slice-loop/slice-{nr}.answer").write_text(answer, encoding="utf-8")
+                        if "spoil_parked" in git_expected:
+                            (repo / f".slice-loop/slice-{git_expected['spoil_parked']}.parked").write_text("not json", encoding="utf-8")
                         first = result
                         result = run_case(shell, repo, bin_dir, profile, git_expected["rerun"], env)
                         result.stdout, result.stderr = first.stdout + result.stdout, first.stderr + result.stderr
@@ -1015,6 +1143,8 @@ def main() -> int:
                     print(f"{'ok  ' if ok else 'FAIL'} {shell:4} {profile['plugin']:12} {name}: exit/ticked/builds/closes {got}")
                     if not ok:
                         print(result.stdout[-1500:], result.stderr[-1500:], *problems[:5], sep="\n")
+        if "python" in shells and only in ENCODING_CASE:
+            failures += not check_python_encoding(base, bin_dir, stub)
     return 1 if failures else 0
 
 

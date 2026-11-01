@@ -4,7 +4,8 @@ argument-hint: "[status | NN | close | quick <finding>] [plan] [auto | parallel]
 ---
 You work the open round of this repository slice by slice. Arguments: "$ARGUMENTS".
 Answer me in the language of CLAUDE.md or README.md.
-"auto" means a script drives this session headless: nobody can answer questions mid-run.
+"auto" means a script drives this session headless: nobody can answer questions mid-run. Run long checks in the
+foreground: a headless run ends background commands with its turn.
 Never stop to ask in auto mode – decide on the documented default, or end with the marker
 lines of section 5 so the script can ask me.
 Everything specific to this repository comes from work/ and CLAUDE.md; this command never needs editing.
@@ -18,7 +19,7 @@ work/_slices.json. A slice is done when its row in work/checklist.md has a ☑ a
   first"; with "close": "ROUND-OPEN: Rnn more than one round is open").
 - "status" → read work/checklist.md, work/_slices.json and the git branches named slice-*.
   Show one table for the slices of the open round: slice, name, model (field "model" in
-  work/_slices.json), state (done / in progress / ready to merge / ready / blocked by …; "in progress" = not done,
+  work/_slices.json), state (done / parked (.slice-loop/slice-NN.parked names why) / in progress / ready to merge / ready / blocked by …; "in progress" = not done,
   but a branch slice-NN exists or the row has a ☑; "ready to merge" = a branch slice-NN whose row is ticked
   through Checks), then the round's check level and its next milestone (section 4, step 1), the number of open
   decisions in the round record, one line for a held .slice-loop/full-suite.lock (owner, since when) and one line
@@ -87,6 +88,7 @@ Rules for plan and build (both paths):
   (section 4) with its exit code and the SHA it ran on; tick Tests red only with such a line, so test and code are not
   written in one go. Run the type check and the single test file often, the checks of your check level (section 4)
   once at the end – a full suite once at the end only where the level asks for one; refactor after green.
+- Before writing a test, read .claude/slice/tests.md (which level, how many, how to write it) and say so in every brief.
 - A fault: start with a command that shows it red, before any hypothesis.
 - A screen's behaviour is tested through the real input (click, key, focus) where the repository's test harness can,
   not only by setting view-model state: a click path that breaks stays green otherwise.
@@ -138,11 +140,11 @@ Do 1–4 on slice-NN, so they land in the same commit as the code.
    1. Own checks without the scan tests; full suites stay out of the slice; the full check chain only at round close.
    2. Own checks including the scan tests; the full suite of an area only when the slice touches shared code; the full
       check chain only at round close.
-   3. (default) Like 2, plus `slice-loop -Merge -Verify` at the round's milestones and at round close, not after
+   3. (default) Like 2, plus `slice_loop.py --merge --verify` at the round's milestones and at round close, not after
       every group.
-   4. Like 3, plus `-Merge -Verify` after every group, and after merging the integration branch (step 6a) the full
+   4. Like 3, plus `--merge --verify` after every group, and after merging the integration branch (step 6a) the full
       suites of the areas the integration branch changed since the old base.
-   5. The full check chain in every slice on the tip and after every merge of the integration branch; `-Merge -Verify`
+   5. The full check chain in every slice on the tip and after every merge of the integration branch; `--merge --verify`
       after every group.
    A red test is first re-run alone; the whole suite runs again only when it stays red. A red test that is green when run
    alone or in a second unchanged run is load, not a regression: note it under Surprises as "load, not a fault" (test, both
@@ -167,8 +169,11 @@ Do 1–4 on slice-NN, so they land in the same commit as the code.
    decided while building (a column that does not apply, a point the code settled); the merge queue refuses a slice
    that adds a line in another format there. Under Surprises what the plan did not foresee, under Deferred minors what
    you left out on purpose. Every question for me is a "NEEDS-DECISION: <question>" line under Open decisions,
-   not only a note elsewhere. Under Manual test list insert the slice's block in slice-number order, in the
-   format of .claude/slice/close.md (one Expected: per step). A step of an earlier slice's block that your change makes
+   not only a note elsewhere. In auto mode the approval of a plan comes from the script, not from me: it is no Ruling.
+   Under Manual test list insert the slice's block in slice-number order, unindented and in exactly this format, because
+   the merge queue refuses any other (.claude/slice/close.md has the rules): a line "### Slice NN – <name>", a line
+   "Start: <command>", the numbered steps each followed by one line "Expected: <observable result>", then one line
+   "Closes: <ids>" and one line "Result: ☐". A step of an earlier slice's block that your change makes
    wrong gets "(superseded by slice NN: <what holds now>)" at the end of its Expected: line, so I do not test what no
    longer applies.
    When "## Source" names a tracked findings file, mark the slice's ids there as "done in slice NN" in the
@@ -207,7 +212,7 @@ Do 1–4 on slice-NN, so they land in the same commit as the code.
       it behind ("integration branch moved and touches <files>") when such a file turns up later – then merge here.
       After a merge, repeat the baseline check and your own checks on the merged tip before the squash or SLICE-READY;
       full suites only when your check level asks for them (step 1) or the overlap lists a file; the interplay of
-      slices is covered by `-Merge -Verify` as the level asks; append these runs to the checks proof (the merged tip);
+      slices is covered by `--merge --verify` as the level asks; append these runs to the checks proof (the merged tip);
    b. in the main checkout, `git merge --squash slice-NN`;
    c. check the resolved files before committing: `grep '^<<<<<<<'` finds nothing and every line of both sides
       (`git show HEAD:<file>` and `git show slice-NN:<file>`) is still present, every `Result:` line too;
@@ -227,7 +232,7 @@ End with exactly three lines:
   else "SLICE-OPEN: NN <reason>")
 
 ## 5. Marker lines
-The loop script (.claude/scripts/slice-loop.*) reads these lines. Print each on a line of its own,
+The loop script (.claude/scripts/slice_loop.py) reads these lines. Print each on a line of its own,
 from the first column, exactly as written – no bullet, quote or code format, nothing before it:
 - "PLAN: <path of the plan file>" – last line of a "plan" run
 - "NEEDS-DECISION: <question>" – one per open point, before the PLAN line

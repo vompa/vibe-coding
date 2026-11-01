@@ -152,7 +152,7 @@ Result: ☐
    how to report: answer in chat or add to the round record; the next round starts from my notes. End with "ROUND-DONE: Rnn".
 
 ## 6. Marker lines
-The loop script (.claude/scripts/slice-loop.*) reads these lines. Print each on a line of its own,
+The loop script (.claude/scripts/slice_loop.py) reads these lines. Print each on a line of its own,
 from the first column, exactly as written – no bullet, quote or code format, nothing before it:
 - "PLAN: <path of the plan file>" – last line of a "plan" run
 - "NEEDS-DECISION: <question>" – one per open point, before the PLAN line
