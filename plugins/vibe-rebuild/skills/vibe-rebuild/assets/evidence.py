@@ -214,4 +214,5 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
+    sys.stdout.reconfigure(encoding="utf-8")  # a piped stdout on Windows is cp1252, which has no "→"
     sys.exit(main(sys.argv[1:]))

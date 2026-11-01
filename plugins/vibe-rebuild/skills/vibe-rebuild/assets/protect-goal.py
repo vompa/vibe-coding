@@ -56,4 +56,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    sys.stdin.reconfigure(encoding="utf-8")  # stdin on Windows is cp1252: a non-ASCII path would slip past the guard
     sys.exit(main())

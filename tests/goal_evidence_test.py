@@ -42,7 +42,7 @@ def test_hook_ignores_other_files_tools_and_bad_input():
         assert subprocess.run([PY, str(HOOK)], input="not json", capture_output=True, text=True).returncode == 0
 
 def ev(repo, *args):
-    return subprocess.run([PY, str(EVIDENCE), *args], cwd=repo, capture_output=True, text=True)
+    return subprocess.run([PY, str(EVIDENCE), *args], cwd=repo, capture_output=True, encoding="utf-8")
 
 def slices(repo, acs):
     path = pathlib.Path(repo, "rebuild/_slices.json")
@@ -127,6 +127,25 @@ def test_unknown_node_is_refused():
         ev(repo, "start", "03")
         proc = ev(repo, "run", "03", "ac:AC-99", "--", PASS)
         assert proc.returncode != 0 and "Unknown node" in proc.stderr
+
+def test_hook_blocks_a_contract_under_a_non_ascii_path_on_a_legacy_encoding():
+    with tempfile.TemporaryDirectory() as root:
+        contract = pathlib.Path(root, "Übung", "rebuild", "goal", "contract-v001.md")
+        contract.parent.mkdir(parents=True)
+        contract.write_text("Status: APPROVED\n", encoding="utf-8")
+        event = {"tool_name": "Edit", "tool_input": {"file_path": str(contract), "new_string": "x"}}
+        env = {**os.environ, "PYTHONIOENCODING": "cp1252", "PYTHONUTF8": "0"}  # what a piped Windows stdin gets
+        proc = subprocess.run([PY, str(HOOK)], input=json.dumps(event, ensure_ascii=False).encode("utf-8"), env=env, capture_output=True)
+        assert proc.returncode == 2, proc.stderr
+
+def test_output_is_utf8_on_a_legacy_console_encoding():
+    with tempfile.TemporaryDirectory() as repo:
+        slices(repo, [])
+        ev(repo, "start", "03")
+        env = {**os.environ, "PYTHONIOENCODING": "cp1252", "PYTHONUTF8": "0"}  # what a piped Windows stdout gets
+        proc = subprocess.run([PY, str(EVIDENCE), "show", "03"], cwd=repo, env=env, capture_output=True)
+        assert proc.returncode == 0, proc.stderr
+        assert "cold review →" in proc.stdout.decode("utf-8")
 
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
