@@ -30,8 +30,15 @@ lines below so the script can ask the user.
   Do it only after a yes. Stop there.
 - Before slice 00: check the prerequisites listed in README.md ("Voraussetzungen" / "Prerequisites").
   If one is missing (SDK, tool), say exactly what is missing and how to fix it, then stop.
+  If the highest goal contract in rebuild/goal/ is not "Status: APPROVED", show its summary (intent,
+  MUST criteria, invariants, non-goals, open points) and ask me to approve that version by changing its
+  status line to "Status: APPROVED – User, <date>" myself – the goal guard stops agents from doing it
+  (auto: plan as usual and add "NEEDS-DECISION: goal contract <file> is not approved – set its status
+  line yourself, then answer"). Do not build any slice while it is unapproved.
 
 ## 2. Read before planning
+- rebuild/goal/ – the highest approved contract version (read-only) and change-requests.md;
+  the criteria named under "Goal criteria" in the slice file are what this slice must prove
 - rebuild/slices/NN-*.md – goal, scope, PRD reference, parity cases, Definition of Done, non-goals
 - CLAUDE.md – architecture, hard rules, commands, way of working
 - rebuild/PRD.md – the sections named in the slice file
@@ -44,9 +51,10 @@ lines below so the script can ask the user.
 If the superpowers skills are available and "direct" is not in the arguments:
 1. superpowers:using-git-worktrees – worktree on a new branch "slice-NN"
 2. superpowers:writing-plans – save the plan as rebuild/plans/<YYYY-MM-DD>-slice-NN.md with a section
-   "Assumptions (confirm on approval)" and a "Review focus", review it, and show it to me before
-   writing any code
-3. after my approval: superpowers:subagent-driven-development – tests first (red),
+   "Assumptions (confirm on approval)", "Goal criteria and how each is proven" and a "Review focus",
+   review it, and show it to me before writing any code
+3. after my approval: `python3 .claude/scripts/evidence.py start NN`, then
+   superpowers:subagent-driven-development – tests first (red, logged with `evidence.py run NN red -- <test>`),
    then the minimum to get green, every rule in CLAUDE.md; task commits on slice-NN are fine
 4. superpowers:finishing-a-development-branch – integrate as ONE squash commit on main
    (`git merge --squash slice-NN`); never push. In auto mode take this option without asking,
@@ -55,8 +63,10 @@ If the superpowers skills are available and "direct" is not in the arguments:
 Otherwise (no superpowers, or "direct"):
 1. new branch "slice-NN"
 2. follow the prompt in the slice file: present the plan (files, classes, tests, assumptions,
-   review focus), save it as rebuild/plans/<YYYY-MM-DD>-slice-NN.md and wait for my approval
-3. failing tests first, then the minimum to get green, then refactor
+   goal criteria and how each is proven, review focus), save it as
+   rebuild/plans/<YYYY-MM-DD>-slice-NN.md and wait for my approval
+3. `python3 .claude/scripts/evidence.py start NN`; failing tests first (red run logged with
+   `evidence.py run NN red -- <test>`), then the minimum to get green, then refactor
 4. one squash commit for the green slice on main; never push
 
 "plan" in the arguments → stop right after the plan is saved and shown. End with the line
@@ -67,11 +77,29 @@ The approval (or a change request) arrives as the next message in this same sess
 Keep me posted: one short status line at least every few minutes (what finished, what runs next).
 
 ## 4. Close the slice
-Run the full test suite, check the Definition of Done in the slice file, record deviations from the
-plan at the top of the plan file, deviations from the original in rebuild/parity/deviations.md, and
-what the docs did not say under "Findings per slice" in rebuild/research.md. Decisions are recorded
-as "User, <date>" – no personal names, no absolute paths, user or machine names in any file.
-Tick the slice in rebuild/checklist.md (replace ☐ by ☑ in its row).
+Done is what is evidenced, not what is claimed – never report a criterion or the slice as met on your own word.
+1. Full suite through the evidence script: `evidence.py run NN suite -- <test command>`; each goal criterion
+   of the slice: `evidence.py run NN ac:<id> -- <check>` (or `add NN ac:<id> --sha <commit>`, or
+   `--waived "<reason>"` when a parity case or another node already proves it – say which).
+2. Cold review: start a fresh subagent that did not build this slice and has not seen its plan. Give it
+   only the goal contract, the slice file, the slice's changes (`git diff main...slice-NN`, or
+   `git show HEAD` when the squash commit is already on main) and the evidence logs. It writes
+   rebuild/evidence/NN/review.md: per goal criterion one line "AC-xx: PASS|FAIL|UNVERIFIED – <evidence>",
+   findings with origin (this slice / pre-existing / unclear), one line on drift ("does the result still
+   serve the verbatim intent, not just the tests?"), and as its last line "verdict=pass" or
+   "verdict=fail". Register it: `evidence.py add NN review --file rebuild/evidence/NN/review.md`.
+   Fix and review again on fail – at most 3 review rounds; after the third, stop and rethink the
+   approach with me (auto: "SLICE-OPEN: NN review cap reached").
+3. `evidence.py check NN` must print "EVIDENCE OK: NN". If it prints NOT DONE, run the calls it names.
+   A criterion that turns out unreachable or wrong: append a change request to
+   rebuild/goal/change-requests.md and ask me (auto: "SLICE-OPEN: NN goal change request <id>"); never
+   weaken the test or touch the contract.
+4. Check the Definition of Done in the slice file, record deviations from the plan at the top of the
+   plan file, deviations from the original in rebuild/parity/deviations.md, and what the docs did not
+   say under "Findings per slice" in rebuild/research.md. Decisions are recorded as "User, <date>" –
+   no personal names, no absolute paths, user or machine names in any file. Commit
+   rebuild/evidence/NN.json and the review report with the slice.
+5. Only after "EVIDENCE OK: NN": tick the slice in rebuild/checklist.md (replace ☐ by ☑ in its row).
 End with exactly three lines:
 - "Slice NN done" (or what is still open and why)
 - "Ready next: …" (e.g. "07, 08, 09 – can run in parallel in separate sessions")

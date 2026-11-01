@@ -13,7 +13,10 @@ The whole rebuild runs through one Claude Code command: **`/rebuild`**. It picks
 |---|---|---|
 | Claude Code | runs `/rebuild` | `claude --version` |
 | <target SDK> | builds the rebuild | <command> |
+| Python 3 (`python3`) | goal guard hook and evidence script | `python3 --version` (Windows without `python3`: change the hook command in `.claude/settings.json` to `python`) |
 | optional: superpowers plugin | finer plans, one subagent per task, reviews in between | install via `/plugin` in Claude Code; `/rebuild` detects it |
+
+**The goal contract** (`rebuild/goal/contract-v001.md`) says what counts as success: what must stay, what must get better, and how each is proven. If its status line does not say `APPROVED` yet, read it and set it yourself (`Status: APPROVED – User, <date>`) – agents cannot, the goal guard stops them. After that it is frozen.
 
 If something is missing, `/rebuild` says exactly what and how to fix it before slice 00. The original app is not needed – everything the rebuild must match is written down in `rebuild/`.
 
@@ -22,8 +25,8 @@ If something is missing, `/rebuild` says exactly what and how to fix it before s
 1. **Start Claude Code in the repo folder** – open a terminal there and run `claude`.
 2. **Type `/rebuild`.** Claude names the slice that is next and why.
 3. **Check the plan.** Claude saves it under `rebuild/plans/` and shows it (files, classes, tests). Approve it ("looks good, go") or say what to change.
-4. **Claude builds the slice** – failing tests first, then code until everything is green, including the parity cases from `rebuild/parity/`. Short status lines in between.
-5. **Done.** Claude records findings and deviations, merges the slice as one squash commit on `main`, ticks it in `rebuild/checklist.md` and ends with three lines: what is done, which slices are ready now, and "start a fresh session, `/rebuild`". When every slice is done, `/rebuild` offers to turn this README into the product README.
+4. **Claude builds the slice** – failing tests first, then code until everything is green, including the parity cases from `rebuild/parity/` and the goal criteria the slice names. Every step that counts is logged by `.claude/scripts/evidence.py`; a fresh reviewer that did not build the slice checks the result against the goal contract. Short status lines in between.
+5. **Done – when evidenced.** The slice closes only when `evidence.py check NN` prints `EVIDENCE OK` (red run, green suite, cold review, proof per goal criterion). Claude records findings and deviations, merges the slice as one squash commit on `main`, ticks it in `rebuild/checklist.md` and ends with three lines: what is done, which slices are ready now, and "start a fresh session, `/rebuild`". When every slice is done, `/rebuild` offers to turn this README into the product README.
 6. **Fresh session** (new terminal or `/clear`), `/rebuild` again – one session per slice keeps the context clean.
 
 ### Hands-off: all slices in one go
@@ -63,13 +66,20 @@ The sessions run with `--permission-mode auto` (set `REBUILD_PERMISSION_MODE` to
 - **Tests stay red** – the slice is not ticked; fresh session, `/rebuild NN`, Claude resumes on the existing branch and plan.
 - **A parity case fails** – Claude records it in `rebuild/parity/deviations.md` (bug in the rebuild or deliberate deviation with reason).
 - **An open domain question** – it is in `rebuild/open-questions.md`; answer Claude directly, the decision goes into the plan and spec.
-- **Where am I?** – `/rebuild status`.
+- **NOT DONE** – `evidence.py check NN` names the call for every missing proof; run it and close again.
+- **A goal criterion can't be met or is wrong** – Claude writes a change request to `rebuild/goal/change-requests.md` and asks you; it never weakens a test. If you agree, it drafts the next contract version and you approve it by setting its status line.
+- **Review cap** – after three failed review rounds Claude stops and asks you to rethink the approach instead of a fourth round.
+- **Where am I?** – `/rebuild status`, or `python3 .claude/scripts/evidence.py show NN` for one slice.
 
 ### Where things are
 
 | Folder/file | Contents |
 |---|---|
 | `CLAUDE.md` | rules for Claude: architecture, hard rules, commands (loaded automatically) |
+| `rebuild/goal/` | the goal contract (frozen once approved) and change requests |
+| `rebuild/evidence/` | per slice: what was proven and how (`NN.json`, review report; logs stay local) |
+| `.claude/hooks/`, `.claude/settings.json` | goal guard: keeps the approved contract unchanged |
+| `.claude/scripts/evidence.py` | records and checks the evidence of a slice |
 | `.claude/commands/rebuild.md` | the `/rebuild` command |
 | `.claude/scripts/rebuild-loop.*` | runs all slices one after another in fresh sessions |
 | `rebuild/slices/` | one file per slice: goal, scope, Definition of Done |
